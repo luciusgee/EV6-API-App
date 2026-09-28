@@ -165,6 +165,7 @@ public final class CarModel {
         let fakeChanged = s.fakeMode != settings.fakeMode
         // Update at once so steppers and toggles never read a stale value; the file write follows.
         settings = s
+        container.fakeWeather.celsius = s.fakeWeatherC
         if fakeChanged { container.transport.fakeMode = s.fakeMode }
         await container.stores.settings.save(s)
         if fakeChanged {

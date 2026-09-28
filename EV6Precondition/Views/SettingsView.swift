@@ -193,6 +193,12 @@ private struct DeveloperSection: View {
                 Toggle("Plugged in", isOn: fake(\.pluggedIn))
                 Toggle("Charging", isOn: fake(\.charging)).disabled(!model.fakeCar.pluggedIn)
                 Toggle("Climate on", isOn: fake(\.climateOn))
+                Stepper(value: Binding(
+                    get: { model.settings.fakeWeatherC },
+                    set: { value in Task { await model.updateSettings { $0.fakeWeatherC = value } } }
+                ), in: -30...45, step: 1) {
+                    LabeledContent("Weather", value: Describe.temp(model.settings.fakeWeatherC))
+                }
                 Picker("Error scenario", selection: fake(\.scenario)) {
                     ForEach(FakeScenario.allCases, id: \.self) { scenario in
                         Text(Self.name(scenario)).tag(scenario)
@@ -202,7 +208,7 @@ private struct DeveloperSection: View {
         } header: {
             Text("Developer")
         } footer: {
-            Text("The fake car answers instead of Kia, so every screen and error can be tried without a car. Pull down on the Car tab to read it.")
+            Text("The fake car and fake weather answer instead of Kia and Open-Meteo, so every screen, rule and error can be tried without a car. Pull down on the Car tab to read it.")
         }
     }
 

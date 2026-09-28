@@ -252,10 +252,28 @@ private struct ClimateCard: View {
 
 private struct AutomationCard: View {
     @Environment(CarModel.self) private var model
+    @Environment(RulesModel.self) private var rules
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Automation").font(.headline)
+            Toggle(isOn: Binding(
+                get: { model.settings.automationPaused },
+                set: { paused in Task { await model.updateSettings { $0.automationPaused = paused } } }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Pause automation")
+                    Text("Rules keep logging but never send commands").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let next = rules.nextCheck {
+                HStack {
+                    Label("Next scheduled check", systemImage: "calendar")
+                    Spacer()
+                    Text(next.at, format: .dateTime.weekday(.abbreviated).hour().minute())
+                }
+                .font(.subheadline)
+            }
             if let last = model.automation.lastCommand {
                 HStack {
                     Label("Last command", systemImage: "clock.arrow.circlepath")
@@ -265,9 +283,6 @@ private struct AutomationCard: View {
                 }
                 .font(.subheadline)
             }
-            Text("Rules arrive in the next update.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
             Divider()
             if let budget = model.budget {
                 HStack {

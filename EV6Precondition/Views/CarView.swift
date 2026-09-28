@@ -1,31 +1,32 @@
 import PreconditionKit
 import SwiftUI
 
-/// The dashboard (HANDOVER.md §6.1).
+/// The dashboard (HANDOVER.md §6.1), as a native grouped list.
 struct CarView: View {
     @Environment(CarModel.self) private var model
+    @Environment(RulesModel.self) private var rules
+    @State private var target: Double?
+
+    private var shownTarget: Double { target ?? model.settings.defaultTargetC }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    ForEach(Array(model.banners.enumerated()), id: \.offset) { _, banner in
-                        BannerView(banner: banner)
-                    }
-                    HeroCard(snapshot: model.snapshot, now: model.now)
-                    ClimateCard()
-                    AutomationCard()
-                    if let message = model.message {
-                        Text(message)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 4)
-                    }
+            List {
+                ForEach(Array(model.banners.enumerated()), id: \.offset) { _, banner in
+                    Section { BannerRow(banner: banner) }
                 }
-                .padding(16)
+
+                Section {
+                    BatteryHeader(snapshot: model.snapshot)
+                } footer: {
+                    Text(ageText)
+                }
+
+                climateSection
+                automationSection
+                requestsSection
             }
-            .background(Color(.systemGroupedBackground))
+            .listStyle(.insetGrouped)
             .navigationTitle("My EV6")
             .refreshable { await model.refresh() }
             .toolbar {
@@ -44,31 +45,207 @@ struct CarView: View {
             }
         }
     }
+
+    /// We never wake the car, so its data can be old; say how old (HANDOVER.md §3.7).
+    private var ageText: String {
+        guard let snapshot = model.snapshot else { return "No data yet. Pull down to read the car." }
+        let fetched = "Read \(DisplayText.age(of: snapshot.fetchedAt, now: model.now))"
+        guard let reported = snapshot.carCapturedAt else { return fetched }
+        return "\(fetched) · car reported \(DisplayText.age(of: reported, now: model.now))"
+    }
+
+    // MARK: Climate
+
+    private var climateStatus: String {
+        guard let v = model.snapshot else { return "Unknown" }
+        switch v.climate {
+        case .running: return v.targetTempC.map { "On · \(Describe.temp($0))" } ?? "On"
+        case .off: return "Off"
+        case .unknown: return "Unknown"
+        }
+    }
+
+    private var climateSection: some View {
+        Section {
+            LabeledContent("Status", value: climateStatus)
+            Stepper(
+                value: Binding(get: { shownTarget }, set: { target = $0 }),
+                in: AppSettings.minTargetC...AppSettings.maxTargetC,
+                step: 0.5
+            ) {
+                LabeledContent("Target", value: Describe.temp(shownTarget))
+            }
+            if let outside = model.snapshot?.outsideTempC {
+                LabeledContent("Outside", value: Describe.temp(outside))
+            }
+            actionButton("Start Climate", systemImage: "fan", busy: .starting) {
+                await model.start(targetC: shownTarget)
+            }
+            actionButton("Stop Climate", systemImage: "stop.circle", busy: .stopping) {
+                await model.stop()
+            }
+        } header: {
+            Text("Climate")
+        } footer: {
+            if let message = model.message {
+                Text(message)
+            } else {
+                Text("Commands reach the car within a minute. Climate never starts below the minimum charge unless the car is plugged in.")
+            }
+        }
+    }
+
+    private func actionButton(_ title: String, systemImage: String, busy: CarModel.Busy, action: @escaping () async -> Void) -> some View {
+        Button {
+            Task { await action() }
+        } label: {
+            HStack {
+                Label(title, systemImage: systemImage)
+                Spacer()
+                if model.busy == busy { ProgressView() }
+            }
+        }
+        .disabled(model.busy != nil)
+    }
+
+    // MARK: Automation
+
+    private var automationSection: some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { !model.settings.automationPaused },
+                set: { on in Task { await model.updateSettings { $0.automationPaused = !on } } }
+            )) {
+                Label("Automation", systemImage: "wand.and.stars")
+            }
+            if let next = rules.nextCheck {
+                LabeledContent("Next scheduled check") {
+                    Text(next.at, format: .dateTime.weekday(.abbreviated).hour().minute())
+                }
+            }
+            if let last = model.automation.lastCommand {
+                LabeledContent("Last command") {
+                    Text("\(last.description.capitalizingFirst), \(DisplayText.age(of: last.at, now: model.now))")
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+        } header: {
+            Text("Automation")
+        } footer: {
+            if model.settings.automationPaused {
+                Text("Paused: rules keep logging what they would do, but never send commands.")
+            }
+        }
+    }
+
+    // MARK: Requests
+
+    private var requestsSection: some View {
+        Section {
+            if let budget = model.budget {
+                VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Requests left", value: "\(budget.remaining) of \(budget.limit)")
+                    ProgressView(value: Double(budget.remaining), total: Double(max(budget.limit, 1)))
+                        .tint(budget.exhaustedUntil == nil ? Color.accentColor : .red)
+                }
+                .padding(.vertical, 2)
+            }
+        } header: {
+            Text("Kia requests, last 24 h")
+        } footer: {
+            if let budget = model.budget {
+                Text(DisplayText.budget(budget))
+            }
+        }
+    }
 }
 
-// MARK: - Banners
+// MARK: - Battery
 
-private struct BannerView: View {
-    @Environment(CarModel.self) private var model
-    let banner: CarModel.Banner
+private struct BatteryHeader: View {
+    let snapshot: VehicleSnapshot?
+
+    private var soc: Int? { snapshot?.socPercent }
+
+    /// iOS battery colours: green, then yellow below 50 %, red below 20 %.
+    private var tint: Color {
+        guard let soc else { return .secondary }
+        if soc < 20 { return .red }
+        if soc < 50 { return .yellow }
+        return .green
+    }
+
+    private var symbol: String {
+        switch snapshot?.chargingState {
+        case .charging?: return "bolt.fill"
+        case .pluggedIn?: return "powerplug.fill"
+        default: return "car.side.fill"
+        }
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon).foregroundStyle(tint)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(text).font(.subheadline)
-                if case .paused = banner {
-                    Button("Resume automation") {
-                        Task { await model.resumeAutomation() }
-                    }
-                    .font(.subheadline.weight(.semibold))
+        HStack(spacing: 20) {
+            ZStack {
+                Circle()
+                    .stroke(Color(.systemFill), lineWidth: 10)
+                Circle()
+                    .trim(from: 0, to: Double(min(max(soc ?? 0, 0), 100)) / 100)
+                    .stroke(tint, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: symbol)
+                    .font(.title2)
+                    .foregroundStyle(tint)
+            }
+            .frame(width: 88, height: 88)
+            .animation(.easeInOut, value: soc)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(soc.map { "\($0)%" } ?? "–")
+                    .font(.system(size: 44, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                Text(snapshot?.rangeKm.map { "\($0) km range" } ?? "Range unknown")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                if let snapshot, let charging = DisplayText.charging(snapshot) {
+                    Text(charging)
+                        .font(.subheadline)
+                        .foregroundStyle(snapshot.chargingState == .charging ? Color.green : .secondary)
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        guard let soc else { return "Battery unknown" }
+        return "Battery \(soc) percent" + (snapshot?.rangeKm.map { ", \($0) kilometres range" } ?? "")
+    }
+}
+
+// MARK: - Banners
+
+private struct BannerRow: View {
+    @Environment(CarModel.self) private var model
+    let banner: CarModel.Banner
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label {
+                Text(text).font(.subheadline)
+            } icon: {
+                Image(systemName: icon).foregroundStyle(tint)
+            }
+            if case .paused = banner {
+                Button("Resume Automation") {
+                    Task { await model.resumeAutomation() }
+                }
+                .font(.subheadline.weight(.semibold))
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     private var text: String {
@@ -76,7 +253,7 @@ private struct BannerView: View {
         case .setupNeeded: return "Add your Kia Connect refresh token in Settings to connect your car."
         case .authStopped(let reason): return reason
         case .paused(let reason): return reason.capitalizingFirst
-        case .fakeMode: return "Fake car: nothing is sent to Kia. Turn it off in Settings › Developer."
+        case .fakeMode: return "Fake car on. Nothing is sent to Kia."
         }
     }
 
@@ -91,212 +268,9 @@ private struct BannerView: View {
 
     private var tint: Color {
         switch banner {
-        case .authStopped: return Brand.red
-        case .paused: return Brand.amber
+        case .authStopped: return .red
+        case .paused: return .orange
         case .setupNeeded, .fakeMode: return .accentColor
         }
-    }
-}
-
-// MARK: - Battery
-
-private struct HeroCard: View {
-    let snapshot: VehicleSnapshot?
-    let now: Date
-
-    var body: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .trim(from: 0, to: 0.75)
-                    .stroke(Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 14, lineCap: .round))
-                    .rotationEffect(.degrees(135))
-                Circle()
-                    .trim(from: 0, to: 0.75 * fraction)
-                    .stroke(Brand.cyan, style: StrokeStyle(lineWidth: 14, lineCap: .round))
-                    .rotationEffect(.degrees(135))
-                VStack(spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(snapshot?.socPercent.map { String($0) } ?? "–")
-                            .font(.system(size: 56, weight: .bold, design: .rounded))
-                        Text("%").font(.title3.weight(.semibold))
-                    }
-                    Text(snapshot?.rangeKm.map { "\($0) km range" } ?? "range unknown")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-            }
-            .frame(width: 210, height: 210)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(accessibilityText)
-
-            if let snapshot, let charging = DisplayText.charging(snapshot) {
-                Chip(text: charging, systemImage: snapshot.chargingState == .charging ? "bolt.fill" : "powerplug.fill")
-            }
-            Text(ageText)
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.7))
-        }
-        .foregroundStyle(.white)
-        .padding(.vertical, 24)
-        .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(colors: [Brand.midnight, Brand.midnightLight], startPoint: .top, endPoint: .bottom),
-            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
-        )
-    }
-
-    private var fraction: Double {
-        Double(min(max(snapshot?.socPercent ?? 0, 0), 100)) / 100
-    }
-
-    /// We never wake the car, so its data can be old; say how old (HANDOVER.md §3.7).
-    private var ageText: String {
-        guard let snapshot else { return "No data yet. Pull down to read the car." }
-        let reported = snapshot.carCapturedAt.map { "car reported \(DisplayText.age(of: $0, now: now))" }
-        let fetched = "read \(DisplayText.age(of: snapshot.fetchedAt, now: now))"
-        return [reported, fetched].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    private var accessibilityText: String {
-        guard let soc = snapshot?.socPercent else { return "Battery unknown" }
-        return "Battery \(soc) percent" + (snapshot?.rangeKm.map { ", \($0) kilometres range" } ?? "")
-    }
-}
-
-// MARK: - Climate
-
-private struct ClimateCard: View {
-    @Environment(CarModel.self) private var model
-    @State private var target: Double?
-
-    private var shownTarget: Double { target ?? model.settings.defaultTargetC }
-    private var running: Bool { model.snapshot?.climate == .running }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            HStack {
-                Text("Climate").font(.headline)
-                Spacer()
-                if running {
-                    Chip(text: "Running" + (model.snapshot?.targetTempC.map { " to \(Describe.temp($0))" } ?? ""), systemImage: "thermometer.medium")
-                }
-            }
-            HStack {
-                stepButton("minus", delta: -0.5)
-                Spacer()
-                VStack(spacing: 0) {
-                    Text(Describe.temp(shownTarget))
-                        .font(.system(size: 40, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                    Text("target").font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                stepButton("plus", delta: 0.5)
-            }
-            HStack(spacing: 12) {
-                Button {
-                    Task { await model.start(targetC: shownTarget) }
-                } label: {
-                    label(model.busy == .starting ? nil : "Start", systemImage: "power")
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button {
-                    Task { await model.stop() }
-                } label: {
-                    label(model.busy == .stopping ? nil : "Stop", systemImage: "stop.fill")
-                }
-                .buttonStyle(.bordered)
-            }
-            .controlSize(.large)
-            .disabled(model.busy != nil)
-
-            if let outside = model.snapshot?.outsideTempC {
-                HStack {
-                    Label("Outside", systemImage: "thermometer")
-                    Spacer()
-                    Text(Describe.temp(outside) + " · car sensor")
-                }
-                .font(.subheadline)
-            }
-        }
-        .card()
-    }
-
-    private func stepButton(_ symbol: String, delta: Double) -> some View {
-        Button {
-            let next = shownTarget + delta
-            target = min(max(next, AppSettings.minTargetC), AppSettings.maxTargetC)
-        } label: {
-            Image(systemName: symbol)
-                .font(.title3.weight(.semibold))
-                .frame(width: 48, height: 48)
-                .background(Color(.tertiarySystemFill), in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(delta < 0 ? "Lower target" : "Raise target")
-    }
-
-    @ViewBuilder
-    private func label(_ text: String?, systemImage: String) -> some View {
-        if let text {
-            Label(text, systemImage: systemImage).frame(maxWidth: .infinity)
-        } else {
-            ProgressView().frame(maxWidth: .infinity)
-        }
-    }
-}
-
-// MARK: - Automation and budget
-
-private struct AutomationCard: View {
-    @Environment(CarModel.self) private var model
-    @Environment(RulesModel.self) private var rules
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Automation").font(.headline)
-            Toggle(isOn: Binding(
-                get: { model.settings.automationPaused },
-                set: { paused in Task { await model.updateSettings { $0.automationPaused = paused } } }
-            )) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Pause automation")
-                    Text("Rules keep logging but never send commands").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            if let next = rules.nextCheck {
-                HStack {
-                    Label("Next scheduled check", systemImage: "calendar")
-                    Spacer()
-                    Text(next.at, format: .dateTime.weekday(.abbreviated).hour().minute())
-                }
-                .font(.subheadline)
-            }
-            if let last = model.automation.lastCommand {
-                HStack {
-                    Label("Last command", systemImage: "clock.arrow.circlepath")
-                    Spacer()
-                    Text("\(last.description.capitalizingFirst), \(DisplayText.age(of: last.at, now: model.now))")
-                        .multilineTextAlignment(.trailing)
-                }
-                .font(.subheadline)
-            }
-            Divider()
-            if let budget = model.budget {
-                HStack {
-                    Text("Requests in the last 24 h").font(.subheadline)
-                    Spacer()
-                    Text("\(budget.remaining) of \(budget.limit) left").font(.subheadline.weight(.semibold))
-                }
-                ProgressView(value: Double(budget.remaining), total: Double(max(budget.limit, 1)))
-                    .tint(budget.exhaustedUntil == nil ? Brand.cyan : Brand.red)
-                Text(DisplayText.budget(budget))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .card()
     }
 }

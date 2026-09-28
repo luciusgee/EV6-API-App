@@ -38,7 +38,7 @@ struct RuleEditorView: View {
                 if !problems.isEmpty {
                     Section("Fix before saving") {
                         ForEach(problems, id: \.self) { problem in
-                            Text(problem).foregroundStyle(Brand.red)
+                            Text(problem).foregroundStyle(.red)
                         }
                     }
                 }
@@ -375,7 +375,7 @@ private struct TestResultSection: View {
             }
             ForEach(Array(evaluation.verdicts.enumerated()), id: \.offset) { _, verdict in
                 Label(verdict.fired ? "Would fire" : "Would skip", systemImage: verdict.fired ? "checkmark.circle.fill" : "xmark.circle")
-                    .foregroundStyle(verdict.fired ? Color.green : Brand.red)
+                    .foregroundStyle(verdict.fired ? Color.green : Color.red)
                 Text(verdict.reason).font(.subheadline)
                 ForEach(Array(verdict.checks.enumerated()), id: \.offset) { _, check in
                     HStack(alignment: .top, spacing: 8) {
@@ -399,8 +399,8 @@ private struct TestResultSection: View {
     private func color(_ t: Tri) -> Color {
         switch t {
         case .pass: return .green
-        case .fail: return Brand.red
-        case .unknown: return Brand.amber
+        case .fail: return .red
+        case .unknown: return .orange
         }
     }
 }
@@ -434,8 +434,8 @@ struct DaysPicker: View {
                     Text(String(day.shortName.prefix(2)))
                         .font(.footnote.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 32)
-                        .foregroundStyle(on ? Brand.onCyan : Color.primary)
-                        .background(on ? Brand.cyan : Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                        .foregroundStyle(on ? Color.white : Color.primary)
+                        .background(on ? Color.accentColor : Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(day.shortName)

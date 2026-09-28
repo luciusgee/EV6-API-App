@@ -38,7 +38,7 @@ private struct KiaConnectSection: View {
         Section {
             if let failure = model.automation.authFailure {
                 Label("Problem: \(failure)", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(Brand.red)
+                    .foregroundStyle(.red)
             }
 
             SecureField(model.hasToken ? "Replace refresh token" : "Refresh token", text: $token)
@@ -48,7 +48,7 @@ private struct KiaConnectSection: View {
             if !token.isEmpty && !CarModel.tokenLooksValid(token.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 Text("Kia tokens are usually 48 capital letters and digits")
                     .font(.footnote)
-                    .foregroundStyle(Brand.amber)
+                    .foregroundStyle(.orange)
             }
             HStack {
                 Button("Save token") {

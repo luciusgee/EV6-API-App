@@ -47,4 +47,16 @@ final class DisplayTextTests: XCTestCase {
         XCTAssertEqual(DisplayText.energy(wh: 12_400), "12.4 kWh")
         XCTAssertEqual(DisplayText.energy(wh: 850), "850 Wh")
     }
+
+    func testSpokenStatus() {
+        let v = VehicleSnapshot(
+            socPercent: 72, rangeKm: 315, pluggedIn: true, chargePowerKw: 7.4, minutesToFullyCharged: 65,
+            climate: .running, targetTempC: 21, chargingState: .charging, fetchedAt: t0,
+            details: VehicleDetails(locked: true)
+        )
+        XCTAssertEqual(
+            DisplayText.spokenStatus(v, miles: true),
+            "72%, 196 mi range. Charging at 7.4 kW, full in 1 h 5 min. Locked. Climate on at 21.0 °C."
+        )
+    }
 }

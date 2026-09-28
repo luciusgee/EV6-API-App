@@ -73,4 +73,25 @@ public enum DisplayText {
     public static func energy(wh: Double) -> String {
         abs(wh) >= 1000 ? String(format: "%.1f kWh", wh / 1000) : "\(Int(wh.rounded())) Wh"
     }
+
+    /// What Siri says for "How's my car?": "72%, 196 mi range. Charging at 7.4 kW, full in 1 h 5 min. Locked. Climate on at 21.0 °C."
+    public static func spokenStatus(_ v: VehicleSnapshot, miles: Bool) -> String {
+        var parts: [String] = []
+        var first = v.socPercent.map { "\($0)%" } ?? "Charge unknown"
+        if let range = v.rangeKm { first += ", \(distance(km: Double(range), miles: miles)) range" }
+        parts.append(first)
+        switch v.chargingState {
+        case .charging?:
+            var c = "Charging"
+            if let kw = v.chargePowerKw { c += String(format: " at %.1f kW", kw) }
+            if let m = v.minutesToFullyCharged { c += ", full in \(duration(minutes: m))" }
+            parts.append(c)
+        case .pluggedIn?: parts.append("Plugged in, not charging")
+        default: break
+        }
+        if let locked = v.details?.locked { parts.append(locked ? "Locked" : "Unlocked") }
+        if v.climate == .running { parts.append("Climate on" + (v.targetTempC.map { " at \(Describe.temp($0))" } ?? "")) }
+        if let alerts = v.details?.alerts, !alerts.isEmpty { parts.append(alerts.joined(separator: ". ")) }
+        return parts.joined(separator: ". ") + "."
+    }
 }

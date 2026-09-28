@@ -30,14 +30,100 @@ struct RunScheduledRulesIntent: AppIntent {
 
 struct StartClimateIntent: AppIntent {
     static var title: LocalizedStringResource = "Precondition now"
-    static var description = IntentDescription("Starts the EV6's climate at your default temperature. The minimum-charge guard still applies.")
+    static var description = IntentDescription("Starts the EV6's climate. If the car is plugged in but not charging, the charger is stopped first (when Keep charger off is on). The minimum-charge guard still applies.")
+    static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "Temperature (°C)")
+    var temperature: Double?
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let services = AppServices.shared
+        await services.prepare()
+        await services.car.start(targetC: temperature)
+        return .result(dialog: "\(services.car.message ?? "Done.")")
+    }
+}
+
+struct CarStatusIntent: AppIntent {
+    static var title: LocalizedStringResource = "Check my EV6"
+    static var description = IntentDescription("Reads the car's latest state: charge, range, charging, locks, climate and any warnings. Uses one request.")
     static var openAppWhenRun: Bool = false
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let services = AppServices.shared
         await services.prepare()
-        await services.car.start()
+        await services.car.refresh()
+        guard let snapshot = services.car.snapshot else {
+            return .result(dialog: "\(services.car.message ?? "No data from the car yet.")")
+        }
+        return .result(dialog: "\(DisplayText.spokenStatus(snapshot, miles: services.car.settings.useMiles))")
+    }
+}
+
+enum LockAction: String, AppEnum {
+    case lock, unlock
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Lock action"
+    static var caseDisplayRepresentations: [LockAction: DisplayRepresentation] = ["lock": "Lock", "unlock": "Unlock"]
+}
+
+struct LockCarIntent: AppIntent {
+    static var title: LocalizedStringResource = "Lock or unlock my EV6"
+    static var description = IntentDescription("Locks or unlocks the car's doors remotely.")
+    static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "Action", default: .lock)
+    var action: LockAction
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        if action == .unlock {
+            try await requestConfirmation(result: .result(dialog: "Unlock the car?"))
+        }
+        let services = AppServices.shared
+        await services.prepare()
+        await services.car.send(action == .lock ? .lock : .unlock)
+        return .result(dialog: "\(services.car.message ?? "Done.")")
+    }
+}
+
+enum ChargeAction: String, AppEnum {
+    case start, stop
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Charging action"
+    static var caseDisplayRepresentations: [ChargeAction: DisplayRepresentation] = ["start": "Start", "stop": "Stop"]
+}
+
+struct ChargingIntent: AppIntent {
+    static var title: LocalizedStringResource = "Start or stop charging"
+    static var description = IntentDescription("Starts or stops charging while the EV6 is plugged in.")
+    static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "Action", default: .stop)
+    var action: ChargeAction
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let services = AppServices.shared
+        await services.prepare()
+        await services.car.send(action == .start ? .startCharging : .stopCharging)
+        return .result(dialog: "\(services.car.message ?? "Done.")")
+    }
+}
+
+struct ChargeLimitIntent: AppIntent {
+    static var title: LocalizedStringResource = "Set charge limit"
+    static var description = IntentDescription("Sets where AC and DC charging stop, 50–100% in steps of 10.")
+    static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "Limit (%)", default: 80)
+    var percent: Int
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let services = AppServices.shared
+        await services.prepare()
+        await services.car.send(.setChargeLimits(ac: percent, dc: percent))
         return .result(dialog: "\(services.car.message ?? "Done.")")
     }
 }
@@ -63,6 +149,30 @@ struct EV6Shortcuts: AppShortcutsProvider {
             phrases: ["Precondition my car with \(.applicationName)", "Warm up the car with \(.applicationName)"],
             shortTitle: "Precondition now",
             systemImageName: "thermometer.sun"
+        )
+        AppShortcut(
+            intent: CarStatusIntent(),
+            phrases: ["Check my car with \(.applicationName)", "How's my EV6 in \(.applicationName)"],
+            shortTitle: "Check my EV6",
+            systemImageName: "car.side"
+        )
+        AppShortcut(
+            intent: LockCarIntent(),
+            phrases: ["Lock my car with \(.applicationName)"],
+            shortTitle: "Lock",
+            systemImageName: "lock.fill"
+        )
+        AppShortcut(
+            intent: ChargingIntent(),
+            phrases: ["Stop charging with \(.applicationName)", "Start charging with \(.applicationName)"],
+            shortTitle: "Charging",
+            systemImageName: "bolt.car"
+        )
+        AppShortcut(
+            intent: ChargeLimitIntent(),
+            phrases: ["Set my charge limit with \(.applicationName)"],
+            shortTitle: "Charge limit",
+            systemImageName: "gauge.with.dots.needle.67percent"
         )
         AppShortcut(
             intent: StopClimateIntent(),

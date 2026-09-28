@@ -1,0 +1,228 @@
+import PreconditionKit
+import SwiftUI
+
+/// Settings (HANDOVER.md §6.5): Kia Connect credentials, safety, rate limit, developer.
+struct SettingsView: View {
+    @Environment(CarModel.self) private var model
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                KiaConnectSection()
+                SafetySection()
+                RateLimitSection()
+                DeveloperSection()
+                Section {
+                    LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
+                } footer: {
+                    Text("No analytics and no backend. The app only talks to Kia Connect.")
+                }
+            }
+            .navigationTitle("Settings")
+        }
+    }
+}
+
+// MARK: - Kia Connect
+
+private struct KiaConnectSection: View {
+    @Environment(CarModel.self) private var model
+    @State private var token = ""
+    @State private var pin = ""
+    @State private var vin = ""
+    @FocusState private var vinFocused: Bool
+
+    private static let tokenGuide = URL(string: "https://github.com/Hyundai-Kia-Connect/hyundai_kia_connect_api/discussions/987")!
+
+    var body: some View {
+        Section {
+            if let failure = model.automation.authFailure {
+                Label("Problem: \(failure)", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Brand.red)
+            }
+
+            SecureField(model.hasToken ? "Replace refresh token" : "Refresh token", text: $token)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .font(.body.monospaced())
+            if !token.isEmpty && !CarModel.tokenLooksValid(token.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                Text("Kia tokens are usually 48 capital letters and digits")
+                    .font(.footnote)
+                    .foregroundStyle(Brand.amber)
+            }
+            HStack {
+                Button("Save token") {
+                    let value = token
+                    token = ""
+                    Task { await model.saveCredentials(token: value) }
+                }
+                .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Spacer()
+                if model.hasToken {
+                    Button("Remove", role: .destructive) {
+                        Task { await model.saveCredentials(token: "") }
+                    }
+                }
+            }
+            .buttonStyle(.borderless)
+            Link("How to get a refresh token", destination: Self.tokenGuide)
+        } header: {
+            Text("Kia Connect")
+        } footer: {
+            Text("Kia has no public API, so this uses the Kia Connect app's own service (Europe). It can stop working whenever Kia changes it. Sign in once in a browser to get a refresh token, then paste it here. The token and PIN are kept in the iOS Keychain and never logged or exported.")
+        }
+
+        Section {
+            SecureField(model.hasPin ? "Replace Kia Connect PIN" : "Kia Connect PIN", text: $pin)
+                .keyboardType(.numberPad)
+            HStack {
+                Button("Save PIN") {
+                    let value = pin
+                    pin = ""
+                    Task { await model.saveCredentials(pin: value) }
+                }
+                .disabled(pin.count < 4 || !model.hasToken)
+                Spacer()
+                if model.hasPin {
+                    Button("Remove", role: .destructive) {
+                        Task { await model.saveCredentials(pin: "") }
+                    }
+                }
+            }
+            .buttonStyle(.borderless)
+        } footer: {
+            Text("Needed for climate commands on 2024-on cars; older EV6s don't use it.")
+        }
+
+        Section {
+            TextField("VIN (optional)", text: $vin)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .focused($vinFocused)
+                .submitLabel(.done)
+                .onSubmit { vinFocused = false }
+                .disabled(!model.hasToken)
+                .onAppear { vin = model.vin }
+                .onChange(of: vinFocused) { _, focused in
+                    // Saved when the field loses focus.
+                    if !focused && vin != model.vin {
+                        let value = vin
+                        Task { await model.saveCredentials(vin: value) }
+                    }
+                }
+                .onChange(of: model.vin) { _, new in
+                    if !vinFocused { vin = new }
+                }
+        } footer: {
+            Text("Only if the account has more than one car; otherwise the first EV is used.")
+        }
+    }
+}
+
+// MARK: - Safety
+
+private struct SafetySection: View {
+    @Environment(CarModel.self) private var model
+
+    var body: some View {
+        Section {
+            Stepper(value: binding(\.minSocPercent), in: 0...100, step: 5) {
+                LabeledContent("Minimum charge", value: "\(model.settings.minSocPercent)%")
+            }
+            Stepper(value: binding(\.defaultTargetC), in: AppSettings.minTargetC...AppSettings.maxTargetC, step: 0.5) {
+                LabeledContent("Default temperature", value: Describe.temp(model.settings.defaultTargetC))
+            }
+        } header: {
+            Text("Safety")
+        } footer: {
+            Text("Climate never starts below the minimum charge unless the car is plugged in. This applies to manual starts too.")
+        }
+    }
+
+    private func binding<T: Sendable>(_ keyPath: WritableKeyPath<AppSettings, T>) -> Binding<T> {
+        Binding(
+            get: { model.settings[keyPath: keyPath] },
+            set: { value in Task { await model.updateSettings { $0[keyPath: keyPath] = value } } }
+        )
+    }
+}
+
+// MARK: - Rate limit
+
+private struct RateLimitSection: View {
+    @Environment(CarModel.self) private var model
+
+    var body: some View {
+        Section {
+            Stepper(value: binding(\.budgetLimit), in: 10...200, step: 10) {
+                LabeledContent("Requests per 24 hours", value: "\(model.settings.budgetLimit)")
+            }
+            Stepper(value: binding(\.budgetReserve), in: 0...(model.settings.budgetLimit / 2)) {
+                LabeledContent("Kept for you", value: "\(model.settings.budgetReserve)")
+            }
+        } header: {
+            Text("Rate limit")
+        } footer: {
+            Text("Kia allows roughly 200 requests a day per account, and one read here makes about two. The app counts its own reads and commands against this daily budget and always leaves the reserve for you.")
+        }
+    }
+
+    private func binding(_ keyPath: WritableKeyPath<AppSettings, Int>) -> Binding<Int> {
+        Binding(
+            get: { model.settings[keyPath: keyPath] },
+            set: { value in Task { await model.updateSettings { $0[keyPath: keyPath] = value } } }
+        )
+    }
+}
+
+// MARK: - Developer
+
+private struct DeveloperSection: View {
+    @Environment(CarModel.self) private var model
+
+    var body: some View {
+        Section {
+            Toggle("Fake car", isOn: Binding(
+                get: { model.settings.fakeMode },
+                set: { on in Task { await model.updateSettings { $0.fakeMode = on } } }
+            ))
+            if model.settings.fakeMode {
+                Stepper(value: fake(\.socPercent), in: 0...100, step: 5) {
+                    LabeledContent("Charge", value: "\(model.fakeCar.socPercent)%")
+                }
+                Toggle("Plugged in", isOn: fake(\.pluggedIn))
+                Toggle("Charging", isOn: fake(\.charging)).disabled(!model.fakeCar.pluggedIn)
+                Toggle("Climate on", isOn: fake(\.climateOn))
+                Picker("Error scenario", selection: fake(\.scenario)) {
+                    ForEach(FakeScenario.allCases, id: \.self) { scenario in
+                        Text(Self.name(scenario)).tag(scenario)
+                    }
+                }
+            }
+        } header: {
+            Text("Developer")
+        } footer: {
+            Text("The fake car answers instead of Kia, so every screen and error can be tried without a car. Pull down on the Car tab to read it.")
+        }
+    }
+
+    private func fake<T>(_ keyPath: WritableKeyPath<FakeCarState, T>) -> Binding<T> {
+        Binding(
+            get: { model.fakeCar[keyPath: keyPath] },
+            set: { value in model.updateFakeCar { $0[keyPath: keyPath] = value } }
+        )
+    }
+
+    private static func name(_ s: FakeScenario) -> String {
+        switch s {
+        case .none: return "None"
+        case .refreshTokenRejected: return "Refresh token rejected"
+        case .accessTokenRejected: return "Access token rejected"
+        case .rateLimited: return "Daily limit reached"
+        case .vehicleBusy: return "Car busy"
+        case .notSupported: return "Command not supported"
+        case .serverError: return "Server error"
+        case .partial: return "No position"
+        }
+    }
+}

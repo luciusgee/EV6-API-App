@@ -1,0 +1,73 @@
+# Codemagic builds for the iPhone app. Two workflows:
+#   ios-ci          every push: PreconditionKit tests on macOS, then an unsigned simulator build.
+#   ios-testflight  run by hand: signed build uploaded to TestFlight.
+# Before the first TestFlight run, change the two values marked CHANGE ME below.
+
+workflows:
+  ios-ci:
+    name: iOS tests and build
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      xcode: latest
+    triggering:
+      events:
+        - push
+        - pull_request
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+      - name: PreconditionKit tests
+        script: swift test --package-path PreconditionKit
+      - name: Generate the Xcode project
+        script: xcodegen generate
+      - name: Build the app for the simulator (unsigned)
+        script: |
+          set -o pipefail
+          xcodebuild build \
+            -project EV6Precondition.xcodeproj \
+            -scheme EV6Precondition \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO | xcpretty
+
+  ios-testflight:
+    name: TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    integrations:
+      # CHANGE ME: the name of your App Store Connect API key in Codemagic (Team settings > Integrations).
+      app_store_connect: CHANGE_ME
+    environment:
+      xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.luciusgee.ev6precondition
+      vars:
+        # CHANGE ME: the app's Apple ID from App Store Connect (App Information > Apple ID).
+        APP_STORE_APPLE_ID: "0000000000"
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+      - name: PreconditionKit tests
+        script: swift test --package-path PreconditionKit
+      - name: Generate the Xcode project
+        script: xcodegen generate
+      - name: Use the signing profiles
+        script: xcode-project use-profiles
+      - name: Next build number
+        script: |
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
+          echo "BUILD_NUMBER_NEXT=$((LATEST + 1))" >> $CM_ENV
+      - name: Build the ipa
+        script: |
+          xcode-project build-ipa \
+            --project EV6Precondition.xcodeproj \
+            --scheme EV6Precondition \
+            --archive-xcargs "CURRENT_PROJECT_VERSION=$BUILD_NUMBER_NEXT"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

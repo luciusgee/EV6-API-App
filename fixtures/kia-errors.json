@@ -1,0 +1,13 @@
+{
+  "_note": "Kia reports failure as retCode F + resCode, often on HTTP 200 or 400, or OAuth-style {error}. Mapping used by the Android app is in HANDOVER.md section 3.9.",
+  "access_token_expired_http_401": {"error": "Key not authorized: Token is expired"},
+  "access_token_expired_7501": {"retCode": "F", "resCode": "7501", "resMsg": "expired"},
+  "device_id_rejected_4002_http_400": {"retCode": "F", "resCode": "4002", "resMsg": "Invalid request body - invalid deviceId"},
+  "duplicate_request_4004": {"retCode": "F", "resCode": "4004", "resMsg": "Duplicate request"},
+  "unsupported_control_4005": {"retCode": "F", "resCode": "4005", "resMsg": "Unsupported control"},
+  "request_timeout_4081": {"retCode": "F", "resCode": "4081", "resMsg": "Request timeout"},
+  "remote_control_unavailable_5031_http_400": {"retCode": "F", "resCode": "5031", "resMsg": "Unavailable remote control - Service Temporary Unavailable"},
+  "daily_limit_5091": {"retCode": "F", "resCode": "5091", "resMsg": "Exceeds number of requests"},
+  "no_data_5921": {"retCode": "F", "resCode": "5921", "resMsg": "No Data Found v2"},
+  "response_timeout_9999": {"retCode": "F", "resCode": "9999", "resMsg": "Undefined Error - Response timeout"}
+}

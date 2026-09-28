@@ -1,0 +1,247 @@
+{
+    "version": 1,
+    "places": [
+        {
+            "id": "office",
+            "name": "Office",
+            "centre": {
+                "lat": 50.087,
+                "lon": 14.421
+            },
+            "radiusM": 200,
+            "usualParkingSpot": {
+                "lat": 50.0875,
+                "lon": 14.4215
+            }
+        },
+        {
+            "id": "home",
+            "name": "Home",
+            "centre": {
+                "lat": 50.05,
+                "lon": 14.3
+            },
+            "radiusM": 150,
+            "usualParkingSpot": null
+        }
+    ],
+    "rules": [
+        {
+            "id": "leave-work",
+            "name": "Leaving work",
+            "enabled": true,
+            "priority": 0,
+            "trigger": {
+                "type": "geofenceExit",
+                "placeId": "office"
+            },
+            "conditions": [
+                {
+                    "type": "daysOfWeek",
+                    "days": [
+                        "MON",
+                        "TUE",
+                        "WED",
+                        "THU",
+                        "FRI"
+                    ]
+                },
+                {
+                    "type": "timeWindow",
+                    "start": "16:00",
+                    "end": "19:00"
+                },
+                {
+                    "type": "tempBelow",
+                    "celsius": 5.0,
+                    "source": {
+                        "type": "bestAvailable"
+                    }
+                },
+                {
+                    "type": "phoneNearCar",
+                    "meters": 1500
+                }
+            ],
+            "action": {
+                "type": "startClimate",
+                "targetC": 21.0
+            },
+            "cooldownMinutes": 60,
+            "proceedIfUnknown": false
+        },
+        {
+            "id": "morning-commute",
+            "name": "Morning commute",
+            "enabled": true,
+            "priority": 0,
+            "trigger": {
+                "type": "schedule",
+                "days": [
+                    "MON",
+                    "TUE",
+                    "WED",
+                    "THU",
+                    "FRI"
+                ],
+                "time": "07:20"
+            },
+            "conditions": [
+                {
+                    "type": "carAtPlace",
+                    "placeId": "home"
+                },
+                {
+                    "type": "phoneNearCar",
+                    "meters": 500
+                },
+                {
+                    "type": "tempBelow",
+                    "celsius": 3.0,
+                    "source": {
+                        "type": "forecastAt",
+                        "time": "07:40"
+                    }
+                }
+            ],
+            "action": {
+                "type": "startClimate",
+                "targetC": 20.0
+            },
+            "cooldownMinutes": 60,
+            "proceedIfUnknown": false
+        },
+        {
+            "id": "hot-day",
+            "name": "Hot day",
+            "enabled": true,
+            "priority": 0,
+            "trigger": {
+                "type": "geofenceExit",
+                "placeId": "office"
+            },
+            "conditions": [
+                {
+                    "type": "tempAbove",
+                    "celsius": 24.0,
+                    "source": {
+                        "type": "weatherAtCar"
+                    }
+                }
+            ],
+            "action": {
+                "type": "startClimate",
+                "targetC": 20.0
+            },
+            "cooldownMinutes": 60,
+            "proceedIfUnknown": false
+        },
+        {
+            "id": "weekend-range",
+            "name": "Weekend: heat or cool",
+            "enabled": true,
+            "priority": 1,
+            "trigger": {
+                "type": "schedule",
+                "days": [
+                    "SAT",
+                    "SUN"
+                ],
+                "time": "09:30"
+            },
+            "conditions": [
+                {
+                    "type": "tempOutside",
+                    "low": 10.0,
+                    "high": 24.0,
+                    "source": {
+                        "type": "weatherAtCar"
+                    }
+                },
+                {
+                    "type": "socAtLeast",
+                    "percent": 40
+                },
+                {
+                    "type": "pluggedIn",
+                    "expected": true
+                }
+            ],
+            "action": {
+                "type": "startClimate",
+                "targetC": 21.5
+            },
+            "cooldownMinutes": 120,
+            "proceedIfUnknown": true
+        },
+        {
+            "id": "near-car",
+            "name": "Walking back to the car",
+            "enabled": true,
+            "priority": 0,
+            "trigger": {
+                "type": "nearCar",
+                "meters": 300
+            },
+            "conditions": [
+                {
+                    "type": "tempBelow",
+                    "celsius": 8.0,
+                    "source": {
+                        "type": "bestAvailable"
+                    }
+                }
+            ],
+            "action": {
+                "type": "startClimate",
+                "targetC": 21.0
+            },
+            "cooldownMinutes": 60,
+            "proceedIfUnknown": false
+        },
+        {
+            "id": "arrive-home-stop",
+            "name": "Arrive home: stop",
+            "enabled": true,
+            "priority": 0,
+            "trigger": {
+                "type": "geofenceEnter",
+                "placeId": "home"
+            },
+            "conditions": [],
+            "action": {
+                "type": "stopClimate"
+            },
+            "cooldownMinutes": 0,
+            "proceedIfUnknown": false
+        },
+        {
+            "id": "approach-home",
+            "name": "Approaching home",
+            "enabled": false,
+            "priority": 0,
+            "trigger": {
+                "type": "approaching",
+                "placeId": "home",
+                "km": 5.0
+            },
+            "conditions": [
+                {
+                    "type": "timeWindow",
+                    "start": "22:00",
+                    "end": "06:00"
+                },
+                {
+                    "type": "carAtPlace",
+                    "placeId": "office"
+                }
+            ],
+            "action": {
+                "type": "startClimate",
+                "targetC": 19.0
+            },
+            "cooldownMinutes": 60,
+            "proceedIfUnknown": false
+        }
+    ]
+}

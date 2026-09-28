@@ -1,0 +1,22 @@
+{
+  "legacy_start": {
+    "_request": "POST {api}/api/v1/spa/vehicles/{vehicleId}/control/temperature  (normal authenticated headers)",
+    "body": {"action": "start", "hvacType": 0, "options": {"defrost": false, "heating1": 0, "igniOnDuration": 10}, "tempCode": "0EH", "unit": "C"}
+  },
+  "legacy_stop": {
+    "_request": "POST {api}/api/v1/spa/vehicles/{vehicleId}/control/temperature",
+    "body": {"action": "stop", "hvacType": 0, "options": {"defrost": true, "heating1": 1}, "tempCode": "10H", "unit": "C"}
+  },
+  "ccs2_start": {
+    "_request": "POST {api}/api/v2/spa/vehicles/{vehicleId}/ccs2/control/temperature  (authenticated headers, but Authorization and AuthorizationCCSP = 'Bearer <controlToken>')",
+    "body": {"command": "start", "ignitionDuration": 10, "strgWhlHeating": 0, "hvacTempType": 1, "hvacTemp": 21.0, "sideRearMirrorHeating": 1, "drvSeatLoc": "L",
+             "seatClimateInfo": {"drvSeatClimateState": 0, "psgSeatClimateState": 0, "rrSeatClimateState": 0, "rlSeatClimateState": 0},
+             "tempUnit": "C", "windshieldFrontDefogState": false}
+  },
+  "ccs2_stop": {
+    "_request": "POST {api}/api/v2/spa/vehicles/{vehicleId}/ccs2/control/temperature",
+    "body": {"command": "stop"}
+  },
+  "accepted_response": {"retCode": "S", "resCode": "0000", "resMsg": {}, "msgId": "m1"},
+  "temp_codes": {"14.0": "00H", "20.0": "0CH", "21.0": "0EH", "21.5": "0FH", "22.0": "10H", "29.5": "1FH"}
+}

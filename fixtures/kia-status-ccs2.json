@@ -1,0 +1,61 @@
+{
+    "retCode": "S",
+    "resCode": "0000",
+    "resMsg": {
+        "state": {
+            "Vehicle": {
+                "Date": "20260923143005.123",
+                "DrivingReady": 0,
+                "Green": {
+                    "BatteryManagement": {
+                        "BatteryRemain": {
+                            "Ratio": 58
+                        }
+                    },
+                    "ChargingInformation": {
+                        "ConnectorFastening": {
+                            "State": 0
+                        },
+                        "Charging": {
+                            "RemainTime": 0
+                        }
+                    }
+                },
+                "Drivetrain": {
+                    "FuelSystem": {
+                        "DTE": {
+                            "Total": 250,
+                            "Unit": 2
+                        }
+                    }
+                },
+                "Cabin": {
+                    "HVAC": {
+                        "Row1": {
+                            "Driver": {
+                                "Temperature": {
+                                    "Value": "22",
+                                    "Unit": 0
+                                },
+                                "Blower": {
+                                    "SpeedLevel": 3
+                                }
+                            }
+                        },
+                        "OutsideTemperature": {
+                            "Value": "4.5",
+                            "Unit": 0
+                        }
+                    }
+                },
+                "Location": {
+                    "GeoCoord": {
+                        "Latitude": 50.2,
+                        "Longitude": 14.2
+                    }
+                }
+            }
+        }
+    },
+    "msgId": "x"
+}

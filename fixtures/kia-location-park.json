@@ -1,0 +1,13 @@
+{
+    "retCode": "S",
+    "resCode": "0000",
+    "resMsg": {
+        "coord": {
+            "lat": 50.1,
+            "lon": 14.4,
+            "type": 0
+        },
+        "time": "20260923170000"
+    },
+    "msgId": "x"
+}

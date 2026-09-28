@@ -1,0 +1,58 @@
+{
+    "retCode": "S",
+    "resCode": "0000",
+    "resMsg": {
+        "vehicleStatusInfo": {
+            "vehicleStatus": {
+                "time": "20260923175800",
+                "airCtrlOn": false,
+                "engine": false,
+                "airTemp": {
+                    "value": "0EH",
+                    "unit": 0
+                },
+                "evStatus": {
+                    "batteryStatus": 74,
+                    "batteryCharge": true,
+                    "batteryPlugin": 2,
+                    "batteryPower": {
+                        "batteryStndChrgPower": 10.9,
+                        "batteryFstChrgPower": 0
+                    },
+                    "remainTime2": {
+                        "atc": {
+                            "value": 95,
+                            "unit": 1
+                        }
+                    },
+                    "drvDistance": [
+                        {
+                            "rangeByFuel": {
+                                "evModeRange": {
+                                    "value": 312,
+                                    "unit": 1
+                                },
+                                "totalAvailableRange": {
+                                    "value": 312,
+                                    "unit": 1
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "vehicleLocation": {
+                "coord": {
+                    "lat": 50.0,
+                    "lon": 14.0
+                },
+                "time": "20260922120000"
+            },
+            "odometer": {
+                "value": 18234.5,
+                "unit": 1
+            }
+        }
+    },
+    "msgId": "x"
+}

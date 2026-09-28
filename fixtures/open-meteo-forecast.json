@@ -1,0 +1,8 @@
+{
+  "_request": "GET https://api.open-meteo.com/v1/forecast?latitude=50.087&longitude=14.421&current=temperature_2m&hourly=temperature_2m&forecast_days=2&timeformat=unixtime&timezone=GMT",
+  "current": {"time": 1790578800, "interval": 900, "temperature_2m": 3.4},
+  "hourly": {
+    "time": [1790575200, 1790578800, 1790582400, 1790586000],
+    "temperature_2m": [3.9, 3.4, 2.8, 2.1]
+  }
+}

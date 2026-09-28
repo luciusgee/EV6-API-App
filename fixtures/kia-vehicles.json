@@ -1,0 +1,25 @@
+{
+    "retCode": "S",
+    "resCode": "0000",
+    "resMsg": {
+        "vehicles": [
+            {
+                "vehicleId": "veh-ice",
+                "nickname": "Ceed",
+                "vehicleName": "CEED",
+                "vin": "U5YH000000000001",
+                "type": "GN",
+                "ccuCCS2ProtocolSupport": 0
+            },
+            {
+                "vehicleId": "veh-ev",
+                "nickname": "EV6",
+                "vehicleName": "EV6",
+                "vin": "KNAC381ABN5000001",
+                "type": "EV",
+                "ccuCCS2ProtocolSupport": 0
+            }
+        ]
+    },
+    "msgId": "x"
+}

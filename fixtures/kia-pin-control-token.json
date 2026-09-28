@@ -1,0 +1,6 @@
+{
+  "_request": "PUT https://prd.eu-ccapi.kia.com:8080/api/v1/user/pin?token=  headers: Authorization: <access token>, Content-Type: application/json, User-Agent  (CCS2 cars only)",
+  "body": {"deviceId": "dev-1", "pin": "1234"},
+  "ok": {"controlToken": "ctl-1", "expiresTime": 600},
+  "wrong_pin_http_400": {"errCode": "4001", "errMsg": "invalid pin"}
+}

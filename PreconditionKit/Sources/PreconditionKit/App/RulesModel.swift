@@ -11,6 +11,8 @@ public final class RulesModel {
     public private(set) var lastResults: [String: LogEntry] = [:]
     public private(set) var nextCheck: ScheduledCheck?
     public private(set) var testing = false
+    /// Learned from the log: habits worth automating, settings worth turning on.
+    public private(set) var suggestions: [Suggestion] = []
     /// A one-line result to show, e.g. after an import.
     public var message: String?
 
@@ -33,6 +35,37 @@ public final class RulesModel {
         }
         lastResults = latest
         nextCheck = await container.engine.nextScheduledCheck()
+        suggestions = Insights.suggestions(
+            log: await container.stores.log.entries(),
+            rules: rules,
+            settings: await container.stores.settings.load(),
+            energy: await container.stores.energy.load(),
+            now: container.time.now(),
+            clock: LocalClock()
+        )
+    }
+
+    /// A rule from a sentence, understood on the device.
+    public func compose(_ sentence: String) async -> RuleComposer.Result {
+        RuleComposer.compose(sentence, places: places, defaultTargetC: await container.stores.settings.load().defaultTargetC)
+    }
+
+    /// Carries out a suggestion's fix. A rule is returned for the editor rather than saved blind.
+    public func apply(_ suggestion: Suggestion) async -> Rule? {
+        switch suggestion.fix {
+        case .addRule(let rule)?:
+            return rule
+        case .holdCharger?:
+            let settings = container.stores.settings
+            var s = await settings.load()
+            s.holdChargerOnClimate = true
+            await settings.save(s)
+            await container.stores.log.append(LogEntry(at: container.time.now(), kind: .info, decision: "settings", reason: "keep charger off turned on from a suggestion"))
+            await load()
+            return nil
+        case nil:
+            return nil
+        }
     }
 
     public func placeName(_ id: String) -> String {

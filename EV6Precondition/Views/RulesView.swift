@@ -5,9 +5,17 @@ import UniformTypeIdentifiers
 /// The rules list (HANDOVER.md §6.2): on/off, a one-line description and the last result.
 struct RulesView: View {
     @Environment(RulesModel.self) private var model
+    @Environment(CarModel.self) private var car
     @State private var editing: EditorItem?
     @State private var showImporter = false
     @State private var showScheduleHelp = false
+    @State private var composing = false
+    @AppStorage("dismissedSuggestions") private var dismissed = ""
+
+    private var suggestions: [Suggestion] {
+        let hidden = Set(dismissed.split(separator: ",").map(String.init))
+        return model.suggestions.filter { !hidden.contains($0.id) }
+    }
 
     struct EditorItem: Identifiable {
         let rule: Rule
@@ -27,11 +35,30 @@ struct RulesView: View {
                         Text(message).font(.footnote)
                     }
                 }
+                if !suggestions.isEmpty {
+                    Section {
+                        ForEach(suggestions) { suggestion in
+                            SuggestionRow(suggestion: suggestion) {
+                                Task {
+                                    if let rule = await model.apply(suggestion) {
+                                        editing = EditorItem(rule: rule, isNew: true)
+                                    } else {
+                                        await car.load()
+                                    }
+                                }
+                            } dismiss: {
+                                dismissed += (dismissed.isEmpty ? "" : ",") + suggestion.id
+                            }
+                        }
+                    } header: {
+                        Label("Suggested for you", systemImage: "sparkles")
+                    }
+                }
                 if model.rules.isEmpty {
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("No rules yet").font(.headline)
-                            Text("Tap + to start from a template, or import a backup from the Android app with the ⋯ menu.")
+                            Text("Tap ✨ and describe what you want, like “weekdays at 7:30 heat to 22 if it's below 5”, or tap + for a template.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
@@ -86,6 +113,13 @@ struct RulesView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        composing = true
+                    } label: {
+                        Label("Describe a rule", systemImage: "sparkles")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Section("Templates") {
                             ForEach(Templates.all, id: \.title) { template in
@@ -104,6 +138,16 @@ struct RulesView: View {
             }
             .sheet(item: $editing) { item in
                 RuleEditorView(rule: item.rule, isNew: item.isNew)
+            }
+            .sheet(isPresented: $composing) {
+                ComposeRuleView { rule in
+                    composing = false
+                    // Let the sheet close before the editor opens.
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(450))
+                        editing = EditorItem(rule: rule, isNew: true)
+                    }
+                }
             }
             .sheet(isPresented: $showScheduleHelp) {
                 ScheduleHelpView()
@@ -126,6 +170,44 @@ struct RulesView: View {
                 }
                 if usesPhone { LocationAccess.shared.requestIfNeeded() }
             }
+        }
+    }
+}
+
+private struct SuggestionRow: View {
+    let suggestion: Suggestion
+    let accept: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label {
+                Text(suggestion.title).font(.subheadline.weight(.semibold))
+            } icon: {
+                Image(systemName: suggestion.systemImage).foregroundStyle(.purple)
+            }
+            Text(suggestion.detail)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            HStack {
+                if suggestion.fix != nil {
+                    Button(buttonTitle, action: accept)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.purple)
+                }
+                Button("Not now", action: dismiss)
+                    .buttonStyle(.bordered)
+            }
+            .controlSize(.small)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var buttonTitle: String {
+        switch suggestion.fix {
+        case .addRule?: return "Review Rule"
+        case .holdCharger?: return "Turn On"
+        case nil: return "OK"
         }
     }
 }

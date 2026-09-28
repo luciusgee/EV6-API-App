@@ -63,7 +63,7 @@ struct EV6Illustration: View {
         if charging || climate != nil {
             TimelineView(.animation(minimumInterval: 1 / 30)) { context in
                 let t = context.date.timeIntervalSinceReferenceDate
-                canvas(pulse: 0.5 + 0.5 * sin(t * 2.4))
+                canvas(pulse: 0.5 + 0.5 * sin(Double(t) * 2.4))
             }
         } else {
             canvas(pulse: 0)
@@ -180,10 +180,14 @@ enum EV6Drawing {
         ctx.stroke(rim, with: .color(Color(white: 0.55)), lineWidth: r * 0.04)
         for i in 0..<5 {
             for side in [-1.0, 1.0] {
-                let a = Double(i) * 2 * .pi / 5 - .pi / 2 + side * 0.13
+                let a: Double = Double(i) * 2 * Double.pi / 5 - Double.pi / 2 + side * 0.13
+                let b: Double = a + side * 0.05
+                let (ca, sa, cb, sb): (Double, Double, Double, Double) = (cos(a), sin(a), cos(b), sin(b))
+                let inner = r * 0.16
+                let outer = rimR * 0.95
                 var spoke = Path()
-                spoke.move(to: CGPoint(x: centre.x + cos(a) * r * 0.16, y: centre.y + sin(a) * r * 0.16))
-                spoke.addLine(to: CGPoint(x: centre.x + cos(a + side * 0.05) * rimR * 0.95, y: centre.y + sin(a + side * 0.05) * rimR * 0.95))
+                spoke.move(to: CGPoint(x: centre.x + CGFloat(ca) * inner, y: centre.y + CGFloat(sa) * inner))
+                spoke.addLine(to: CGPoint(x: centre.x + CGFloat(cb) * outer, y: centre.y + CGFloat(sb) * outer))
                 ctx.stroke(spoke, with: .color(Color(white: 0.78)), style: StrokeStyle(lineWidth: r * 0.07, lineCap: .round))
             }
         }

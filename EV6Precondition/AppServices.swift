@@ -32,6 +32,16 @@ final class AppServices {
         notifier.onStop = {
             await car.stop()
         }
+        let engine = container.engine
+        // Created now, not later: iOS relaunches the app for a crossed boundary and delivers it at once.
+        GeofenceMonitor.shared.onEvent = { event, at in
+            await AppServices.shared.prepare()
+            await BackgroundTrigger.run(event, at: at, engine: engine)
+            await AppServices.shared.car.load()
+        }
+        rules.onChange = { rules, places in
+            GeofenceMonitor.shared.sync(rules: rules, places: places, carPosition: car.snapshot?.parkingPosition)
+        }
     }
 
     /// Loads settings and state once; safe to call from every entry point.
@@ -41,5 +51,10 @@ final class AppServices {
         notifier.register()
         await car.load()
         await rules.load()
+        // Near-car rules need a recent parked position for their fence.
+        if await container.engine.refreshCarPositionIfDue() {
+            await car.load()
+            await rules.load()
+        }
     }
 }

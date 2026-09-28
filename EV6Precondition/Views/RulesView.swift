@@ -88,11 +88,19 @@ struct RulesView: View {
                         Text("iOS can't wake an app at an exact time, so schedule rules run from a Shortcuts automation.")
                     }
                 }
-                if model.places.isEmpty {
-                    Section {
-                        Text("Place-based rules need places. For now they come from an imported backup; a map editor for places is next.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                Section {
+                    NavigationLink {
+                        PlacesView()
+                    } label: {
+                        LabeledContent {
+                            Text(model.places.isEmpty ? "None yet" : "\(model.places.count)")
+                        } label: {
+                            Label("Places", systemImage: "mappin.and.ellipse")
+                        }
+                    }
+                } footer: {
+                    if model.places.isEmpty {
+                        Text("Add Home and Work to start climate when you leave or arrive.")
                     }
                 }
             }

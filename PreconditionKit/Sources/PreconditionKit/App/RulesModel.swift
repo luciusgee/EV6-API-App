@@ -16,6 +16,9 @@ public final class RulesModel {
     /// A one-line result to show, e.g. after an import.
     public var message: String?
 
+    /// Called after every load, so the app can re-register its geofences.
+    public var onChange: (@MainActor (_ rules: [Rule], _ places: [Place]) -> Void)?
+
     private let container: AppContainer
 
     public nonisolated init(container: AppContainer) {
@@ -43,6 +46,34 @@ public final class RulesModel {
             now: container.time.now(),
             clock: LocalClock()
         )
+        onChange?(rules, places)
+    }
+
+    // MARK: Places
+
+    public func newPlace(at centre: LatLon, name: String = "") -> Place {
+        Place(id: Templates.newId(), name: name, centre: centre, radiusM: 200)
+    }
+
+    public func save(place: Place) async {
+        var p = place
+        p.name = p.name.trimmingCharacters(in: .whitespaces)
+        p.radiusM = min(max(p.radiusM, Place.minRadiusM), Place.maxRadiusM)
+        await container.rules.save(p)
+        await load()
+    }
+
+    /// Nil when deleted; otherwise the rules that still use the place.
+    public func deletePlace(id: String) async -> [String]? {
+        let users = await container.rules.deletePlace(id: id)
+        await load()
+        return users.isEmpty ? nil : users
+    }
+
+    public func rulesUsing(placeId: String) -> [Rule] {
+        rules.filter { r in
+            r.trigger.placeId == placeId || r.conditions.contains { if case .carAtPlace(placeId) = $0 { return true } else { return false } }
+        }
     }
 
     /// A rule from a sentence, understood on the device.

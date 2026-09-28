@@ -21,6 +21,20 @@ struct ActivityView: View {
         }
     }
 
+    /// Newest day first, entries newest first.
+    private var days: [(Date, [LogEntry])] {
+        let cal = Calendar.current
+        let grouped = Dictionary(grouping: entries) { cal.startOfDay(for: $0.at) }
+        return grouped.keys.sorted(by: >).map { ($0, grouped[$0] ?? []) }
+    }
+
+    private func dayTitle(_ day: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(day) { return "Today" }
+        if cal.isDateInYesterday(day) { return "Yesterday" }
+        return day.formatted(.dateTime.weekday(.wide).day().month(.wide))
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -28,8 +42,10 @@ struct ActivityView: View {
                     Text(filter == .all ? "Nothing yet. Commands, rule decisions and problems appear here." : "Nothing here yet.")
                         .foregroundStyle(.secondary)
                 }
-                ForEach(entries) { entry in
-                    LogRow(entry: entry)
+                ForEach(days, id: \.0) { group in
+                    Section(dayTitle(group.0)) {
+                        ForEach(group.1) { LogRow(entry: $0) }
+                    }
                 }
             }
             .listStyle(.insetGrouped)
@@ -94,7 +110,7 @@ private struct LogRow: View {
                     Text(entry.ruleName ?? entry.decision.capitalizingFirst)
                         .font(.subheadline.weight(.semibold))
                     Spacer()
-                    Text(entry.at, format: .dateTime.day().month().hour().minute())
+                    Text(entry.at, format: .dateTime.hour().minute())
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

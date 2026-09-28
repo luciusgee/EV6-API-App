@@ -14,6 +14,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var budgetReserve: Int
     /// Developer: talk to the fake car instead of Kia.
     public var fakeMode: Bool
+    /// Days when automation never runs.
+    public var holidays: [CalendarDay]
+    /// Developer: the fake weather's temperature.
+    public var fakeWeatherC: Double
 
     public init(
         minSocPercent: Int = 25,
@@ -22,7 +26,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         automationPaused: Bool = false,
         budgetLimit: Int = BudgetConfig.kia.limit,
         budgetReserve: Int = BudgetConfig.kia.manualReserve,
-        fakeMode: Bool = false
+        fakeMode: Bool = false,
+        holidays: [CalendarDay] = [],
+        fakeWeatherC: Double = 3
     ) {
         self.minSocPercent = minSocPercent
         self.defaultTargetC = defaultTargetC
@@ -31,6 +37,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.budgetLimit = budgetLimit
         self.budgetReserve = budgetReserve
         self.fakeMode = fakeMode
+        self.holidays = holidays
+        self.fakeWeatherC = fakeWeatherC
     }
 
     public init(from decoder: Decoder) throws {
@@ -43,6 +51,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         budgetLimit = try c.decodeIfPresent(Int.self, forKey: .budgetLimit) ?? d.budgetLimit
         budgetReserve = try c.decodeIfPresent(Int.self, forKey: .budgetReserve) ?? d.budgetReserve
         fakeMode = try c.decodeIfPresent(Bool.self, forKey: .fakeMode) ?? d.fakeMode
+        holidays = try c.decodeIfPresent([CalendarDay].self, forKey: .holidays) ?? d.holidays
+        fakeWeatherC = try c.decodeIfPresent(Double.self, forKey: .fakeWeatherC) ?? d.fakeWeatherC
     }
 
     /// Values forced into their allowed ranges.
@@ -53,6 +63,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         s.globalCooldownMinutes = min(max(s.globalCooldownMinutes, 0), 24 * 60)
         s.budgetLimit = min(max(s.budgetLimit, 10), 200)
         s.budgetReserve = min(max(s.budgetReserve, 0), s.budgetLimit / 2)
+        s.holidays = Array(Set(s.holidays)).sorted()
+        s.fakeWeatherC = min(max(s.fakeWeatherC, -30), 45)
         return s
     }
 
@@ -61,7 +73,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
 
     public var guards: GuardSettings {
-        GuardSettings(minSocPercent: minSocPercent, globalCooldown: TimeInterval(globalCooldownMinutes * 60), automationPaused: automationPaused)
+        GuardSettings(
+            minSocPercent: minSocPercent,
+            globalCooldown: TimeInterval(globalCooldownMinutes * 60),
+            automationPaused: automationPaused,
+            holidays: Set(holidays)
+        )
     }
 }
 

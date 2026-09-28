@@ -25,6 +25,9 @@ public final class AppContainer: Sendable {
     public let engine: PreconditionEngine
     public let monitor: ApiMonitor
     public let time: TimeSource
+    public let rules: FileRulesStore
+    public let weather: WeatherRepository
+    public let fakeWeather: FakeWeather
 
     /// - Parameters:
     ///   - directory: for the non-secret JSON files, e.g. Application Support.
@@ -36,13 +39,22 @@ public final class AppContainer: Sendable {
         sessions: KiaSessionStore,
         fakeSessions: KiaSessionStore,
         notifier: Notifier,
+        phone: PhoneLocator = NoPhoneLocator(),
         live: HTTPTransport = URLSessionTransport(),
         time: TimeSource = SystemTime(),
-        config: KiaConfig = KiaConfig()
+        config: KiaConfig = KiaConfig(),
+        timeZone: @escaping @Sendable () -> TimeZone = { .current }
     ) {
         let stores = FileStores(directory: directory, time: time)
         let fakeCar = FakeKia(time: time, config: config)
-        let transport = RoutingTransport.kia(live: live, fake: fakeCar, config: config)
+        let fakeWeather = FakeWeather(time: time)
+        var fakes: [String: HTTPTransport] = [WeatherRepository.host: fakeWeather]
+        for base in [config.apiBase, config.idpBase] {
+            if let host = URL(string: base)?.host { fakes[host] = fakeCar }
+        }
+        let transport = RoutingTransport(live: live, fakes: fakes)
+        let weather = WeatherRepository(transport: transport, time: time)
+        let rules = FileRulesStore(url: directory.appendingPathComponent("rules.json"))
         let isFake: @Sendable () -> Bool = { transport.fakeMode }
         let settings = stores.settings
         let budget = RateBudget(store: stores.budget, time: time, config: { await settings.load().budgetConfig })
@@ -70,14 +82,21 @@ public final class AppContainer: Sendable {
         self.vehicles = vehicles
         self.monitor = monitor
         self.time = time
+        self.rules = rules
+        self.weather = weather
+        self.fakeWeather = fakeWeather
         self.engine = PreconditionEngine(
             client: client, vehicles: vehicles, budget: budget, state: stores.automationState,
-            settings: stores.settings, log: stores.log, notifier: notifier, time: time
+            settings: stores.settings, log: stores.log, notifier: notifier, time: time,
+            rules: rules, weather: weather, phone: phone,
+            localClock: { LocalClock(timeZone: timeZone()) }
         )
     }
 
     /// Call once at launch, before the first request.
     public func start() async {
-        transport.fakeMode = await stores.settings.load().fakeMode
+        let settings = await stores.settings.load()
+        transport.fakeMode = settings.fakeMode
+        fakeWeather.celsius = settings.fakeWeatherC
     }
 }

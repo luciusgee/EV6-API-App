@@ -6,19 +6,25 @@ public enum ManualOutcome: Equatable, Sendable {
     case failed(ApiError)
 }
 
-/// Sends climate commands and records the outcome. For milestone 1 this is the manual path (the dashboard's
-/// Start, Stop and Refresh); rule evaluation from triggers joins it in milestone 2 (HANDOVER.md §4.4).
-/// Calls run one at a time so they never race on the budget or the cache.
+/// Every trigger ends up here (HANDOVER.md §4.4). The engine loads rules and state, runs the evaluator,
+/// sends the winner's action and records the outcome: cooldowns, failure counts, log, notification.
+/// It also runs the dashboard's manual Start, Stop and Refresh. Runs are one at a time, so triggers never
+/// race on cooldowns or the budget.
 public final class PreconditionEngine: Sendable {
-    private let client: VehicleAPI
-    private let vehicles: VehicleRepository
-    private let budget: RateBudget
-    private let state: AutomationStateStore
-    private let settings: SettingsSource
-    private let log: EventLog
-    private let notifier: Notifier
-    private let time: TimeSource
-    private let mutex = AsyncMutex()
+    let client: VehicleAPI
+    let vehicles: VehicleRepository
+    let budget: RateBudget
+    let state: AutomationStateStore
+    let settings: SettingsSource
+    let log: EventLog
+    let notifier: Notifier
+    let time: TimeSource
+    let rulesStore: RulesStore
+    let weather: WeatherSource
+    let phone: PhoneLocator
+    let cabin: CabinSensor
+    let localClock: @Sendable () -> LocalClock
+    let mutex = AsyncMutex()
 
     public init(
         client: VehicleAPI,
@@ -28,7 +34,12 @@ public final class PreconditionEngine: Sendable {
         settings: SettingsSource,
         log: EventLog,
         notifier: Notifier = NoopNotifier(),
-        time: TimeSource = SystemTime()
+        time: TimeSource = SystemTime(),
+        rules: RulesStore = InMemoryRulesStore(),
+        weather: WeatherSource = NoWeather(),
+        phone: PhoneLocator = NoPhoneLocator(),
+        cabin: CabinSensor = NoCabinSensor(),
+        localClock: @escaping @Sendable () -> LocalClock = { LocalClock() }
     ) {
         self.client = client
         self.vehicles = vehicles
@@ -38,6 +49,11 @@ public final class PreconditionEngine: Sendable {
         self.log = log
         self.notifier = notifier
         self.time = time
+        self.rulesStore = rules
+        self.weather = weather
+        self.phone = phone
+        self.cabin = cabin
+        self.localClock = localClock
     }
 
     /// Manual start: the SoC guard and the budget still apply; cooldowns and pause don't.

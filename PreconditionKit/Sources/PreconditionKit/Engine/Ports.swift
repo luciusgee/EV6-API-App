@@ -203,11 +203,14 @@ public struct GuardSettings: Equatable, Sendable {
     public var minSocPercent: Int
     public var globalCooldown: TimeInterval
     public var automationPaused: Bool
+    /// Days when automation never runs.
+    public var holidays: Set<CalendarDay>
 
-    public init(minSocPercent: Int = 25, globalCooldown: TimeInterval = 15 * 60, automationPaused: Bool = false) {
+    public init(minSocPercent: Int = 25, globalCooldown: TimeInterval = 15 * 60, automationPaused: Bool = false, holidays: Set<CalendarDay> = []) {
         self.minSocPercent = minSocPercent
         self.globalCooldown = globalCooldown
         self.automationPaused = automationPaused
+        self.holidays = holidays
     }
 }
 

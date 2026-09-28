@@ -31,7 +31,7 @@ About the source:
 
 The Xcode project is generated from `project.yml` by [XcodeGen](https://github.com/yonaskolb/XcodeGen), so it isn't committed.
 
-- **Codemagic:** the `ios-ci` workflow runs on every push: PreconditionKit's tests, then an unsigned simulator build. `ios-testflight` builds a signed app and uploads it to TestFlight. Set the two `CHANGE ME` values in `codemagic.yaml` first (your App Store Connect integration name and the app's Apple ID), and register the bundle ID `com.luciusgee.ev6precondition` (or change it in `project.yml` and `codemagic.yaml`).
+- **Codemagic:** the `ios-ci` workflow runs on every push: PreconditionKit's tests, then an unsigned simulator build. `ios-testflight` builds a signed app and uploads it to TestFlight. Set `APP_STORE_APPLE_ID` in `codemagic.yaml` first (the app's Apple ID), and register the bundle ID `com.luciusgee.ev6precondition` (or change it in `project.yml` and `codemagic.yaml`).
 - **On a Mac:** `brew install xcodegen && xcodegen generate`, then open `EV6Precondition.xcodeproj`.
 - **Core logic only (any OS):** `swift test --package-path PreconditionKit`.
 

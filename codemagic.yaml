@@ -1,7 +1,7 @@
 # Codemagic builds for the iPhone app. Two workflows:
 #   ios-ci          every push: PreconditionKit tests on macOS, then an unsigned simulator build.
 #   ios-testflight  run by hand: signed build uploaded to TestFlight.
-# Before the first TestFlight run, change the two values marked CHANGE ME below.
+# Before the first TestFlight run, set APP_STORE_APPLE_ID below (marked CHANGE ME).
 
 workflows:
   ios-ci:
@@ -35,8 +35,8 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 45
     integrations:
-      # CHANGE ME: the name of your App Store Connect API key in Codemagic (Team settings > Integrations).
-      app_store_connect: CHANGE_ME
+      # The App Store Connect API key in Codemagic (Team settings > Integrations > Developer Portal).
+      app_store_connect: shopfair-asc-key
     environment:
       xcode: latest
       ios_signing:

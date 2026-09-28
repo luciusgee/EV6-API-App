@@ -16,7 +16,8 @@ final class RulesModelTests: XCTestCase {
         phone: MutablePhone(home.centre),
         live: live,
         time: time,
-        timeZone: { prague }
+        timeZone: { prague },
+        commandGap: 0
     )
     lazy var model = RulesModel(container: container)
 

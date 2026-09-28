@@ -54,6 +54,13 @@ public final class VehicleRepository: Sendable {
         await cache.save(nil)
     }
 
+    /// Records what a command just did, so the dashboard shows it before the car reports back.
+    public func patch(_ change: (inout VehicleSnapshot) -> Void) async {
+        guard var s = await cache.load() else { return }
+        change(&s)
+        await cache.save(s)
+    }
+
     public func fetch(_ kind: RequestKind) async -> ApiResult<VehicleSnapshot> {
         switch await client.getVehicle(kind) {
         case .failure(let error, let meta):

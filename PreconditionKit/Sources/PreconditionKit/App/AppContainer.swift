@@ -43,7 +43,8 @@ public final class AppContainer: Sendable {
         live: HTTPTransport = URLSessionTransport(),
         time: TimeSource = SystemTime(),
         config: KiaConfig = KiaConfig(),
-        timeZone: @escaping @Sendable () -> TimeZone = { .current }
+        timeZone: @escaping @Sendable () -> TimeZone = { .current },
+        commandGap: TimeInterval = 5
     ) {
         let stores = FileStores(directory: directory, time: time)
         let fakeCar = FakeKia(time: time, config: config)
@@ -89,7 +90,8 @@ public final class AppContainer: Sendable {
             client: client, vehicles: vehicles, budget: budget, state: stores.automationState,
             settings: stores.settings, log: stores.log, notifier: notifier, time: time,
             rules: rules, weather: weather, phone: phone,
-            localClock: { LocalClock(timeZone: timeZone()) }
+            localClock: { LocalClock(timeZone: timeZone()) },
+            commandGap: commandGap
         )
     }
 

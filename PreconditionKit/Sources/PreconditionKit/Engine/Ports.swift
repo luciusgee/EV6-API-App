@@ -217,6 +217,23 @@ public struct GuardSettings: Equatable, Sendable {
 public protocol SettingsSource: Sendable {
     func guards() async -> GuardSettings
     func defaultTargetC() async -> Double
+    func climatePreferences() async -> ClimatePreferences
+}
+
+extension SettingsSource {
+    public func climatePreferences() async -> ClimatePreferences { ClimatePreferences() }
+}
+
+/// How every climate start is sent.
+public struct ClimatePreferences: Equatable, Sendable {
+    public var options: ClimateOptions
+    /// Stop the charger first when the car is plugged in but not charging.
+    public var holdCharger: Bool
+
+    public init(options: ClimateOptions = ClimateOptions(), holdCharger: Bool = false) {
+        self.options = options
+        self.holdCharger = holdCharger
+    }
 }
 
 public protocol Notifier: Sendable {

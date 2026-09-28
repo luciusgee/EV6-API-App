@@ -176,15 +176,22 @@ extension PreconditionEngine {
             if let e = inputs.vehicleError { return await failure(e, rule: nil, attempt: attempt, label: label) }
             return .skipped(evaluation.globalSkip ?? evaluation.verdicts.last?.reason ?? "no rule passed")
         }
-        return await execute(winner, label: label, temperature: evaluation.winnerVerdict?.temperature, attempt: attempt)
+        let vehicle = await plugState(await inputs.vehicleIfFree())
+        return await execute(winner, label: label, temperature: evaluation.winnerVerdict?.temperature, attempt: attempt, vehicle: vehicle)
     }
 
-    private func execute(_ rule: Rule, label: String, temperature: TempReading?, attempt: Attempt) async -> EngineOutcome {
+    private func execute(_ rule: Rule, label: String, temperature: TempReading?, attempt: Attempt, vehicle: VehicleSnapshot?) async -> EngineOutcome {
         let action = rule.action
         let result: ApiResult<Void>
+        var note: String?
         switch action {
-        case .startClimate(let target): result = await client.startClimate(targetC: target, kind: .automation)
-        case .stopClimate: result = await client.stopClimate(.automation)
+        case .startClimate(let target):
+            let start = await sendClimateStart(targetC: target, kind: .automation, vehicle: vehicle, trigger: label)
+            result = start.result
+            note = start.note
+        case .stopClimate:
+            result = await client.stopClimate(.automation)
+            if result.value != nil { await vehicles.patch { $0.climate = .off } }
         }
         let now = time.now()
         let description = Describe.action(action)
@@ -200,10 +207,10 @@ extension PreconditionEngine {
                 $0.lastCommand = command
             }
             await log.append(LogEntry(
-                at: now, kind: .command, decision: "sent", reason: "\(description) accepted", trigger: label,
-                ruleId: rule.id, ruleName: rule.name, httpCode: meta.httpCode, requestsUsed: 1
+                at: now, kind: .command, decision: "sent", reason: "\(description) accepted" + (note.map { " (\($0))" } ?? ""), trigger: label,
+                ruleId: rule.id, ruleName: rule.name, httpCode: meta.httpCode, requestsUsed: result.madeRequest ? 1 : 0
             ))
-            let context = ([label] + [temperature.map { Describe.temp($0.celsius) }].compactMap { $0 }).joined(separator: ", ")
+            let context = ([label] + [temperature.map { Describe.temp($0.celsius) }, note].compactMap { $0 }).joined(separator: ", ")
             let headline: String
             if case .startClimate(let target) = action {
                 headline = "Preconditioning to \(Describe.temp(target))"

@@ -26,7 +26,8 @@ final class EngineTests: XCTestCase {
         fakeSessions: InMemoryKiaSessionStore(),
         notifier: notifier,
         live: live,
-        time: time
+        time: time,
+        commandGap: 0
     )
     var engine: PreconditionEngine { container.engine }
     var fake: FakeKia { container.fakeCar }

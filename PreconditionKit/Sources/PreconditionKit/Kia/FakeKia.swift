@@ -31,6 +31,15 @@ public struct FakeCarState: Codable, Equatable, Sendable {
     public var scenario: FakeScenario
     /// Requests per day before the fake answers `5091`.
     public var dailyLimit: Int
+    public var locked: Bool
+    public var chargeLimitAC: Int
+    public var chargeLimitDC: Int
+    public var odometerKm: Double
+    /// Like the real car: starting climate while plugged in also wakes the charger.
+    public var climateStartsCharging: Bool
+    public var lowTyre: Bool
+    /// Charging was stopped by command: the session has ended, so climate no longer wakes the charger.
+    public var chargerHeld: Bool = false
 
     public init(
         socPercent: Int = 62,
@@ -41,7 +50,13 @@ public struct FakeCarState: Codable, Equatable, Sendable {
         latitude: Double = 50.4113,
         longitude: Double = 14.9053,
         scenario: FakeScenario = .none,
-        dailyLimit: Int = 200
+        dailyLimit: Int = 200,
+        locked: Bool = true,
+        chargeLimitAC: Int = 80,
+        chargeLimitDC: Int = 80,
+        odometerKm: Double = 18234.5,
+        climateStartsCharging: Bool = true,
+        lowTyre: Bool = false
     ) {
         self.socPercent = socPercent
         self.pluggedIn = pluggedIn
@@ -52,11 +67,17 @@ public struct FakeCarState: Codable, Equatable, Sendable {
         self.longitude = longitude
         self.scenario = scenario
         self.dailyLimit = dailyLimit
+        self.locked = locked
+        self.chargeLimitAC = chargeLimitAC
+        self.chargeLimitDC = chargeLimitDC
+        self.odometerKm = odometerKm
+        self.climateStartsCharging = climateStartsCharging
+        self.lowTyre = lowTyre
     }
 }
 
 /// A stand-in for Kia Connect: login, device registration, vehicle list (one older-protocol EV6), cached
-/// status, parked position and climate control, all driven by `state`. Install it behind a
+/// status, parked position, climate, charging, locks, charge limits and driving history, all driven by `state`. Install it behind a
 /// `RoutingTransport` for fake-car mode, or use it directly in tests and SwiftUI previews, so the real
 /// client, budget and error mapping run unchanged.
 public final class FakeKia: HTTPTransport, @unchecked Sendable {
@@ -157,9 +178,38 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
                 } else {
                     car.climateOn = true
                     car.targetTempC = KiaMapper.legacyTemp(body?["tempCode"]?.str, unit: 0) ?? car.targetTempC
+                    if car.climateStartsCharging, car.pluggedIn, !car.chargerHeld, car.socPercent < car.chargeLimitAC { car.charging = true }
                 }
             }
-            return ok([:], msgId: "fake-\(Int64(now.timeIntervalSince1970 * 1000))")
+            return ok([:], msgId: msgId(now))
+        }
+        if path.hasSuffix("/control/charge") {
+            let body = request.body.flatMap(JSONValue.parse)
+            guard s.pluggedIn else { return fail(400, "4004", "Charging cable not connected") }
+            car.withLock { car in
+                car.charging = body?["action"]?.str == "start"
+                car.chargerHeld = !car.charging
+            }
+            return ok([:], msgId: msgId(now))
+        }
+        if path.hasSuffix("/control/door") {
+            let body = request.body.flatMap(JSONValue.parse)
+            car.withLock { $0.locked = body?["action"]?.str == "close" }
+            return ok([:], msgId: msgId(now))
+        }
+        if path.hasSuffix("/charge/target") {
+            let body = request.body.flatMap(JSONValue.parse)
+            car.withLock { car in
+                for entry in body?["targetSOClist"]?.array ?? [] {
+                    guard let level = entry["targetSOClevel"]?.int else { continue }
+                    if entry["plugType"]?.int == 1 { car.chargeLimitAC = level } else { car.chargeLimitDC = level }
+                }
+            }
+            return ok([:], msgId: msgId(now))
+        }
+        if path.hasSuffix("/drvhistory") {
+            let body = request.body.flatMap(JSONValue.parse)
+            return ok(Self.drivingHistory(allTime: body?["periodTarget"]?.int == 1, now: now))
         }
         return fail(404, "4040", "not found")
     }
@@ -174,6 +224,12 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
             "batteryPower": ["batteryStndChrgPower": .number(charging ? 10.9 : 0), "batteryFstChrgPower": 0],
             "remainTime2": ["atc": ["value": .number(charging ? Double((100 - s.socPercent) * 5) : 0), "unit": 1]],
             "drvDistance": [["rangeByFuel": ["evModeRange": range]]],
+            "chargePortDoorOpenStatus": .number(s.pluggedIn ? 1 : 2),
+            "batterySoh": 97.5,
+            "reservChargeInfos": ["targetSOClist": [
+                ["plugType": 0, "targetSOClevel": .number(Double(s.chargeLimitDC))],
+                ["plugType": 1, "targetSOClevel": .number(Double(s.chargeLimitAC))],
+            ]],
         ]
         let vehicleStatus: JSONValue = [
             "time": .string(Self.berlinTime(now.addingTimeInterval(-120))),
@@ -181,10 +237,23 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
             "engine": false,
             "airTemp": ["value": .string(KiaMapper.legacyTempCode(s.targetTempC)), "unit": 0],
             "evStatus": evStatus,
+            "doorLock": .bool(s.locked),
+            "doorOpen": ["frontLeft": 0, "frontRight": 0, "backLeft": 0, "backRight": 0],
+            "windowOpen": ["frontLeft": 0, "frontRight": 0, "backLeft": 0, "backRight": 0],
+            "trunkOpen": false,
+            "hoodOpen": false,
+            "defrost": false,
+            "steerWheelHeat": 0,
+            "battery": ["batSoc": 88],
+            "tirePressureLamp": [
+                "tirePressureLampAll": .number(s.lowTyre ? 1 : 0),
+                "tirePressureLampFL": 0, "tirePressureLampFR": 0,
+                "tirePressureLampRL": .number(s.lowTyre ? 1 : 0), "tirePressureLampRR": 0,
+            ],
         ]
         var info: [String: JSONValue] = [
             "vehicleStatus": vehicleStatus,
-            "odometer": ["value": 18234.5, "unit": 1],
+            "odometer": ["value": .number(s.odometerKm), "unit": 1],
         ]
         if s.scenario != .partial {
             info["vehicleLocation"] = [
@@ -194,6 +263,40 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
         }
         return ["vehicleStatusInfo": .object(info)]
     }
+
+    /// A believable month of driving: a commute on weekdays, longer trips at weekends, more heating in the cold.
+    private static func drivingHistory(allTime: Bool, now: Date) -> JSONValue {
+        if allTime {
+            return ["drivingInfo": [["drivingPeriod": 1, "totalPwrCsp": 3_120_000, "regenPwr": 610_000, "calculativeOdo": 18234]]]
+        }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Europe/Berlin") ?? .current
+        var days: [JSONValue] = []
+        var total = 0.0, odo = 0.0
+        for back in 1...30 {
+            guard let date = cal.date(byAdding: .day, value: -back, to: now) else { continue }
+            let weekday = cal.component(.weekday, from: date)
+            let weekend = weekday == 1 || weekday == 7
+            let km = weekend ? Double(20 + (back * 37) % 90) : Double(34 + (back * 13) % 12)
+            let motor = km * 152, climate = km * (weekend ? 18 : 31), electronics = km * 9, care = 120.0
+            let regen = motor * 0.19
+            let sum = motor + climate + electronics + care
+            total += sum
+            odo += km
+            let c = cal.dateComponents([.year, .month, .day], from: date)
+            days.append([
+                "drivingDate": .string(String(format: "%04d%02d%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)),
+                "totalPwrCsp": .number(sum.rounded()), "motorPwrCsp": .number(motor.rounded()),
+                "climatePwrCsp": .number(climate.rounded()), "eDPwrCsp": .number(electronics.rounded()),
+                "batteryMgPwrCsp": .number(care), "regenPwr": .number(regen.rounded()),
+                "calculativeOdo": .number(km),
+            ])
+        }
+        let summary: JSONValue = ["drivingPeriod": 0, "totalPwrCsp": .number(total.rounded()), "calculativeOdo": .number(odo)]
+        return ["drivingInfo": [summary], "drivingInfoDetail": .array(days)]
+    }
+
+    private func msgId(_ now: Date) -> String { "fake-\(Int64(now.timeIntervalSince1970 * 1000))" }
 
     private func ok(_ resMsg: JSONValue, msgId: String? = nil) -> HTTPResponse {
         var body: [String: JSONValue] = ["retCode": "S", "resCode": "0000", "resMsg": resMsg]

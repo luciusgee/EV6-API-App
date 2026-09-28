@@ -65,6 +65,8 @@ public struct FileStores: Sendable {
     public let automationState: FileAutomationStateStore
     public let log: FileEventLog
     public let settings: FileSettingsStore
+    /// The last driving history, so the Energy screen opens without a request.
+    public let energy: JSONFileStore<DrivingHistory?>
 
     public init(directory: URL, time: TimeSource = SystemTime()) {
         budget = FileRateBudgetStore(file: JSONFileStore(url: directory.appendingPathComponent("budget.json"), default: RateBudgetState()))
@@ -72,6 +74,7 @@ public struct FileStores: Sendable {
         automationState = FileAutomationStateStore(file: JSONFileStore(url: directory.appendingPathComponent("automation.json"), default: AutomationState()))
         log = FileEventLog(file: JSONFileStore(url: directory.appendingPathComponent("log.json"), default: []), time: time)
         settings = FileSettingsStore(file: JSONFileStore(url: directory.appendingPathComponent("settings.json"), default: AppSettings()))
+        energy = JSONFileStore(url: directory.appendingPathComponent("energy.json"), default: nil)
     }
 }
 

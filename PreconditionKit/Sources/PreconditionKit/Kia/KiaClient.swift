@@ -65,13 +65,17 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
         }
     }
 
-    public func startClimate(targetC: Double, kind: RequestKind) async -> ApiResult<Void> {
+    public func startClimate(targetC: Double, kind: RequestKind, options extras: ClimateOptions) async -> ApiResult<Void> {
         await call(kind) { s, creds in
             let id = try Self.vehicleId(s)
             let target = Self.roundToHalf(min(max(targetC, KiaConfig.minTempC), KiaConfig.maxTempC))
             let minutes = JSONValue.number(Double(self.config.climateMinutes))
             if s.ccs2 == 0 {
-                let options: JSONValue = ["defrost": false, "heating1": 0, "igniOnDuration": minutes]
+                let options: JSONValue = [
+                    "defrost": .bool(extras.defrost),
+                    "heating1": .number(extras.heatedExtras ? 1 : 0),
+                    "igniOnDuration": minutes,
+                ]
                 let body: JSONValue = [
                     "action": "start",
                     "hvacType": 0,
@@ -90,7 +94,7 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
                 let body: JSONValue = [
                     "command": "start",
                     "ignitionDuration": minutes,
-                    "strgWhlHeating": 0,
+                    "strgWhlHeating": .number(extras.heatedExtras ? 1 : 0),
                     "hvacTempType": 1,
                     "hvacTemp": .number(target),
                     "sideRearMirrorHeating": 1,
@@ -98,7 +102,7 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
                     "drvSeatLoc": "L",
                     "seatClimateInfo": seats,
                     "tempUnit": "C",
-                    "windshieldFrontDefogState": false,
+                    "windshieldFrontDefogState": .bool(extras.defrost),
                 ]
                 let headers = try await self.controlHeaders(s, creds)
                 _ = try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/temperature", headers, body)
@@ -117,6 +121,55 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
                 let headers = try await self.controlHeaders(s, creds)
                 _ = try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/temperature", headers, ["command": "stop"])
             }
+        }
+    }
+
+    /// Charging, locks and charge limits (payloads as in hyundai_kia_connect_api's ApiImplType1).
+    public func send(_ command: CarCommand, kind: RequestKind) async -> ApiResult<Void> {
+        await call(kind) { s, creds in
+            let id = try Self.vehicleId(s)
+            let ccs2 = s.ccs2 != 0
+            switch command {
+            case .startCharging, .stopCharging:
+                let verb = command == .startCharging ? "start" : "stop"
+                if ccs2 {
+                    let headers = try await self.controlHeaders(s, creds)
+                    _ = try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/charge", headers, ["command": .string(verb)])
+                } else {
+                    let body: JSONValue = ["action": .string(verb), "deviceId": .string(s.deviceId ?? "")]
+                    _ = try await self.post("\(self.config.spa)/vehicles/\(id)/control/charge", self.authHeaders(s), body)
+                }
+            case .lock, .unlock:
+                let verb = command == .lock ? "close" : "open"
+                if ccs2 {
+                    let headers = try await self.controlHeaders(s, creds)
+                    _ = try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/door", headers, ["command": .string(verb)])
+                } else {
+                    let body: JSONValue = ["action": .string(verb), "deviceId": .string(s.deviceId ?? "")]
+                    _ = try await self.post("\(self.config.spa)/vehicles/\(id)/control/door", self.authHeaders(s), body)
+                }
+            case .setChargeLimits(let ac, let dc):
+                let dcEntry: JSONValue = ["plugType": 0, "targetSOClevel": .number(Double(Self.chargeLimit(dc)))]
+                let acEntry: JSONValue = ["plugType": 1, "targetSOClevel": .number(Double(Self.chargeLimit(ac)))]
+                let body: JSONValue = ["targetSOClist": [dcEntry, acEntry]]
+                _ = try await self.post("\(self.config.spa)/vehicles/\(id)/charge/target", self.authHeaders(s), body)
+            }
+        }
+    }
+
+    /// The car accepts 50–100 % in steps of 10.
+    static func chargeLimit(_ p: Int) -> Int {
+        min(max(Int((Double(p) / 10).rounded()) * 10, 50), 100)
+    }
+
+    /// Lifetime energy totals plus the last 30 days (two HTTP requests, one budget slot).
+    public func drivingHistory(_ kind: RequestKind) async -> ApiResult<DrivingHistory> {
+        await call(kind) { s, _ in
+            let id = try Self.vehicleId(s)
+            let url = "\(self.config.spa)/vehicles/\(id)/drvhistory"
+            let allTime = try await self.post(url, self.authHeaders(s), ["periodTarget": 1])
+            let month = try await self.post(url, self.authHeaders(s), ["periodTarget": 0])
+            return DrivingHistory.parse(allTime: allTime, month: month, fetchedAt: self.time.now())
         }
     }
 

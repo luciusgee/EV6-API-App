@@ -18,6 +18,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var holidays: [CalendarDay]
     /// Developer: the fake weather's temperature.
     public var fakeWeatherC: Double
+    /// Plugged in but not charging (done, or waiting for off-peak): stop the charger before climate starts,
+    /// so preconditioning doesn't wake it and charge at peak rates.
+    public var holdChargerOnClimate: Bool
+    /// Front windscreen defrost with every climate start.
+    public var climateDefrost: Bool
+    /// Heated steering wheel, rear window and mirrors with every climate start.
+    public var climateHeatedExtras: Bool
 
     public init(
         minSocPercent: Int = 25,
@@ -28,7 +35,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         budgetReserve: Int = BudgetConfig.kia.manualReserve,
         fakeMode: Bool = false,
         holidays: [CalendarDay] = [],
-        fakeWeatherC: Double = 3
+        fakeWeatherC: Double = 3,
+        holdChargerOnClimate: Bool = true,
+        climateDefrost: Bool = false,
+        climateHeatedExtras: Bool = false
     ) {
         self.minSocPercent = minSocPercent
         self.defaultTargetC = defaultTargetC
@@ -39,6 +49,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.fakeMode = fakeMode
         self.holidays = holidays
         self.fakeWeatherC = fakeWeatherC
+        self.holdChargerOnClimate = holdChargerOnClimate
+        self.climateDefrost = climateDefrost
+        self.climateHeatedExtras = climateHeatedExtras
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,6 +66,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         fakeMode = try c.decodeIfPresent(Bool.self, forKey: .fakeMode) ?? d.fakeMode
         holidays = try c.decodeIfPresent([CalendarDay].self, forKey: .holidays) ?? d.holidays
         fakeWeatherC = try c.decodeIfPresent(Double.self, forKey: .fakeWeatherC) ?? d.fakeWeatherC
+        holdChargerOnClimate = try c.decodeIfPresent(Bool.self, forKey: .holdChargerOnClimate) ?? d.holdChargerOnClimate
+        climateDefrost = try c.decodeIfPresent(Bool.self, forKey: .climateDefrost) ?? d.climateDefrost
+        climateHeatedExtras = try c.decodeIfPresent(Bool.self, forKey: .climateHeatedExtras) ?? d.climateHeatedExtras
     }
 
     /// Values forced into their allowed ranges.
@@ -70,6 +86,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     public var budgetConfig: BudgetConfig {
         BudgetConfig(limit: budgetLimit, manualReserve: budgetReserve, window: BudgetConfig.kia.window)
+    }
+
+    public var climatePreferences: ClimatePreferences {
+        ClimatePreferences(
+            options: ClimateOptions(defrost: climateDefrost, heatedExtras: climateHeatedExtras),
+            holdCharger: holdChargerOnClimate
+        )
     }
 
     public var guards: GuardSettings {
@@ -92,6 +115,8 @@ public struct FileSettingsStore: SettingsSource {
     public func guards() async -> GuardSettings { await load().guards }
 
     public func defaultTargetC() async -> Double { await load().defaultTargetC }
+
+    public func climatePreferences() async -> ClimatePreferences { await load().climatePreferences }
 }
 
 // MARK: - Fake-car mode plumbing

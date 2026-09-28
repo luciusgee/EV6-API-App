@@ -92,10 +92,52 @@ public struct VehicleFetch: Equatable, Sendable {
     }
 }
 
+/// Extras for a climate start.
+public struct ClimateOptions: Codable, Equatable, Sendable {
+    /// Front windscreen defrost.
+    public var defrost: Bool
+    /// Heated steering wheel, rear window and mirrors.
+    public var heatedExtras: Bool
+
+    public init(defrost: Bool = false, heatedExtras: Bool = false) {
+        self.defrost = defrost
+        self.heatedExtras = heatedExtras
+    }
+}
+
+/// Commands beyond climate.
+public enum CarCommand: Equatable, Sendable {
+    case startCharging
+    case stopCharging
+    case lock
+    case unlock
+    /// Where charging stops, in % (50–100, steps of 10), for AC and DC charging.
+    case setChargeLimits(ac: Int, dc: Int)
+
+    public var description: String {
+        switch self {
+        case .startCharging: return "start charging"
+        case .stopCharging: return "stop charging"
+        case .lock: return "lock the car"
+        case .unlock: return "unlock the car"
+        case .setChargeLimits(let ac, let dc): return "set charge limits to \(ac)% AC, \(dc)% DC"
+        }
+    }
+}
+
 /// The car as the engine sees it. Every call goes through the rate budget and reports an `ApiResult`.
 public protocol VehicleAPI: Sendable {
     /// Reads the car's cached state. Never wakes the car.
     func getVehicle(_ kind: RequestKind) async -> ApiResult<VehicleFetch>
-    func startClimate(targetC: Double, kind: RequestKind) async -> ApiResult<Void>
+    func startClimate(targetC: Double, kind: RequestKind, options: ClimateOptions) async -> ApiResult<Void>
     func stopClimate(_ kind: RequestKind) async -> ApiResult<Void>
+    func send(_ command: CarCommand, kind: RequestKind) async -> ApiResult<Void>
+    /// Energy use: lifetime totals and the last 30 days, day by day.
+    func drivingHistory(_ kind: RequestKind) async -> ApiResult<DrivingHistory>
+}
+
+extension VehicleAPI {
+    public func startClimate(targetC: Double, kind: RequestKind) async -> ApiResult<Void> {
+        await startClimate(targetC: targetC, kind: kind, options: ClimateOptions())
+    }
 }

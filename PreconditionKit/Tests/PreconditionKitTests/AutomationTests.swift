@@ -20,6 +20,8 @@ final class MutableSettings: SettingsSource, @unchecked Sendable {
     var guardSettings = GuardSettings()
     func guards() async -> GuardSettings { guardSettings }
     func defaultTargetC() async -> Double { 21 }
+    var prefs = ClimatePreferences()
+    func climatePreferences() async -> ClimatePreferences { prefs }
 }
 
 final class MutablePhone: PhoneLocator, @unchecked Sendable {
@@ -63,7 +65,8 @@ final class AutomationTests: XCTestCase {
     let phone = MutablePhone(office.centre)
     lazy var engine = PreconditionEngine(
         client: client, vehicles: vehicles, budget: budget, state: state, settings: settings, log: log,
-        notifier: notifier, time: time, rules: rules, weather: weather, phone: phone, localClock: { pragueClock }
+        notifier: notifier, time: time, rules: rules, weather: weather, phone: phone, localClock: { pragueClock },
+        commandGap: 0
     )
 
     let exitOffice = TriggerEvent.geofenceExited(placeId: "office")
@@ -100,6 +103,21 @@ final class AutomationTests: XCTestCase {
         XCTAssertEqual(s.lastFiredByRule["leave"], time.now())
         XCTAssertEqual(s.lastAutomatedCommandAt, time.now())
         XCTAssertEqual(s.lastCommand?.automated, true)
+    }
+
+    func testAutomationHoldsTheChargerWhenPluggedInAndIdle() async {
+        settings.prefs = ClimatePreferences(options: ClimateOptions(defrost: true), holdCharger: true)
+        fake.state.pluggedIn = true
+        fake.state.socPercent = 70
+        let outcome = await trigger()
+        XCTAssertTrue(isFired(outcome), "\(outcome)")
+        XCTAssertTrue(fake.state.climateOn)
+        XCTAssertFalse(fake.state.charging)
+        let texts = await notifier.sent
+        XCTAssertEqual(texts, ["Preconditioning to 21.0 °C — left Office, 3.0 °C, charger held (Leaving work)"])
+        let log = await entries()
+        XCTAssertEqual(log.reduce(0) { $0 + $1.requestsUsed }, 3)
+        XCTAssertTrue(log.contains { $0.kind == .command && $0.reason.hasPrefix("stop charging accepted") && $0.trigger == "left Office" })
     }
 
     // MARK: Acceptance: guards are never bypassed and each case is logged

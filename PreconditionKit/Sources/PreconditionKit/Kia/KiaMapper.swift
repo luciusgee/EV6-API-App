@@ -44,7 +44,75 @@ public enum KiaMapper {
             parkingPosition: position(info?.path("vehicleLocation.coord.lat"), info?.path("vehicleLocation.coord.lon")),
             parked: engine.map { !$0 },
             carCapturedAt: time(vs?.path("time")?.str, zone: berlin),
-            fetchedAt: Date(timeIntervalSince1970: 0)
+            fetchedAt: Date(timeIntervalSince1970: 0),
+            details: legacyDetails(info)
+        )
+    }
+
+    private static let positions = ["frontLeft": "front left", "frontRight": "front right", "backLeft": "rear left", "backRight": "rear right"]
+
+    private static func legacyDetails(_ info: JSONValue?) -> VehicleDetails? {
+        guard let info else { return nil }
+        let vs = info.path("vehicleStatus")
+        let ev = vs?.path("evStatus")
+        func open(_ group: String) -> [String] {
+            ["frontLeft", "frontRight", "backLeft", "backRight"].filter { vs?.path("\(group).\($0)")?.bool == true }.map { positions[$0]! }
+        }
+        let tyres = ["FL": "front left", "FR": "front right", "RL": "rear left", "RR": "rear right"]
+        let lowTyres = ["FL", "FR", "RL", "RR"].filter { vs?.path("tirePressureLamp.tirePressureLamp\($0)")?.bool == true }.map { tyres[$0]! }
+        // The car sometimes repeats a plug type; the last entry is the one it uses.
+        let limits = ev?.path("reservChargeInfos.targetSOClist")?.array ?? []
+        func limit(_ plug: Int) -> Int? { limits.last { $0["plugType"]?.int == plug }?["targetSOClevel"]?.int }
+        let port = ev?.path("chargePortDoorOpenStatus")?.int
+        let wheel = vs?.path("steerWheelHeat")?.int
+        let odometer = info.path("odometer.value")?.num
+        let odoUnit = info.path("odometer.unit")?.int
+        return VehicleDetails(
+            odometerKm: odometer.map { odoUnit == 2 || odoUnit == 3 ? $0 * 1.609344 : $0 },
+            locked: vs?.path("doorLock")?.bool,
+            auxBatteryPercent: vs?.path("battery.batSoc")?.int,
+            openDoors: open("doorOpen"),
+            openWindows: open("windowOpen"),
+            trunkOpen: vs?.path("trunkOpen")?.bool,
+            hoodOpen: vs?.path("hoodOpen")?.bool,
+            chargePortOpen: port == 1 ? true : (port == 2 ? false : nil),
+            tyreWarning: vs?.path("tirePressureLamp.tirePressureLampAll")?.bool,
+            tyreWarnings: lowTyres,
+            chargeLimitAC: limit(1),
+            chargeLimitDC: limit(0),
+            batteryHealthPercent: ev?.path("batterySoh")?.num.flatMap { $0 > 0 ? $0 : nil },
+            defrostOn: vs?.path("defrost")?.bool,
+            steeringWheelHeatOn: wheel.map { $0 == 1 }
+        )
+    }
+
+    private static func ccs2Details(_ v: JSONValue?) -> VehicleDetails? {
+        guard let v else { return nil }
+        let doors = [("Row1.Driver", "front left"), ("Row1.Passenger", "front right"), ("Row2.Left", "rear left"), ("Row2.Right", "rear right")]
+        let openDoors = doors.filter { v.path("Cabin.Door.\($0.0).Open")?.bool == true }.map(\.1)
+        let lockValues = doors.compactMap { v.path("Cabin.Door.\($0.0).Lock")?.bool }
+        let windows = doors.filter { (v.path("Cabin.Window.\($0.0).Open")?.num ?? 0) > 0 }.map(\.1)
+        let tyres = [("Row1.Left", "front left"), ("Row1.Right", "front right"), ("Row2.Left", "rear left"), ("Row2.Right", "rear right")]
+        let low = tyres.filter { v.path("Chassis.Axle.\($0.0).Tire.PressureLow")?.bool == true }.map(\.1)
+        let odoUnit = v.path("Drivetrain.Odometer.Unit")?.int
+        let odometer = v.path("Drivetrain.Odometer")?.num ?? v.path("Drivetrain.Odometer.Value")?.num
+        return VehicleDetails(
+            odometerKm: odometer.map { odoUnit == 2 || odoUnit == 3 ? $0 * 1.609344 : $0 },
+            // A truthy per-door "Lock" means unlocked (as the Python library reads it).
+            locked: lockValues.isEmpty ? nil : !lockValues.contains(true),
+            auxBatteryPercent: v.path("Electronics.Battery.Level")?.int,
+            openDoors: openDoors,
+            openWindows: windows,
+            trunkOpen: v.path("Body.Trunk.Open")?.bool,
+            hoodOpen: v.path("Body.Hood.Open")?.bool,
+            chargePortOpen: v.path("Green.ChargingDoor.State")?.int.map { $0 == 1 },
+            tyreWarning: v.path("Chassis.Axle.Tire.PressureLow")?.bool,
+            tyreWarnings: low,
+            chargeLimitAC: v.path("Green.ChargingInformation.TargetSoC.Standard")?.int,
+            chargeLimitDC: v.path("Green.ChargingInformation.TargetSoC.Quick")?.int,
+            batteryHealthPercent: v.path("Green.BatteryManagement.SoH.Ratio")?.num,
+            defrostOn: v.path("Body.Windshield.Front.Defog.State")?.bool,
+            steeringWheelHeatOn: v.path("Cabin.SteeringWheel.Heat.State")?.bool
         )
     }
 
@@ -74,7 +142,8 @@ public enum KiaMapper {
             parkingPosition: position(v?.path("Location.GeoCoord.Latitude"), v?.path("Location.GeoCoord.Longitude")),
             parked: ready.map { !$0 },
             carCapturedAt: time(v?.path("Date")?.str, zone: utc),
-            fetchedAt: Date(timeIntervalSince1970: 0)
+            fetchedAt: Date(timeIntervalSince1970: 0),
+            details: ccs2Details(v)
         )
     }
 

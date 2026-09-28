@@ -15,7 +15,8 @@ final class CarModelTests: XCTestCase {
         notifier: NoopNotifier(),
         live: live,
         time: time,
-        config: KiaConfig(apiBase: "https://api.test:8080", idpBase: "https://idp.test")
+        config: KiaConfig(apiBase: "https://api.test:8080", idpBase: "https://idp.test"),
+        commandGap: 0
     )
     lazy var model = CarModel(container: container)
 

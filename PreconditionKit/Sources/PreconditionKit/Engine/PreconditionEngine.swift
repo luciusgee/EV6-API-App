@@ -24,6 +24,9 @@ public final class PreconditionEngine: Sendable {
     let phone: PhoneLocator
     let cabin: CabinSensor
     let localClock: @Sendable () -> LocalClock
+    /// Waits between two commands in a row (stop charging, then climate), so the car takes them in turn.
+    let commandGap: TimeInterval
+    let pause: @Sendable (TimeInterval) async -> Void
     let mutex = AsyncMutex()
 
     public init(
@@ -39,7 +42,11 @@ public final class PreconditionEngine: Sendable {
         weather: WeatherSource = NoWeather(),
         phone: PhoneLocator = NoPhoneLocator(),
         cabin: CabinSensor = NoCabinSensor(),
-        localClock: @escaping @Sendable () -> LocalClock = { LocalClock() }
+        localClock: @escaping @Sendable () -> LocalClock = { LocalClock() },
+        commandGap: TimeInterval = 5,
+        pause: @escaping @Sendable (TimeInterval) async -> Void = { seconds in
+            try? await Task.sleep(nanoseconds: UInt64(max(seconds, 0) * 1_000_000_000))
+        }
     ) {
         self.client = client
         self.vehicles = vehicles
@@ -54,6 +61,8 @@ public final class PreconditionEngine: Sendable {
         self.phone = phone
         self.cabin = cabin
         self.localClock = localClock
+        self.commandGap = commandGap
+        self.pause = pause
     }
 
     /// Manual start: the SoC guard and the budget still apply; cooldowns and pause don't.
@@ -102,8 +111,9 @@ public final class PreconditionEngine: Sendable {
         }
 
         var requests = 0
+        var vehicle: VehicleSnapshot?
         if case .startClimate = action {
-            var vehicle = await vehicles.fresh()
+            vehicle = await vehicles.fresh()
             let needed = vehicle == nil ? 2 : 1
             if await budget.available(.manual) < needed { return await refuse("rate budget exhausted") }
             if vehicle == nil {
@@ -123,22 +133,30 @@ public final class PreconditionEngine: Sendable {
         }
 
         let result: ApiResult<Void>
+        var note: String?
         switch action {
-        case .startClimate(let target): result = await client.startClimate(targetC: target, kind: .manual)
-        case .stopClimate: result = await client.stopClimate(.manual)
+        case .startClimate(let target):
+            let start = await sendClimateStart(targetC: target, kind: .manual, vehicle: await plugState(vehicle), trigger: nil)
+            result = start.result
+            requests += start.requests
+            note = start.note
+        case .stopClimate:
+            result = await client.stopClimate(.manual)
+            if result.madeRequest { requests += 1 }
+            if result.value != nil { await vehicles.patch { $0.climate = .off } }
         }
-        if result.madeRequest { requests += 1 }
 
         switch result {
         case .success(_, let meta):
             let command = LastCommand(at: now, description: description, automated: false)
             await state.update { $0.lastCommand = command }
             await log.append(LogEntry(
-                at: now, kind: .manual, decision: "sent", reason: "\(description) accepted",
+                at: now, kind: .manual, decision: "sent", reason: "\(description) accepted" + (note.map { " (\($0))" } ?? ""),
                 httpCode: meta.httpCode, requestsUsed: requests
             ))
             if case .startClimate(let target) = action {
-                await notifier.commandSent(title: "Preconditioning to \(Describe.temp(target))", text: "Started manually", canStop: true)
+                let text = note == nil ? "Started manually" : "Started manually, charger held"
+                await notifier.commandSent(title: "Preconditioning to \(Describe.temp(target))", text: text, canStop: true)
             }
             return .sent(description)
         case .failure(let error, _):

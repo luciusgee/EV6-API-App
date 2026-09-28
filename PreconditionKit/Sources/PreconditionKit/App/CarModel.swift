@@ -8,6 +8,8 @@ import Observation
 public final class CarModel {
     public enum Busy: Equatable, Sendable {
         case refreshing, starting, stopping
+        case command(CarCommand)
+        case energy
     }
 
     public enum Banner: Equatable, Sendable {
@@ -31,6 +33,8 @@ public final class CarModel {
     public private(set) var vin = ""
     public private(set) var busy: Busy?
     public private(set) var fakeCar = FakeCarState()
+    /// The last driving history fetched (cached on disk).
+    public private(set) var energy: DrivingHistory?
     /// A one-line result to show after an action, e.g. "Refused: SoC 20% below minimum 25%".
     public var message: String?
 
@@ -66,6 +70,7 @@ public final class CarModel {
         hasPin = !(creds?.pin?.isEmpty ?? true)
         vin = creds?.vin ?? ""
         fakeCar = container.fakeCar.state
+        energy = await container.stores.energy.load()
         await reloadState()
     }
 
@@ -92,6 +97,7 @@ public final class CarModel {
         busy = .starting
         report(await container.engine.manualStart(targetC: targetC))
         busy = nil
+        fakeCar = container.fakeCar.state
         await reloadState()
     }
 
@@ -99,6 +105,31 @@ public final class CarModel {
         guard busy == nil else { return }
         busy = .stopping
         report(await container.engine.manualStop())
+        busy = nil
+        await reloadState()
+    }
+
+    /// Charging, locks, charge limits.
+    public func send(_ command: CarCommand) async {
+        guard busy == nil else { return }
+        busy = .command(command)
+        report(await container.engine.manualCommand(command))
+        busy = nil
+        fakeCar = container.fakeCar.state
+        await reloadState()
+    }
+
+    /// Fetches the driving history (one manual request).
+    public func refreshEnergy() async {
+        guard busy == nil else { return }
+        busy = .energy
+        switch await container.engine.drivingHistory() {
+        case .success(let history, _):
+            energy = history
+            await container.stores.energy.save(history)
+        case .failure(let error, _):
+            message = "Energy data unavailable: \(error.message)"
+        }
         busy = nil
         await reloadState()
     }
@@ -181,7 +212,11 @@ public final class CarModel {
 
     public func updateFakeCar(_ change: (inout FakeCarState) -> Void) {
         var s = container.fakeCar.state
+        let wasPlugged = s.pluggedIn
         change(&s)
+        // Plugging in again starts a new charging session.
+        if s.pluggedIn != wasPlugged { s.chargerHeld = false }
+        if !s.pluggedIn { s.charging = false }
         container.fakeCar.state = s
         fakeCar = s
     }

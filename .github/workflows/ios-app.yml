@@ -1,0 +1,28 @@
+name: iOS app
+
+# Builds the iPhone app on a Mac for every push, so compile errors show up in readable logs.
+# Codemagic does the signed TestFlight builds.
+on:
+  push:
+    paths: ["EV6Precondition/**", "PreconditionKit/**", "project.yml", ".github/workflows/ios-app.yml"]
+  pull_request:
+    paths: ["EV6Precondition/**", "PreconditionKit/**", "project.yml", ".github/workflows/ios-app.yml"]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate the Xcode project
+        run: xcodegen generate
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project EV6Precondition.xcodeproj \
+            -scheme EV6Precondition \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee build.log | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" build.log

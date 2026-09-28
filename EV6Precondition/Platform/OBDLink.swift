@@ -179,14 +179,14 @@ final class OBDLink: NSObject {
     // MARK: Characteristic choice
 
     /// Known adapter layouts, then any service with a notify and a write characteristic.
-    private static let knownPairs: [(service: String, notify: String, write: String)] = [
+    nonisolated private static let knownPairs: [(service: String, notify: String, write: String)] = [
         ("FFF0", "FFF1", "FFF2"),
         ("FFE0", "FFE1", "FFE1"),
         ("18F0", "2AF0", "2AF1"),
         ("E7810A71-73AE-499D-8C15-FAA9AEF0C3F2", "BEF8D6C9-9C21-4C9E-B632-BD58C1009F9F", "BEF8D6C9-9C21-4C9E-B632-BD58C1009F9F"),
     ]
-    private static let ignoredServices: Set<String> = ["1800", "1801", "180A", "180F"]
-    private static let namePatterns = ["OBD", "ELM", "VLINK", "V-LINK", "VGATE", "ICAR", "KONNWEI", "VEEPEAK", "LELINK", "CARISTA", "SCAN", "VLINKER"]
+    nonisolated private static let ignoredServices: Set<String> = ["1800", "1801", "180A", "180F"]
+    nonisolated private static let namePatterns = ["OBD", "ELM", "VLINK", "V-LINK", "VGATE", "ICAR", "KONNWEI", "VEEPEAK", "LELINK", "CARISTA", "SCAN", "VLINKER"]
 
     private func chooseCharacteristics(_ p: CBPeripheral) {
         let services = p.services ?? []
@@ -216,7 +216,7 @@ final class OBDLink: NSObject {
         state = .ready(p.name ?? "OBD adapter")
     }
 
-    private static func likelyOBD(name: String, advertisement: [String: Any]) -> Bool {
+    nonisolated private static func likelyOBD(name: String, advertisement: [String: Any]) -> Bool {
         let upper = name.uppercased()
         if namePatterns.contains(where: { upper.contains($0) }) { return true }
         let services = advertisement[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []

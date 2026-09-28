@@ -20,6 +20,10 @@ final class OBDModel {
 
     var scanning: Bool { progress != nil }
 
+    private func setProgress(_ p: BatteryScanner.Progress) {
+        progress = p
+    }
+
     func load() async {
         report = await store.load()
     }
@@ -33,9 +37,7 @@ final class OBDModel {
         let transport: OBDTransport = simulated ? FakeOBDAdapter() : OBDLinkTransport(link: link)
         let scanner = BatteryScanner(elm: ELM327(transport: transport))
         do {
-            let (result, issues) = try await scanner.scan { [weak self] p in
-                await MainActor.run { self?.progress = p }
-            }
+            let (result, issues) = try await scanner.scan { p in await self.setProgress(p) }
             report = result
             problems = issues
             await store.save(result)

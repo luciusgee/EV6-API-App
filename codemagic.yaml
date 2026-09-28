@@ -1,6 +1,6 @@
 # Codemagic builds for the iPhone app. Two workflows:
 #   ios-ci          every push: PreconditionKit tests on macOS, then an unsigned simulator build.
-#   ios-testflight  run by hand: signed build uploaded to TestFlight.
+#   ios-testflight  on a testflight-* tag (or by hand): signed build uploaded to TestFlight.
 
 workflows:
   ios-ci:
@@ -13,6 +13,10 @@ workflows:
       events:
         - push
         - pull_request
+      branch_patterns:
+        - pattern: '*'
+          include: true
+          source: true
     scripts:
       - name: Install XcodeGen
         script: brew install xcodegen
@@ -33,6 +37,13 @@ workflows:
     name: TestFlight
     instance_type: mac_mini_m2
     max_build_duration: 45
+    # Pushing a tag such as testflight-0.1.0-1 starts this workflow, so a build can be shipped from git.
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: 'testflight-*'
+          include: true
     integrations:
       # The App Store Connect API key in Codemagic (Team settings > Integrations > Developer Portal).
       app_store_connect: shopfair-asc-key

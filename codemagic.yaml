@@ -17,6 +17,10 @@ workflows:
         - pattern: '*'
           include: true
           source: true
+        # release runs ios-testflight, which already runs the tests.
+        - pattern: 'release'
+          include: false
+          source: true
     scripts:
       - name: Install XcodeGen
         script: brew install xcodegen

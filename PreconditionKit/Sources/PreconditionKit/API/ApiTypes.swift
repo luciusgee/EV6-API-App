@@ -7,7 +7,7 @@ public enum RequestKind: String, Codable, Sendable {
 }
 
 /// What the user entered in Settings. Stored in the Keychain; never logged or exported.
-public struct Credentials: Equatable, Sendable {
+public struct Credentials: Codable, Equatable, Sendable, CustomStringConvertible {
     /// The Kia Connect refresh token (48 characters, `[A-Z0-9]`).
     public var refreshToken: String
     /// Optional: picks the car when the account has several. Empty = first EV.
@@ -19,6 +19,11 @@ public struct Credentials: Equatable, Sendable {
         self.refreshToken = refreshToken
         self.vin = vin
         self.pin = pin
+    }
+
+    /// Never prints the token or PIN, so credentials can't leak into a log by accident.
+    public var description: String {
+        "Credentials(refreshToken: \(refreshToken.isEmpty ? "none" : "set"), vin: \(vin.isEmpty ? "none" : maskVin(vin)), pin: \(pin == nil ? "none" : "set"))"
     }
 }
 

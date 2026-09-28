@@ -1,7 +1,6 @@
 # Codemagic builds for the iPhone app. Two workflows:
 #   ios-ci          every push: PreconditionKit tests on macOS, then an unsigned simulator build.
 #   ios-testflight  run by hand: signed build uploaded to TestFlight.
-# Before the first TestFlight run, set APP_STORE_APPLE_ID below (marked CHANGE ME).
 
 workflows:
   ios-ci:
@@ -43,8 +42,8 @@ workflows:
         distribution_type: app_store
         bundle_identifier: com.luciusgee.ev6precondition
       vars:
-        # CHANGE ME: the app's Apple ID from App Store Connect (App Information > Apple ID).
-        APP_STORE_APPLE_ID: "0000000000"
+        # The app's Apple ID from App Store Connect (App Information > Apple ID).
+        APP_STORE_APPLE_ID: "6817129603"
     scripts:
       - name: Install XcodeGen
         script: brew install xcodegen

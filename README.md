@@ -35,4 +35,6 @@ The Xcode project is generated from `project.yml` by [XcodeGen](https://github.c
 - **On a Mac:** `brew install xcodegen && xcodegen generate`, then open `EV6Precondition.xcodeproj`.
 - **Core logic only (any OS):** `swift test --package-path PreconditionKit`.
 
-Status: milestone 1 (HANDOVER.md §7). Settings (token, PIN and VIN in the Keychain), the dashboard with manual Refresh/Start/Stop, the Activity log and fake-car mode. Not yet run against a real Kia account.
+Status: milestones 1 and 2 (HANDOVER.md §7). Kia connection, dashboard with manual Refresh/Start/Stop, rules (editor, templates, Test now, backup import/export, automation engine), Open-Meteo, schedule rules via a Shortcuts action, Siri/Shortcuts actions, Activity log and fake-car mode. Next: milestone 3 (places on a map, geofence triggers, background location). Not yet run against a real Kia account.
+
+To ship: `git push origin main:release` builds and uploads to TestFlight. A GitHub Actions job also builds the app on macOS for every push, with readable compiler logs.

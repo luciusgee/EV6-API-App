@@ -54,4 +54,23 @@ public enum DisplayText {
         f.dateFormat = "HH:mm"
         return f.string(from: date)
     }
+
+    public static let kmPerMile = 1.609344
+
+    /// "196 mi", "315 km".
+    public static func distance(km: Double, miles: Bool) -> String {
+        miles ? "\(Int((km / kmPerMile).rounded())) mi" : "\(Int(km.rounded())) km"
+    }
+
+    /// "3.9 mi/kWh" or "16.0 kWh/100 km"; nil when there's nothing to divide.
+    public static func efficiency(kWhPer100km: Double?, miles: Bool) -> String? {
+        guard let e = kWhPer100km, e > 0 else { return nil }
+        if miles { return String(format: "%.1f mi/kWh", 100 / e / kmPerMile) }
+        return String(format: "%.1f kWh/100 km", e)
+    }
+
+    /// "12.4 kWh", "850 Wh".
+    public static func energy(wh: Double) -> String {
+        abs(wh) >= 1000 ? String(format: "%.1f kWh", wh / 1000) : "\(Int(wh.rounded())) Wh"
+    }
 }

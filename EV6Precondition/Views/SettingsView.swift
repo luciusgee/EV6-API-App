@@ -10,6 +10,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                MyCarSection()
                 KiaConnectSection()
                 SafetySection()
                 PermissionsSection()
@@ -22,6 +23,39 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+        }
+    }
+}
+
+// MARK: - My car
+
+private struct MyCarSection: View {
+    @Environment(CarModel.self) private var model
+    @AppStorage(CarPaint.storageKey) private var paint: CarPaint = .snowWhitePearl
+
+    var body: some View {
+        Section {
+            EV6Illustration(paint: paint)
+                .padding(.vertical, 8)
+            Picker("Paint", selection: $paint) {
+                ForEach(CarPaint.allCases) { p in
+                    Label {
+                        Text(p.name)
+                    } icon: {
+                        Image(systemName: "circle.fill").foregroundStyle(p.swatch)
+                    }
+                    .tag(p)
+                }
+            }
+            .pickerStyle(.navigationLink)
+            Toggle("Miles", isOn: Binding(
+                get: { model.settings.useMiles },
+                set: { on in Task { await model.updateSettings { $0.useMiles = on } } }
+            ))
+        } header: {
+            Text("My EV6")
+        } footer: {
+            Text("2022 EV6 GT-Line AWD · 77.4 kWh · 325 bhp. Miles off shows km and kWh/100 km.")
         }
     }
 }
@@ -196,6 +230,9 @@ private struct DeveloperSection: View {
                 Toggle("Plugged in", isOn: fake(\.pluggedIn))
                 Toggle("Charging", isOn: fake(\.charging)).disabled(!model.fakeCar.pluggedIn)
                 Toggle("Climate on", isOn: fake(\.climateOn))
+                Toggle("Locked", isOn: fake(\.locked))
+                Toggle("Low tyre", isOn: fake(\.lowTyre))
+                Toggle("Climate wakes the charger", isOn: fake(\.climateStartsCharging))
                 Stepper(value: Binding(
                     get: { model.settings.fakeWeatherC },
                     set: { value in Task { await model.updateSettings { $0.fakeWeatherC = value } } }

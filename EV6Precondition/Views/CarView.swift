@@ -1,13 +1,18 @@
 import PreconditionKit
 import SwiftUI
 
-/// The dashboard (HANDOVER.md §6.1), as a native grouped list.
+/// The dashboard (HANDOVER.md §6.1): the car, its controls and its health, as a native grouped list.
 struct CarView: View {
     @Environment(CarModel.self) private var model
     @Environment(RulesModel.self) private var rules
+    @AppStorage(CarPaint.storageKey) private var paint: CarPaint = .snowWhitePearl
     @State private var target: Double?
+    @State private var confirmUnlock = false
+    @State private var editingLimits = false
 
     private var shownTarget: Double { target ?? model.settings.defaultTargetC }
+    private var snapshot: VehicleSnapshot? { model.snapshot }
+    private var details: VehicleDetails? { snapshot?.details }
 
     var body: some View {
         NavigationStack {
@@ -17,12 +22,36 @@ struct CarView: View {
                 }
 
                 Section {
-                    BatteryHeader(snapshot: model.snapshot)
+                    HeroCard(snapshot: snapshot, paint: paint, miles: model.settings.useMiles)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
                 } footer: {
                     Text(ageText)
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
+                }
+
+                Section {
+                    controls
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                } footer: {
+                    if let message = model.message {
+                        Text(message)
+                    }
+                }
+
+                if let alerts = details?.alerts, !alerts.isEmpty {
+                    Section {
+                        ForEach(alerts, id: \.self) { alert in
+                            Label(alert, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
                 }
 
                 climateSection
+                vehicleSection
                 automationSection
                 requestsSection
             }
@@ -43,69 +72,191 @@ struct CarView: View {
                     }
                 }
             }
+            .confirmationDialog("Unlock the car?", isPresented: $confirmUnlock, titleVisibility: .visible) {
+                Button("Unlock") { Task { await model.send(.unlock) } }
+            } message: {
+                Text("The doors unlock remotely. The car locks itself again if no door is opened.")
+            }
+            .sheet(isPresented: $editingLimits) {
+                ChargeLimitSheet(ac: details?.chargeLimitAC ?? 80, dc: details?.chargeLimitDC ?? 80)
+            }
         }
     }
 
     /// We never wake the car, so its data can be old; say how old (HANDOVER.md §3.7).
     private var ageText: String {
-        guard let snapshot = model.snapshot else { return "No data yet. Pull down to read the car." }
+        guard let snapshot else { return "No data yet. Pull down to read the car." }
         let fetched = "Read \(DisplayText.age(of: snapshot.fetchedAt, now: model.now))"
         guard let reported = snapshot.carCapturedAt else { return fetched }
         return "\(fetched) · car reported \(DisplayText.age(of: reported, now: model.now))"
     }
 
-    // MARK: Climate
+    // MARK: Controls
 
-    private var climateStatus: String {
-        guard let v = model.snapshot else { return "Unknown" }
-        switch v.climate {
-        case .running: return v.targetTempC.map { "On · \(Describe.temp($0))" } ?? "On"
-        case .off: return "Off"
-        case .unknown: return "Unknown"
+    private var climateOn: Bool { snapshot?.climate == .running }
+    private var charging: Bool { snapshot?.chargingState == .charging }
+    private var pluggedIn: Bool { snapshot?.pluggedIn == true }
+
+    private var controls: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            ControlTile(
+                title: "Climate",
+                subtitle: climateOn ? (snapshot?.targetTempC.map { "On · \(Describe.temp($0))" } ?? "On") : "Off",
+                systemImage: climateOn ? "fan.fill" : "fan",
+                tint: .orange,
+                active: climateOn,
+                busy: model.busy == .starting || model.busy == .stopping
+            ) {
+                Task { climateOn ? await model.stop() : await model.start(targetC: shownTarget) }
+            }
+            ControlTile(
+                title: details?.locked == false ? "Unlocked" : "Locked",
+                subtitle: details?.locked == nil ? "Unknown" : (details?.locked == true ? "Tap to unlock" : "Tap to lock"),
+                systemImage: details?.locked == false ? "lock.open.fill" : "lock.fill",
+                tint: details?.locked == false ? .red : .blue,
+                active: details?.locked == false,
+                busy: model.busy == .command(.lock) || model.busy == .command(.unlock)
+            ) {
+                if details?.locked == false {
+                    Task { await model.send(.lock) }
+                } else {
+                    confirmUnlock = true
+                }
+            }
+            ControlTile(
+                title: "Charging",
+                subtitle: charging ? (snapshot?.chargePowerKw.map { String(format: "%.1f kW", $0) } ?? "On") : (pluggedIn ? "Paused" : "Unplugged"),
+                systemImage: charging ? "bolt.fill" : (pluggedIn ? "powerplug.fill" : "powerplug"),
+                tint: .green,
+                active: charging,
+                busy: model.busy == .command(.startCharging) || model.busy == .command(.stopCharging)
+            ) {
+                Task { await model.send(charging ? .stopCharging : .startCharging) }
+            }
+            .disabled(!pluggedIn)
+            ControlTile(
+                title: "Charge limit",
+                subtitle: limitsText,
+                systemImage: "gauge.with.dots.needle.67percent",
+                tint: .teal,
+                active: false,
+                busy: settingLimits
+            ) {
+                editingLimits = true
+            }
+        }
+        .disabled(model.busy != nil && model.busy != .refreshing)
+    }
+
+    private var settingLimits: Bool {
+        if case .command(.setChargeLimits)? = model.busy { return true }
+        return false
+    }
+
+    private var limitsText: String {
+        switch (details?.chargeLimitAC, details?.chargeLimitDC) {
+        case let (ac?, dc?): return "AC \(ac)% · DC \(dc)%"
+        case let (ac?, nil): return "AC \(ac)%"
+        default: return "Set limits"
         }
     }
 
+    // MARK: Climate
+
     private var climateSection: some View {
         Section {
-            LabeledContent("Status", value: climateStatus)
             Stepper(
                 value: Binding(get: { shownTarget }, set: { target = $0 }),
                 in: AppSettings.minTargetC...AppSettings.maxTargetC,
                 step: 0.5
             ) {
-                LabeledContent("Target", value: Describe.temp(shownTarget))
+                LabeledContent("Temperature", value: Describe.temp(shownTarget))
             }
-            if let outside = model.snapshot?.outsideTempC {
+            if let outside = snapshot?.outsideTempC {
                 LabeledContent("Outside", value: Describe.temp(outside))
             }
-            actionButton("Start Climate", systemImage: "fan", busy: .starting) {
-                await model.start(targetC: shownTarget)
+            Toggle(isOn: setting(\.climateDefrost)) {
+                Label("Windscreen defrost", systemImage: "windshield.front.and.heat.waves")
             }
-            actionButton("Stop Climate", systemImage: "stop.circle", busy: .stopping) {
-                await model.stop()
+            Toggle(isOn: setting(\.climateHeatedExtras)) {
+                Label("Heated wheel & mirrors", systemImage: "steeringwheel")
+            }
+            Toggle(isOn: setting(\.holdChargerOnClimate)) {
+                Label("Keep charger off", systemImage: "powerplug")
             }
         } header: {
             Text("Climate")
         } footer: {
-            if let message = model.message {
-                Text(message)
-            } else {
-                Text("Commands reach the car within a minute. Climate never starts below the minimum charge unless the car is plugged in.")
-            }
+            Text("Keep charger off: when the car is plugged in but not charging (done, or waiting for off-peak), the app stops the charger before starting climate, so preconditioning never starts a peak-rate charge. A charge that's already running is left alone.")
         }
     }
 
-    private func actionButton(_ title: String, systemImage: String, busy: CarModel.Busy, action: @escaping () async -> Void) -> some View {
-        Button {
-            Task { await action() }
-        } label: {
-            HStack {
-                Label(title, systemImage: systemImage)
-                Spacer()
-                if model.busy == busy { ProgressView() }
+    private func setting(_ keyPath: WritableKeyPath<AppSettings, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { model.settings[keyPath: keyPath] },
+            set: { value in Task { await model.updateSettings { $0[keyPath: keyPath] = value } } }
+        )
+    }
+
+    // MARK: Vehicle
+
+    private var vehicleSection: some View {
+        Section {
+            NavigationLink {
+                EnergyView()
+            } label: {
+                LabeledContent {
+                    Text(DisplayText.efficiency(kWhPer100km: model.energy?.kWhPer100km, miles: model.settings.useMiles) ?? "")
+                } label: {
+                    Label("Energy", systemImage: "chart.bar.xaxis")
+                }
             }
+            NavigationLink {
+                BatteryHealthView()
+            } label: {
+                LabeledContent {
+                    Text(details?.batteryHealthPercent.map { String(format: "%.0f%%", $0) } ?? "")
+                } label: {
+                    Label("Battery health", systemImage: "battery.100percent.bolt")
+                }
+            }
+            if let odometer = details?.odometerKm {
+                LabeledContent {
+                    Text(DisplayText.distance(km: odometer, miles: model.settings.useMiles))
+                } label: {
+                    Label("Odometer", systemImage: "road.lanes")
+                }
+            }
+            if let aux = details?.auxBatteryPercent {
+                LabeledContent {
+                    Text("\(aux)%").foregroundStyle(aux < 60 ? .orange : .secondary)
+                } label: {
+                    Label("12 V battery", systemImage: "minus.plus.batteryblock")
+                }
+            }
+            if let details {
+                LabeledContent {
+                    Text(details.tyreWarning == true || !details.tyreWarnings.isEmpty ? "Check pressure" : "OK")
+                        .foregroundStyle(details.tyreWarning == true || !details.tyreWarnings.isEmpty ? .orange : .secondary)
+                } label: {
+                    Label("Tyres", systemImage: "tirepressure")
+                }
+                LabeledContent {
+                    Text(openingsText(details))
+                } label: {
+                    Label("Doors & windows", systemImage: "car.side")
+                }
+            }
+        } header: {
+            Text("Vehicle")
         }
-        .disabled(model.busy != nil)
+    }
+
+    private func openingsText(_ d: VehicleDetails) -> String {
+        var open = d.openDoors.count + d.openWindows.count
+        if d.trunkOpen == true { open += 1 }
+        if d.hoodOpen == true { open += 1 }
+        return open == 0 ? "All closed" : "\(open) open"
     }
 
     // MARK: Automation
@@ -160,10 +311,12 @@ struct CarView: View {
     }
 }
 
-// MARK: - Battery
+// MARK: - Hero
 
-private struct BatteryHeader: View {
+private struct HeroCard: View {
     let snapshot: VehicleSnapshot?
+    let paint: CarPaint
+    let miles: Bool
 
     private var soc: Int? { snapshot?.socPercent }
 
@@ -175,53 +328,216 @@ private struct BatteryHeader: View {
         return .green
     }
 
-    private var symbol: String {
-        switch snapshot?.chargingState {
-        case .charging?: return "bolt.fill"
-        case .pluggedIn?: return "powerplug.fill"
-        default: return "car.side.fill"
-        }
+    private var glow: EV6Illustration.ClimateGlow? {
+        guard snapshot?.climate == .running else { return nil }
+        if let target = snapshot?.targetTempC, let outside = snapshot?.outsideTempC, outside > target { return .cooling }
+        return .heating
     }
 
     var body: some View {
-        HStack(spacing: 20) {
-            ZStack {
-                Circle()
-                    .stroke(Color(.systemFill), lineWidth: 10)
-                Circle()
-                    .trim(from: 0, to: Double(min(max(soc ?? 0, 0), 100)) / 100)
-                    .stroke(tint, style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                Image(systemName: symbol)
-                    .font(.title2)
-                    .foregroundStyle(tint)
-            }
-            .frame(width: 88, height: 88)
-            .animation(.easeInOut, value: soc)
+        VStack(spacing: 14) {
+            EV6Illustration(
+                paint: paint,
+                charging: snapshot?.chargingState == .charging,
+                pluggedIn: snapshot?.pluggedIn == true,
+                climate: glow
+            )
+            .padding(.horizontal, 8)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(soc.map { "\($0)%" } ?? "–")
-                    .font(.system(size: 44, weight: .semibold, design: .rounded))
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(soc.map { "\($0)" } ?? "–")
+                    .font(.system(size: 56, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                Text(snapshot?.rangeKm.map { "\($0) km range" } ?? "Range unknown")
-                    .font(.subheadline)
+                    .contentTransition(.numericText())
+                Text("%")
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
-                if let snapshot, let charging = DisplayText.charging(snapshot) {
-                    Text(charging)
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(snapshot?.rangeKm.map { DisplayText.distance(km: Double($0), miles: miles) } ?? "–")
+                        .font(.title2.weight(.semibold))
+                        .monospacedDigit()
+                    Text("range")
                         .font(.subheadline)
-                        .foregroundStyle(snapshot.chargingState == .charging ? Color.green : .secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
-            Spacer(minLength: 0)
+
+            BatteryBar(fraction: Double(soc ?? 0) / 100, tint: tint, limit: snapshot?.details?.chargeLimitAC)
+
+            HStack(spacing: 8) {
+                if let snapshot, let charging = DisplayText.charging(snapshot) {
+                    Chip(text: charging, systemImage: snapshot.chargingState == .charging ? "bolt.fill" : "powerplug", tint: snapshot.chargingState == .charging ? .green : .secondary)
+                }
+                if let locked = snapshot?.details?.locked {
+                    Chip(text: locked ? "Locked" : "Unlocked", systemImage: locked ? "lock.fill" : "lock.open.fill", tint: locked ? .secondary : .red)
+                }
+                if snapshot?.climate == .running {
+                    Chip(text: "Climate on", systemImage: "fan.fill", tint: .orange)
+                }
+                Spacer(minLength: 0)
+            }
         }
-        .padding(.vertical, 8)
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .animation(.easeInOut, value: soc)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
     }
 
     private var accessibilityText: String {
         guard let soc else { return "Battery unknown" }
-        return "Battery \(soc) percent" + (snapshot?.rangeKm.map { ", \($0) kilometres range" } ?? "")
+        return "Battery \(soc) percent" + (snapshot?.rangeKm.map { ", \(DisplayText.distance(km: Double($0), miles: miles)) range" } ?? "")
+    }
+}
+
+private struct BatteryBar: View {
+    let fraction: Double
+    let tint: Color
+    /// The AC charge limit, marked on the bar.
+    let limit: Int?
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color(.systemFill))
+                Capsule()
+                    .fill(tint.gradient)
+                    .frame(width: max(0, min(1, fraction)) * geo.size.width)
+                if let limit, limit < 100 {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.5))
+                        .frame(width: 2)
+                        .offset(x: geo.size.width * Double(limit) / 100 - 1)
+                }
+            }
+        }
+        .frame(height: 10)
+    }
+}
+
+private struct Chip: View {
+    let text: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        Label(text, systemImage: systemImage)
+            .font(.caption.weight(.medium))
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .foregroundStyle(tint == .secondary ? Color.secondary : tint)
+            .background(Color(.tertiarySystemFill), in: Capsule())
+    }
+}
+
+// MARK: - Control tiles
+
+/// A Control Center–style button: icon, name and state; filled with its colour when on.
+private struct ControlTile: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let tint: Color
+    let active: Bool
+    let busy: Bool
+    let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    ZStack {
+                        Circle().fill(active ? Color.white.opacity(0.25) : tint.opacity(0.15))
+                        if busy {
+                            ProgressView().tint(active ? .white : tint)
+                        } else {
+                            Image(systemName: systemImage)
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(active ? .white : tint)
+                                .symbolEffect(.pulse, isActive: active)
+                        }
+                    }
+                    .frame(width: 38, height: 38)
+                    Spacer()
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(active ? .white : .primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(active ? .white.opacity(0.85) : .secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(active ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(Color(.secondarySystemGroupedBackground)))
+            )
+            .opacity(isEnabled ? 1 : 0.5)
+        }
+        .buttonStyle(.plain)
+        .sensoryFeedback(.impact(weight: .light), trigger: active)
+        .accessibilityLabel("\(title), \(subtitle)")
+    }
+}
+
+// MARK: - Charge limits
+
+private struct ChargeLimitSheet: View {
+    @Environment(CarModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State var ac: Int
+    @State var dc: Int
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    limitRow("AC (home, public AC)", value: $ac, systemImage: "powerplug")
+                    limitRow("DC (rapid chargers)", value: $dc, systemImage: "bolt.car")
+                } footer: {
+                    Text("Where charging stops. 80% is kinder to the battery day to day; 100% before a long trip. The car accepts steps of 10%.")
+                }
+            }
+            .navigationTitle("Charge limit")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let (a, d) = (ac, dc)
+                        dismiss()
+                        Task { await model.send(.setChargeLimits(ac: a, dc: d)) }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func limitRow(_ title: String, value: Binding<Int>, systemImage: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            LabeledContent {
+                Text("\(value.wrappedValue)%").monospacedDigit().font(.headline)
+            } label: {
+                Label(title, systemImage: systemImage)
+            }
+            Slider(
+                value: Binding(get: { Double(value.wrappedValue) }, set: { value.wrappedValue = Int($0) }),
+                in: 50...100,
+                step: 10
+            )
+        }
+        .padding(.vertical, 4)
     }
 }
 

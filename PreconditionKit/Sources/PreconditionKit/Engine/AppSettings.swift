@@ -25,6 +25,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var climateDefrost: Bool
     /// Heated steering wheel, rear window and mirrors with every climate start.
     public var climateHeatedExtras: Bool
+    /// Miles and mi/kWh instead of km and kWh/100 km.
+    public var useMiles: Bool
 
     public init(
         minSocPercent: Int = 25,
@@ -38,7 +40,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         fakeWeatherC: Double = 3,
         holdChargerOnClimate: Bool = true,
         climateDefrost: Bool = false,
-        climateHeatedExtras: Bool = false
+        climateHeatedExtras: Bool = false,
+        useMiles: Bool = true
     ) {
         self.minSocPercent = minSocPercent
         self.defaultTargetC = defaultTargetC
@@ -52,6 +55,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.holdChargerOnClimate = holdChargerOnClimate
         self.climateDefrost = climateDefrost
         self.climateHeatedExtras = climateHeatedExtras
+        self.useMiles = useMiles
     }
 
     public init(from decoder: Decoder) throws {
@@ -69,6 +73,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         holdChargerOnClimate = try c.decodeIfPresent(Bool.self, forKey: .holdChargerOnClimate) ?? d.holdChargerOnClimate
         climateDefrost = try c.decodeIfPresent(Bool.self, forKey: .climateDefrost) ?? d.climateDefrost
         climateHeatedExtras = try c.decodeIfPresent(Bool.self, forKey: .climateHeatedExtras) ?? d.climateHeatedExtras
+        useMiles = try c.decodeIfPresent(Bool.self, forKey: .useMiles) ?? d.useMiles
     }
 
     /// Values forced into their allowed ranges.

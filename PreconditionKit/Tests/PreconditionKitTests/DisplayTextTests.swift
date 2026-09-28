@@ -37,4 +37,14 @@ final class DisplayTextTests: XCTestCase {
         XCTAssertEqual(String(describing: c), "Credentials(refreshToken: set, vin: *************0001, pin: set)")
         XCTAssertFalse("\(c)".contains(KiaClientTests.refresh))
     }
+
+    func testUnits() {
+        XCTAssertEqual(DisplayText.distance(km: 315, miles: true), "196 mi")
+        XCTAssertEqual(DisplayText.distance(km: 315, miles: false), "315 km")
+        XCTAssertEqual(DisplayText.efficiency(kWhPer100km: 16, miles: false), "16.0 kWh/100 km")
+        XCTAssertEqual(DisplayText.efficiency(kWhPer100km: 16, miles: true), "3.9 mi/kWh")
+        XCTAssertNil(DisplayText.efficiency(kWhPer100km: nil, miles: true))
+        XCTAssertEqual(DisplayText.energy(wh: 12_400), "12.4 kWh")
+        XCTAssertEqual(DisplayText.energy(wh: 850), "850 Wh")
+    }
 }

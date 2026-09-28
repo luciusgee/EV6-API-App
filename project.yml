@@ -37,6 +37,8 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: Connects to your OBD adapter to read the battery's health, cell voltages and tyre pressures straight from the car.
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connects to a Wi-Fi OBD adapter plugged into your car to read the battery's health.
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Rules can check that your phone is near the car before starting its climate, so it doesn't run while you're somewhere else.
 schemes:
   EV6Precondition:

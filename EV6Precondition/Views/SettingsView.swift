@@ -1,5 +1,7 @@
+import CoreLocation
 import PreconditionKit
 import SwiftUI
+import UIKit
 
 /// Settings (HANDOVER.md §6.5): Kia Connect credentials, safety, rate limit, developer.
 struct SettingsView: View {
@@ -10,6 +12,7 @@ struct SettingsView: View {
             Form {
                 KiaConnectSection()
                 SafetySection()
+                PermissionsSection()
                 RateLimitSection()
                 DeveloperSection()
                 Section {
@@ -229,6 +232,49 @@ private struct DeveloperSection: View {
         case .notSupported: return "Command not supported"
         case .serverError: return "Server error"
         case .partial: return "No position"
+        }
+    }
+}
+
+// MARK: - Permissions
+
+private struct PermissionsSection: View {
+    @State private var status: CLAuthorizationStatus = .notDetermined
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var statusText: String {
+        switch status {
+        case .authorizedAlways: return "Always"
+        case .authorizedWhenInUse: return "While using the app"
+        case .denied: return "Not allowed"
+        case .restricted: return "Restricted"
+        default: return "Not asked yet"
+        }
+    }
+
+    var body: some View {
+        Section {
+            LabeledContent("Location", value: statusText)
+            if status == .notDetermined {
+                Button("Allow Location") {
+                    LocationAccess.shared.requestIfNeeded()
+                }
+            } else if status == .denied || status == .restricted, let url = URL(string: UIApplication.openSettingsURLString) {
+                Link("Open iOS Settings", destination: url)
+            }
+        } header: {
+            Text("Permissions")
+        } footer: {
+            Text("Location is used only for “phone near the car”: one reading when a rule runs, never tracked or sent anywhere.")
+        }
+        .onChange(of: scenePhase) { _, _ in status = LocationAccess.shared.status }
+        .task {
+            status = LocationAccess.shared.status
+            // The permission sheet answers asynchronously; pick up the result.
+            for _ in 0..<30 {
+                try? await Task.sleep(for: .seconds(1))
+                status = LocationAccess.shared.status
+            }
         }
     }
 }

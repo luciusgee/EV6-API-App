@@ -119,7 +119,13 @@ struct RulesView: View {
                 Task { await model.importText(text) }
             }
             .refreshable { await model.load() }
-            .task { await model.load() }
+            .task {
+                await model.load()
+                let usesPhone = model.rules.contains { rule in
+                    rule.enabled && rule.conditions.contains { if case .phoneNearCar = $0 { return true } else { return false } }
+                }
+                if usesPhone { LocationAccess.shared.requestIfNeeded() }
+            }
         }
     }
 }

@@ -9,6 +9,7 @@ HANDOVER.md        What the app does, the Kia Connect API (endpoints, headers, p
 FUNCTIONS.md       Every type and function in the shared logic: behaviour, edge cases,
                    Swift shape, priority (P1–P4 / skip)
 TESTS.md           All 195 Android unit tests by file, marked port or skip
+PreconditionKit/   The iOS app's Swift core, in progress (milestone 1: Kia client, budget, fake car); run swift test
 fixtures/          rules-backup.json (import/export compatibility with the Android app),
                    Kia responses: vehicles, status (older protocol and CCS2), location/park,
                    token, device registration, PIN control token, climate payloads, errors;

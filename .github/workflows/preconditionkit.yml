@@ -1,0 +1,16 @@
+name: PreconditionKit
+
+on:
+  push:
+    paths: ["PreconditionKit/**", "fixtures/**", ".github/workflows/preconditionkit.yml"]
+  pull_request:
+    paths: ["PreconditionKit/**", "fixtures/**", ".github/workflows/preconditionkit.yml"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: swift test --package-path PreconditionKit

@@ -79,35 +79,78 @@ struct ScannerView: View {
     }
 }
 
-/// The close-up of the car, with the badge and live status.
+/// Kia's GT-Line render on a dark diagnostics backdrop, with the badge and live status. The grid glows
+/// green while the car is connected.
 private struct ScannerHeader: View {
     @Environment(OBDService.self) private var obd
+    @State private var sweep = false
+
+    private var connected: Bool { obd.carState == .connected }
+    private var tint: Color { connected ? .green : .teal }
 
     var body: some View {
-        Image("CarCloseup")
-            .resizable()
-            .scaledToFill()
-            .frame(height: 190)
-            .frame(maxWidth: .infinity)
-            .clipped()
-            .overlay {
-                LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(
+                colors: [Color(red: 0.05, green: 0.09, blue: 0.11), Color(red: 0.02, green: 0.02, blue: 0.03)],
+                startPoint: .topTrailing, endPoint: .bottomLeading
+            )
+            // A faint grid, like a scan bay.
+            Canvas { context, size in
+                var path = Path()
+                stride(from: 0, through: size.width, by: 22).forEach { x in
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: size.height))
+                }
+                stride(from: 0, through: size.height, by: 22).forEach { y in
+                    path.move(to: CGPoint(x: 0, y: y))
+                    path.addLine(to: CGPoint(x: size.width, y: y))
+                }
+                context.stroke(path, with: .color(tint.opacity(0.10)), lineWidth: 0.5)
             }
-            .overlay(alignment: .bottomLeading) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 10) {
-                        Image("KiaLogo").renderingMode(.template).resizable().scaledToFit().frame(height: 13)
-                        Text("EV6 GT-LINE").font(.system(size: 13, weight: .heavy)).tracking(3)
-                    }
-                    Text(obd.carState == .connected ? (obd.demo ? "Demo car connected" : "Connected to your EV6") : "Diagnostics & live data")
+            // The scan line.
+            GeometryReader { geo in
+                LinearGradient(colors: [.clear, tint.opacity(0.35), .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 60)
+                    .offset(x: sweep ? geo.size.width : -60)
+                    .blendMode(.plusLighter)
+            }
+            Ellipse()
+                .fill(tint.opacity(0.25))
+                .frame(width: 260, height: 26)
+                .blur(radius: 18)
+                .offset(x: 120, y: -26)
+            Image("EV6Spin10")
+                .resizable()
+                .scaledToFit()
+                .frame(height: 150)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, -10)
+                .padding(.bottom, 26)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 10) {
+                    Image("KiaLogo").renderingMode(.template).resizable().scaledToFit().frame(height: 13)
+                    Text("EV6 GT-LINE").font(.system(size: 13, weight: .heavy)).tracking(3)
+                }
+                HStack(spacing: 6) {
+                    Circle().fill(connected ? Color.green : Color.secondary).frame(width: 7, height: 7)
+                    Text(connected ? (obd.demo ? "Demo car connected" : "Connected to your EV6") : "Diagnostics & live data")
                         .font(.caption)
                         .opacity(0.85)
                 }
-                .foregroundStyle(.white)
-                .padding(16)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .accessibilityHidden(true)
+            .foregroundStyle(.white)
+            .padding(16)
+        }
+        .frame(height: 190)
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(tint.opacity(0.25), lineWidth: 1)
+        }
+        .onAppear {
+            withAnimation(.linear(duration: 3.5).repeatForever(autoreverses: false)) { sweep = true }
+        }
+        .accessibilityHidden(true)
     }
 }
 

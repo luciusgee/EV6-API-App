@@ -4,3 +4,5 @@ DerivedData/
 .DS_Store
 EV6Precondition/Info.plist
 Widgets/Info.plist
+Watch/Info.plist
+WatchWidgets/Info.plist

@@ -68,7 +68,7 @@ workflows:
       - name: Generate the Xcode project
         script: xcodegen generate
       - name: Profiles for the widgets and the Watch app
-        script: scripts/ensure-profiles.sh com.luciusgee.ev6precondition.widgets com.luciusgee.ev6precondition.watchkitapp
+        script: scripts/ensure-profiles.sh com.luciusgee.ev6precondition.widgets com.luciusgee.ev6precondition.watchkitapp com.luciusgee.ev6precondition.watchkitapp.complications
       - name: Use the signing profiles
         script: xcode-project use-profiles
       - name: Next build number

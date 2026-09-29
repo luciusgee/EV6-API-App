@@ -99,10 +99,17 @@ targets:
       - path: Watch
       - path: Shared/CarGlance.swift
       - path: Shared/GlanceKeychain.swift
+    dependencies:
+      - target: EV6Complications
+    info:
+      path: Watch/Info.plist
+      properties:
+        AppIdentifierPrefix: $(AppIdentifierPrefix)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.luciusgee.ev6precondition.watchkitapp
         PRODUCT_NAME: EV6Watch
+        CODE_SIGN_ENTITLEMENTS: Watch/EV6Watch.entitlements
         TARGETED_DEVICE_FAMILY: "4"
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: "YES"
@@ -111,6 +118,30 @@ targets:
         INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: "NO"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SKIP_INSTALL: "YES"
+  # Watch face complications. They read what the Watch app last got from the iPhone, via the Keychain.
+  EV6Complications:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: WatchWidgets
+      - path: Shared/CarGlance.swift
+      - path: Shared/GlanceKeychain.swift
+    info:
+      path: WatchWidgets/Info.plist
+      properties:
+        AppIdentifierPrefix: $(AppIdentifierPrefix)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.luciusgee.ev6precondition.watchkitapp.complications
+        PRODUCT_NAME: EV6Complications
+        TARGETED_DEVICE_FAMILY: "4"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: WatchWidgets/EV6Complications.entitlements
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: EV6
         SKIP_INSTALL: "YES"
 schemes:
   EV6Precondition:

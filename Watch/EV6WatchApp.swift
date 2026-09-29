@@ -1,5 +1,6 @@
 import SwiftUI
 import WatchConnectivity
+import WidgetKit
 
 @main
 struct EV6WatchApp: App {
@@ -39,8 +40,12 @@ final class PhoneLink: NSObject {
 
     fileprivate func received(_ data: Data?) {
         guard let data, let new = try? JSONDecoder().decode(CarGlance.self, from: data) else { return }
+        guard new != glance else { return }
         glance = new
         UserDefaults.standard.set(data, forKey: Self.savedKey)
+        // The complications read the same thing from the Keychain.
+        GlanceKeychain.save(new)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     func send(_ command: GlanceCommand) {

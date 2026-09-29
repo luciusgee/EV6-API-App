@@ -220,6 +220,11 @@ struct CarView: View {
                 }
             }
             NavigationLink {
+                RoutePlannerView()
+            } label: {
+                Label("Plan a trip", systemImage: "point.topleft.down.to.point.bottomright.curvepath.fill")
+            }
+            NavigationLink {
                 ChargersView(near: snapshot?.parkingPosition)
             } label: {
                 Label("Chargers nearby", systemImage: "ev.charger")

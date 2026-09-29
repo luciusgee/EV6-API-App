@@ -94,4 +94,17 @@ public enum DisplayText {
         if let alerts = v.details?.alerts, !alerts.isEmpty { parts.append(alerts.joined(separator: ". ")) }
         return parts.joined(separator: ". ") + "."
     }
+
+    /// A confirmed command as a headline: "Climate on · 21.0 °C", "Locked", "Charging stopped".
+    public static func confirmed(_ description: String) -> String {
+        if description.hasPrefix("climatise to ") { return "Climate on · " + description.dropFirst("climatise to ".count) }
+        switch description {
+        case "stop climatisation": return "Climate off"
+        case "lock the car": return "Locked"
+        case "unlock the car": return "Unlocked"
+        case "start charging": return "Charging started"
+        case "stop charging": return "Charging stopped"
+        default: return description.hasPrefix("set charge limits") ? "Charge limits set" : description.capitalizingFirstLetter
+        }
+    }
 }

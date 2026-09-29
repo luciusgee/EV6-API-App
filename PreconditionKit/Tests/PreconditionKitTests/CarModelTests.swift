@@ -66,7 +66,7 @@ final class CarModelTests: XCTestCase {
         await model.load()
         await model.saveCredentials(token: KiaClientTests.refresh)
         await model.start(targetC: 20)
-        XCTAssertEqual(model.message, "Sent: climatise to 20.0 °C. The car carries it out shortly.")
+        XCTAssertEqual(model.message, "Sent: climatise to 20.0 °C. Waiting for the car to confirm…")
         XCTAssertEqual(model.automation.lastCommand?.description, "climatise to 20.0 °C")
         XCTAssertEqual(body(live.last("/control/temperature"))?["tempCode"], "0CH")
 

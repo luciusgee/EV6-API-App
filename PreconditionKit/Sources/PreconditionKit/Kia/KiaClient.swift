@@ -65,7 +65,7 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
         }
     }
 
-    public func startClimate(targetC: Double, kind: RequestKind, options extras: ClimateOptions) async -> ApiResult<Void> {
+    public func startClimate(targetC: Double, kind: RequestKind, options extras: ClimateOptions) async -> ApiResult<CommandReceipt> {
         await call(kind) { s, creds in
             let id = try Self.vehicleId(s)
             let target = Self.roundToHalf(min(max(targetC, KiaConfig.minTempC), KiaConfig.maxTempC))
@@ -83,7 +83,7 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
                     "tempCode": .string(KiaMapper.legacyTempCode(target)),
                     "unit": "C",
                 ]
-                _ = try await self.post("\(self.config.spa)/vehicles/\(id)/control/temperature", self.authHeaders(s), body)
+                return Self.receipt(try await self.post("\(self.config.spa)/vehicles/\(id)/control/temperature", self.authHeaders(s), body))
             } else {
                 let seats: JSONValue = [
                     "drvSeatClimateState": 0,
@@ -105,27 +105,27 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
                     "windshieldFrontDefogState": .bool(extras.defrost),
                 ]
                 let headers = try await self.controlHeaders(s, creds)
-                _ = try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/temperature", headers, body)
+                return Self.receipt(try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/temperature", headers, body))
             }
         }
     }
 
-    public func stopClimate(_ kind: RequestKind) async -> ApiResult<Void> {
+    public func stopClimate(_ kind: RequestKind) async -> ApiResult<CommandReceipt> {
         await call(kind) { s, creds in
             let id = try Self.vehicleId(s)
             if s.ccs2 == 0 {
                 let options: JSONValue = ["defrost": true, "heating1": 1]
                 let body: JSONValue = ["action": "stop", "hvacType": 0, "options": options, "tempCode": "10H", "unit": "C"]
-                _ = try await self.post("\(self.config.spa)/vehicles/\(id)/control/temperature", self.authHeaders(s), body)
+                return Self.receipt(try await self.post("\(self.config.spa)/vehicles/\(id)/control/temperature", self.authHeaders(s), body))
             } else {
                 let headers = try await self.controlHeaders(s, creds)
-                _ = try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/temperature", headers, ["command": "stop"])
+                return Self.receipt(try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/temperature", headers, ["command": "stop"]))
             }
         }
     }
 
     /// Charging, locks and charge limits (payloads as in hyundai_kia_connect_api's ApiImplType1).
-    public func send(_ command: CarCommand, kind: RequestKind) async -> ApiResult<Void> {
+    public func send(_ command: CarCommand, kind: RequestKind) async -> ApiResult<CommandReceipt> {
         await call(kind) { s, creds in
             let id = try Self.vehicleId(s)
             let ccs2 = s.ccs2 != 0
@@ -134,26 +134,49 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
                 let verb = command == .startCharging ? "start" : "stop"
                 if ccs2 {
                     let headers = try await self.controlHeaders(s, creds)
-                    _ = try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/charge", headers, ["command": .string(verb)])
+                    return Self.receipt(try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/charge", headers, ["command": .string(verb)]))
                 } else {
                     let body: JSONValue = ["action": .string(verb), "deviceId": .string(s.deviceId ?? "")]
-                    _ = try await self.post("\(self.config.spa)/vehicles/\(id)/control/charge", self.authHeaders(s), body)
+                    return Self.receipt(try await self.post("\(self.config.spa)/vehicles/\(id)/control/charge", self.authHeaders(s), body))
                 }
             case .lock, .unlock:
                 let verb = command == .lock ? "close" : "open"
                 if ccs2 {
                     let headers = try await self.controlHeaders(s, creds)
-                    _ = try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/door", headers, ["command": .string(verb)])
+                    return Self.receipt(try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/control/door", headers, ["command": .string(verb)]))
                 } else {
                     let body: JSONValue = ["action": .string(verb), "deviceId": .string(s.deviceId ?? "")]
-                    _ = try await self.post("\(self.config.spa)/vehicles/\(id)/control/door", self.authHeaders(s), body)
+                    return Self.receipt(try await self.post("\(self.config.spa)/vehicles/\(id)/control/door", self.authHeaders(s), body))
                 }
             case .setChargeLimits(let ac, let dc):
                 let dcEntry: JSONValue = ["plugType": 0, "targetSOClevel": .number(Double(Self.chargeLimit(dc)))]
                 let acEntry: JSONValue = ["plugType": 1, "targetSOClevel": .number(Double(Self.chargeLimit(ac)))]
                 let body: JSONValue = ["targetSOClist": [dcEntry, acEntry]]
-                _ = try await self.post("\(self.config.spa)/vehicles/\(id)/charge/target", self.authHeaders(s), body)
+                return Self.receipt(try await self.post("\(self.config.spa)/vehicles/\(id)/charge/target", self.authHeaders(s), body))
             }
+        }
+    }
+
+    static func receipt(_ body: JSONValue) -> CommandReceipt {
+        CommandReceipt(messageId: body["msgId"]?.str)
+    }
+
+    /// Kia's notification records say whether the car carried a command out (one request).
+    public func commandStatus(_ messageId: String, kind: RequestKind) async -> ApiResult<CommandStatus> {
+        await call(kind) { s, _ in
+            let id = try Self.vehicleId(s)
+            let res = try await self.get("\(self.config.spa)/notifications/\(id)/records", self.authHeaders(s))
+            return Self.status(of: messageId, in: res)
+        }
+    }
+
+    static func status(of messageId: String, in body: JSONValue) -> CommandStatus {
+        guard let record = (body["resMsg"]?.array ?? []).first(where: { $0["recordId"]?.str == messageId }) else { return .unknown }
+        switch record["result"]?.str {
+        case "success"?: return .success
+        case "fail"?: return .failed
+        case "non-response"?: return .noResponse
+        default: return .pending
         }
     }
 

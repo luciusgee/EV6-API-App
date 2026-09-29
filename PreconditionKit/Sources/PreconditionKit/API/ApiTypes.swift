@@ -161,19 +161,45 @@ public enum CarCommand: Equatable, Sendable {
     }
 }
 
+/// What Kia hands back for an accepted command: its id, to ask later whether the car carried it out.
+public struct CommandReceipt: Equatable, Sendable {
+    public var messageId: String?
+
+    public init(messageId: String? = nil) {
+        self.messageId = messageId
+    }
+}
+
+/// What the car made of a command, from Kia's notification records.
+public enum CommandStatus: String, Codable, Equatable, Sendable {
+    /// Not reported yet.
+    case pending
+    case success
+    /// The car refused it (e.g. a door open, or not plugged in).
+    case failed
+    /// The car didn't answer: asleep, or out of mobile signal.
+    case noResponse
+    /// Kia doesn't list the command.
+    case unknown
+
+    public var isFinal: Bool { self == .success || self == .failed || self == .noResponse }
+}
+
 /// The car as the engine sees it. Every call goes through the rate budget and reports an `ApiResult`.
 public protocol VehicleAPI: Sendable {
     /// Reads the car's cached state. Never wakes the car.
     func getVehicle(_ kind: RequestKind) async -> ApiResult<VehicleFetch>
-    func startClimate(targetC: Double, kind: RequestKind, options: ClimateOptions) async -> ApiResult<Void>
-    func stopClimate(_ kind: RequestKind) async -> ApiResult<Void>
-    func send(_ command: CarCommand, kind: RequestKind) async -> ApiResult<Void>
+    func startClimate(targetC: Double, kind: RequestKind, options: ClimateOptions) async -> ApiResult<CommandReceipt>
+    func stopClimate(_ kind: RequestKind) async -> ApiResult<CommandReceipt>
+    func send(_ command: CarCommand, kind: RequestKind) async -> ApiResult<CommandReceipt>
+    /// Whether the car has carried out the command Kia gave `messageId` for.
+    func commandStatus(_ messageId: String, kind: RequestKind) async -> ApiResult<CommandStatus>
     /// Energy use: lifetime totals and the last 30 days, day by day.
     func drivingHistory(_ kind: RequestKind) async -> ApiResult<DrivingHistory>
 }
 
 extension VehicleAPI {
-    public func startClimate(targetC: Double, kind: RequestKind) async -> ApiResult<Void> {
+    public func startClimate(targetC: Double, kind: RequestKind) async -> ApiResult<CommandReceipt> {
         await startClimate(targetC: targetC, kind: kind, options: ClimateOptions())
     }
 }

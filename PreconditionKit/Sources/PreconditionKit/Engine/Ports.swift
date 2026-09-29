@@ -106,11 +106,17 @@ public struct LastCommand: Codable, Equatable, Sendable {
     public var at: Date
     public var description: String
     public var automated: Bool
+    /// Kia's id for the command, to ask whether the car carried it out.
+    public var messageId: String?
+    /// What the car reported, once it has.
+    public var status: CommandStatus?
 
-    public init(at: Date, description: String, automated: Bool) {
+    public init(at: Date, description: String, automated: Bool, messageId: String? = nil, status: CommandStatus? = nil) {
         self.at = at
         self.description = description
         self.automated = automated
+        self.messageId = messageId
+        self.status = status
     }
 }
 

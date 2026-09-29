@@ -96,11 +96,16 @@ enum BackgroundTrigger {
             app.endBackgroundTask(task)
             task = .invalid
         }
-        _ = await engine.onTriggerWithRetries(event, triggeredAt: at, backoff: [8, 15], busyDelay: 20) { delay in
-            // Give up on a retry that wouldn't finish before iOS suspends the app.
+        let sleep: @Sendable (TimeInterval) async throws -> Void = { delay in
+            // Give up on a wait that wouldn't finish before iOS suspends the app.
             let remaining = await MainActor.run { app.applicationState == .active ? Double.infinity : app.backgroundTimeRemaining }
             guard remaining > delay + 8 else { throw CancellationError() }
             try await Task.sleep(for: .seconds(delay))
+        }
+        let outcome = await engine.onTriggerWithRetries(event, triggeredAt: at, backoff: [8, 15], busyDelay: 20, sleep: sleep)
+        if case .fired = outcome {
+            // Confirm with the car in whatever time is left, as for manual commands.
+            await engine.confirmLastCommand(kind: .automation, sleep: sleep)
         }
         if task != .invalid { app.endBackgroundTask(task) }
     }

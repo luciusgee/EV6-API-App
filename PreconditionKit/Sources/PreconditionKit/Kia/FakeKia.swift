@@ -40,6 +40,10 @@ public struct FakeCarState: Codable, Equatable, Sendable {
     public var lowTyre: Bool
     /// Charging was stopped by command: the session has ended, so climate no longer wakes the charger.
     public var chargerHeld: Bool = false
+    /// How the car answers commands in Kia's notification records.
+    public var commandOutcome: FakeCommandOutcome = .success
+    /// Seconds before the car reports back (0 in tests; a few seconds feels real in the app).
+    public var confirmAfter: TimeInterval = 0
 
     public init(
         socPercent: Int = 62,
@@ -76,6 +80,10 @@ public struct FakeCarState: Codable, Equatable, Sendable {
     }
 }
 
+public enum FakeCommandOutcome: String, CaseIterable, Codable, Sendable {
+    case success, fail, noResponse
+}
+
 /// A stand-in for Kia Connect: login, device registration, vehicle list (one older-protocol EV6), cached
 /// status, parked position, climate, charging, locks, charge limits and driving history, all driven by `state`. Install it behind a
 /// `RoutingTransport` for fake-car mode, or use it directly in tests and SwiftUI previews, so the real
@@ -93,6 +101,8 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
     private let idpHost: String?
     private let car: Locked<FakeCarState>
     private let counter: Locked<Counter>
+    /// Commands sent, by message id, with when.
+    private let issued = Locked<[(String, Date)]>([])
 
     public init(state: FakeCarState = FakeCarState(), time: TimeSource = SystemTime(), config: KiaConfig = KiaConfig()) {
         self.time = time
@@ -207,6 +217,20 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
             }
             return ok([:], msgId: msgId(now))
         }
+        if path.hasSuffix("/records") {
+            let records: [JSONValue] = issued.current.suffix(20).reversed().map { id, at in
+                let done = now.timeIntervalSince(at) >= s.confirmAfter
+                let result: JSONValue
+                switch s.commandOutcome {
+                case _ where !done: result = .null
+                case .success: result = "success"
+                case .fail: result = "fail"
+                case .noResponse: result = "non-response"
+                }
+                return ["recordId": .string(id), "result": result]
+            }
+            return ok(.array(records))
+        }
         if path.hasSuffix("/drvhistory") {
             let body = request.body.flatMap(JSONValue.parse)
             return ok(Self.drivingHistory(allTime: body?["periodTarget"]?.int == 1, now: now))
@@ -296,7 +320,11 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
         return ["drivingInfo": [summary], "drivingInfoDetail": .array(days)]
     }
 
-    private func msgId(_ now: Date) -> String { "fake-\(Int64(now.timeIntervalSince1970 * 1000))" }
+    private func msgId(_ now: Date) -> String {
+        let id = "fake-\(Int64(now.timeIntervalSince1970 * 1000))-\(issued.current.count)"
+        issued.withLock { $0.append((id, now)) }
+        return id
+    }
 
     private func ok(_ resMsg: JSONValue, msgId: String? = nil) -> HTTPResponse {
         var body: [String: JSONValue] = ["retCode": "S", "resCode": "0000", "resMsg": resMsg]

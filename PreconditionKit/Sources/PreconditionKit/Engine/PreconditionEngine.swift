@@ -132,7 +132,7 @@ public final class PreconditionEngine: Sendable {
             return await refuse("rate budget exhausted")
         }
 
-        let result: ApiResult<Void>
+        let result: ApiResult<CommandReceipt>
         var note: String?
         switch action {
         case .startClimate(let target):
@@ -147,8 +147,8 @@ public final class PreconditionEngine: Sendable {
         }
 
         switch result {
-        case .success(_, let meta):
-            let command = LastCommand(at: now, description: description, automated: false)
+        case .success(let receipt, let meta):
+            let command = LastCommand(at: now, description: description, automated: false, messageId: receipt.messageId)
             await state.update { $0.lastCommand = command }
             await log.append(LogEntry(
                 at: now, kind: .manual, decision: "sent", reason: "\(description) accepted" + (note.map { " (\($0))" } ?? ""),

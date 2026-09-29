@@ -250,7 +250,7 @@ final class CarControlEngineTests: XCTestCase {
             "stop charging accepted: plugged in and idle, so climate won't wake the charger",
             "climatise to 21.0 °C accepted (charger held)",
         ])
-        XCTAssertEqual(manual.last?.requestsUsed, 3) // read, stop charging, climate
+        XCTAssertEqual(manual.last?.requestsUsed, 4) // read, stop charging, its confirmation, climate
         let cached = await container.vehicles.cached()
         XCTAssertEqual(cached?.climate, .running)
         XCTAssertEqual(cached?.chargingState, .pluggedIn)
@@ -348,5 +348,74 @@ final class CarControlEngineTests: XCTestCase {
         let perKm = try XCTUnwrap(history.kWhPer100km)
         XCTAssertTrue((15...30).contains(perKm), "\(perKm)")
         XCTAssertEqual(history.lifetimeConsumedWh, 3_120_000)
+    }
+
+    // MARK: Confirmation from the car
+
+    func testConfirmsAClimateStartWithTheCar() async throws {
+        let outcome = await engine.manualStart(targetC: 21)
+        XCTAssertEqual(outcome, .sent("climatise to 21.0 °C"))
+        let sent = await container.stores.automationState.load().lastCommand
+        XCTAssertNotNil(sent?.messageId)
+        XCTAssertNil(sent?.status)
+
+        let status = await engine.confirmLastCommand { _ in }
+        XCTAssertEqual(status, .success)
+        let confirmed = await container.stores.automationState.load().lastCommand
+        XCTAssertEqual(confirmed?.status, .success)
+        let titles = await notifier.sent
+        XCTAssertEqual(titles.last, "Climate on · 21.0 °C")
+        let last = await entries().last
+        XCTAssertEqual(last?.decision, "confirmed")
+        XCTAssertEqual(last?.requestsUsed, 1)
+    }
+
+    func testWaitsWhileTheCarHasntReportedThenGivesUp() async throws {
+        fake.state.confirmAfter = 3600
+        _ = await engine.manualCommand(.lock)
+        let slept = Locked<[TimeInterval]>([])
+        let status = await engine.confirmLastCommand(delays: [5, 5, 10]) { d in slept.withLock { $0.append(d) } }
+        XCTAssertEqual(status, .pending)
+        XCTAssertEqual(slept.current, [5, 5, 10])
+        let last = await entries().last
+        XCTAssertEqual(last?.decision, "unconfirmed")
+        XCTAssertEqual(last?.requestsUsed, 3)
+    }
+
+    func testARefusalAndNoAnswerAreReported() async throws {
+        fake.state.commandOutcome = .fail
+        _ = await engine.manualCommand(.unlock)
+        let refused = await engine.confirmLastCommand { _ in }
+        XCTAssertEqual(refused, .failed)
+        var problems = await notifier.problems
+        XCTAssertTrue(problems.last?.hasPrefix("The car didn't do it") == true, "\(problems)")
+
+        fake.state.commandOutcome = .noResponse
+        _ = await engine.manualCommand(.lock)
+        let silent = await engine.confirmLastCommand { _ in }
+        XCTAssertEqual(silent, .noResponse)
+        problems = await notifier.problems
+        XCTAssertTrue(problems.last?.hasPrefix("No answer from the car") == true)
+    }
+
+    func testANewerCommandTakesOverAndSuspensionStopsEarly() async throws {
+        fake.state.confirmAfter = 3600
+        _ = await engine.manualCommand(.lock)
+        let engine = self.engine
+        let status = await engine.confirmLastCommand(delays: [1, 1]) { _ in
+            // Another command goes out while this one is being followed.
+            _ = await engine.manualCommand(.unlock)
+        }
+        XCTAssertEqual(status, .unknown)
+
+        let stopped = await engine.confirmLastCommand(delays: [1, 1]) { _ in throw CancellationError() }
+        XCTAssertEqual(stopped, .pending)
+    }
+
+    func testConfirmedTitles() {
+        XCTAssertEqual(DisplayText.confirmed("stop climatisation"), "Climate off")
+        XCTAssertEqual(DisplayText.confirmed("lock the car"), "Locked")
+        XCTAssertEqual(DisplayText.confirmed("stop charging"), "Charging stopped")
+        XCTAssertEqual(DisplayText.confirmed("set charge limits to 80% AC, 80% DC"), "Charge limits set")
     }
 }

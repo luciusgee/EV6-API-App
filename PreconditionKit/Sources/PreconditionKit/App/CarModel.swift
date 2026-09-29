@@ -41,6 +41,9 @@ public final class CarModel {
     public private(set) var energy: DrivingHistory?
     /// A one-line result to show after an action, e.g. "Refused: SoC 20% below minimum 25%".
     public var message: String?
+    /// The command being confirmed with the car ("lock the car"), while it is.
+    public private(set) var confirming: String?
+    @ObservationIgnored private var confirmTask: Task<Void, Never>?
 
     private let container: AppContainer
 
@@ -139,6 +142,31 @@ public final class CarModel {
         await reloadState()
     }
 
+    /// Follows the command until the car reports back, like the Kia app does.
+    private func confirm(_ description: String) {
+        confirmTask?.cancel()
+        confirming = description
+        confirmTask = Task { [weak self] in
+            guard let self else { return }
+            let status = await self.container.engine.confirmLastCommand { seconds in
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            }
+            guard !Task.isCancelled else { return }
+            self.confirming = nil
+            switch status {
+            case .success:
+                self.message = "✓ \(DisplayText.confirmed(description)): confirmed by the car."
+            case .failed:
+                self.message = "The car didn't \(description). It may be in use, or a door or the charge port may be open."
+            case .noResponse:
+                self.message = "The car didn't answer (\(description)). It may be out of mobile signal."
+            case .pending, .unknown:
+                self.message = "Sent: \(description). The car hasn't confirmed yet."
+            }
+            await self.reloadState()
+        }
+    }
+
     public func resumeAutomation() async {
         await container.engine.resumeAutomation()
         await reloadState()
@@ -147,7 +175,8 @@ public final class CarModel {
     private func report(_ outcome: ManualOutcome) {
         switch outcome {
         case .sent(let description):
-            message = "Sent: \(description). The car carries it out shortly."
+            message = "Sent: \(description). Waiting for the car to confirm…"
+            confirm(description)
         case .refused(let reason):
             message = "Not sent: \(reason)"
         case .failed(let error):

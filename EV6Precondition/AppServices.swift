@@ -25,6 +25,8 @@ final class AppServices {
             notifier: notifier,
             phone: LocationPhoneLocator()
         )
+        // The fake car takes a few seconds to confirm commands, like the real one.
+        container.fakeCar.state.confirmAfter = 6
         let car = CarModel(container: container)
         self.notifier = notifier
         self.container = container

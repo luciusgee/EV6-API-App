@@ -101,21 +101,21 @@ struct CarView: View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
             ControlTile(
                 title: "Climate",
-                subtitle: climateOn ? (snapshot?.targetTempC.map { "On · \(Describe.temp($0))" } ?? "On") : "Off",
+                subtitle: waiting(["climatise", "stop climatisation"]) ? "Waiting for car…" : (climateOn ? (snapshot?.targetTempC.map { "On · \(Describe.temp($0))" } ?? "On") : "Off"),
                 systemImage: climateOn ? "fan.fill" : "fan",
                 tint: .orange,
                 active: climateOn,
-                busy: model.busy == .starting || model.busy == .stopping
+                busy: model.busy == .starting || model.busy == .stopping || waiting(["climatise", "stop climatisation"])
             ) {
                 Task { climateOn ? await model.stop() : await model.start(targetC: shownTarget) }
             }
             ControlTile(
                 title: details?.locked == false ? "Unlocked" : "Locked",
-                subtitle: details?.locked == nil ? "Unknown" : (details?.locked == true ? "Tap to unlock" : "Tap to lock"),
+                subtitle: waiting(["lock the car", "unlock the car"]) ? "Waiting for car…" : (details?.locked == nil ? "Unknown" : (details?.locked == true ? "Tap to unlock" : "Tap to lock")),
                 systemImage: details?.locked == false ? "lock.open.fill" : "lock.fill",
                 tint: details?.locked == false ? .red : .blue,
                 active: details?.locked == false,
-                busy: model.busy == .command(.lock) || model.busy == .command(.unlock)
+                busy: model.busy == .command(.lock) || model.busy == .command(.unlock) || waiting(["lock the car", "unlock the car"])
             ) {
                 if details?.locked == false {
                     Task { await model.send(.lock) }
@@ -125,11 +125,11 @@ struct CarView: View {
             }
             ControlTile(
                 title: "Charging",
-                subtitle: charging ? (snapshot?.chargePowerKw.map { String(format: "%.1f kW", $0) } ?? "On") : (pluggedIn ? "Paused" : "Unplugged"),
+                subtitle: waiting(["start charging", "stop charging"]) ? "Waiting for car…" : (charging ? (snapshot?.chargePowerKw.map { String(format: "%.1f kW", $0) } ?? "On") : (pluggedIn ? "Paused" : "Unplugged")),
                 systemImage: charging ? "bolt.fill" : (pluggedIn ? "powerplug.fill" : "powerplug"),
                 tint: .green,
                 active: charging,
-                busy: model.busy == .command(.startCharging) || model.busy == .command(.stopCharging)
+                busy: model.busy == .command(.startCharging) || model.busy == .command(.stopCharging) || waiting(["start charging", "stop charging"])
             ) {
                 Task { await model.send(charging ? .stopCharging : .startCharging) }
             }
@@ -148,9 +148,15 @@ struct CarView: View {
         .disabled(model.busy != nil && model.busy != .refreshing)
     }
 
+    /// Whether a command starting with one of `prefixes` is waiting for the car to confirm.
+    private func waiting(_ prefixes: [String]) -> Bool {
+        guard let c = model.confirming else { return false }
+        return prefixes.contains { c.hasPrefix($0) }
+    }
+
     private var settingLimits: Bool {
         if case .command(.setChargeLimits)? = model.busy { return true }
-        return false
+        return waiting(["set charge limits"])
     }
 
     private var limitsText: String {

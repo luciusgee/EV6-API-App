@@ -51,7 +51,9 @@ final class EngineTests: XCTestCase {
         XCTAssertTrue(fake.state.climateOn)
         XCTAssertEqual(fake.state.targetTempC, 22)
         let state = await container.stores.automationState.load()
-        XCTAssertEqual(state.lastCommand, LastCommand(at: t0, description: "climatise to 22.0 °C", automated: false))
+        XCTAssertEqual(state.lastCommand?.at, t0)
+        XCTAssertEqual(state.lastCommand?.description, "climatise to 22.0 °C")
+        XCTAssertNotNil(state.lastCommand?.messageId, "kept to confirm with the car")
         XCTAssertEqual(state.lastCommand?.automated, false)
         let sent = await notifier.sent
         XCTAssertEqual(sent, ["Preconditioning to 22.0 °C"])

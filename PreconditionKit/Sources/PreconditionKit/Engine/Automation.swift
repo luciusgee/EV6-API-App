@@ -182,7 +182,7 @@ extension PreconditionEngine {
 
     private func execute(_ rule: Rule, label: String, temperature: TempReading?, attempt: Attempt, vehicle: VehicleSnapshot?) async -> EngineOutcome {
         let action = rule.action
-        let result: ApiResult<Void>
+        let result: ApiResult<CommandReceipt>
         var note: String?
         switch action {
         case .startClimate(let target):
@@ -197,8 +197,8 @@ extension PreconditionEngine {
         let description = Describe.action(action)
 
         switch result {
-        case .success(_, let meta):
-            let command = LastCommand(at: now, description: description, automated: true)
+        case .success(let receipt, let meta):
+            let command = LastCommand(at: now, description: description, automated: true, messageId: receipt.messageId)
             let ruleId = rule.id
             await state.update {
                 $0.lastAutomatedCommandAt = now

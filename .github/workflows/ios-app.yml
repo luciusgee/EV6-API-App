@@ -4,9 +4,9 @@ name: iOS app
 # Codemagic does the signed TestFlight builds.
 on:
   push:
-    paths: ["EV6Precondition/**", "PreconditionKit/**", "project.yml", ".github/workflows/ios-app.yml"]
+    paths: ["EV6Precondition/**", "Widgets/**", "Watch/**", "Shared/**", "PreconditionKit/**", "project.yml", ".github/workflows/ios-app.yml"]
   pull_request:
-    paths: ["EV6Precondition/**", "PreconditionKit/**", "project.yml", ".github/workflows/ios-app.yml"]
+    paths: ["EV6Precondition/**", "Widgets/**", "Watch/**", "Shared/**", "PreconditionKit/**", "project.yml", ".github/workflows/ios-app.yml"]
 
 jobs:
   build:

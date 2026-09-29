@@ -14,6 +14,11 @@ struct EV6PreconditionApp: App {
                 .task {
                     await services.prepare()
                 }
+                // Widget buttons: ev6://command/climateStart and friends.
+                .onOpenURL { url in
+                    guard let command = GlanceCommand(url: url) else { return }
+                    Task { _ = await GlanceSync.shared.perform(command) }
+                }
         }
     }
 }

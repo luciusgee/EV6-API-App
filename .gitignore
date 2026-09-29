@@ -2,3 +2,5 @@
 EV6Precondition.xcodeproj/
 DerivedData/
 .DS_Store
+EV6Precondition/Info.plist
+Widgets/Info.plist

@@ -45,6 +45,8 @@ final class AppServices {
         rules.onChange = { rules, places in
             GeofenceMonitor.shared.sync(rules: rules, places: places, carPosition: car.snapshot?.parkingPosition)
         }
+        // Now, not later: the Watch can wake the app in the background with a command.
+        GlanceSync.shared.start(car: car)
     }
 
     /// Loads settings and state once; safe to call from every entry point.

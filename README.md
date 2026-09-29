@@ -41,6 +41,7 @@ The Xcode project is generated from `project.yml` by [XcodeGen](https://github.c
 - **Keep charger off:** when the car is plugged in but not charging (done, or waiting for off-peak), starting climate stops the charger first, so preconditioning never starts a peak-rate charge. Manual starts, rules and Siri all do this. A charge that's already running is left alone.
 - **Climate extras:** windscreen defrost, heated wheel and mirrors.
 - **Energy:** 30 days of the car's driving history (driving, climate, electronics, battery care, regen) in charts; mi/kWh or kWh/100 km.
+- **Scanner tab (OBD, like Car Scanner):** dashboard gauges, live graphs with CSV recording, 50+ EV6 sensors, trouble codes from every module (meanings, freeze frame, clearing), modules and VIN, 0–60 / 0–100 / 50–70 / ¼-mile timing, trip computer. Connect remembers your adapter; Demo runs it all against a simulated EV6.
 - **Battery Health (OBD):** with a Bluetooth LE or Wi-Fi ELM327 adapter: state of health, all 192 cell voltages and their spread, temperatures, lifetime energy, tyre pressures. Read-only. Works with the simulated adapter in fake-car mode.
 - **Rules:** templates, the editor, Test now, and ✨ *Describe a rule*: plain English turned into a rule on the phone (Apple Intelligence rewords loose requests on iOS 26 devices that support it). Suggestions learned from your habits, e.g. "you start climate around 07:28 on weekdays".
 - **Places:** a MapKit editor; leave/arrive rules run from iOS region monitoring, even with the app closed.

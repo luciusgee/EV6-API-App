@@ -5,9 +5,9 @@ public enum DisplayText {
     /// The line under the dashboard's request count: "Next one frees up at 17:10".
     public static func budget(_ b: BudgetSnapshot, timeZone: TimeZone = .current) -> String {
         if let until = b.exhaustedUntil {
-            return "Kia's limit reached. Try again at \(clock(until, timeZone))."
+            return "Kia's daily limit is used up. Try again at \(clock(until, timeZone))."
         }
-        if let reset = b.resetAt { return "Requests free up 24 hours after use. Next one at \(clock(reset, timeZone))." }
+        if let reset = b.resetAt { return "Each one comes back 24 hours after it's used. Next at \(clock(reset, timeZone))." }
         return "None used in the last 24 hours."
     }
 
@@ -105,5 +105,21 @@ public enum DisplayText {
             if description.hasPrefix("send ") { return "Sent " + description.dropFirst("send ".count) }
             return description.capitalizingFirstLetter
         }
+    }
+
+    /// A command's description in plain words: "start climate at 21.0 °C", "stop climate", "lock the car".
+    public static func request(_ description: String) -> String {
+        if description.hasPrefix("climatise to ") { return "start climate at " + description.dropFirst("climatise to ".count) }
+        if description == "stop climatisation" { return "stop climate" }
+        return description
+    }
+
+    /// A status line fit for Siri or the Watch: no tick, and commands in plain words.
+    public static func plain(_ message: String) -> String {
+        var text = message
+        if text.hasPrefix("✓ ") { text = String(text.dropFirst(2)) }
+        text = text.replacingOccurrences(of: "climatise to ", with: "start climate at ")
+        text = text.replacingOccurrences(of: "stop climatisation", with: "stop climate")
+        return text.capitalizingFirstLetter
     }
 }

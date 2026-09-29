@@ -11,10 +11,14 @@ struct EV6WatchApp: App {
             WatchCarView()
                 .environment(link)
         }
+        // The iPhone pushed new data for the complications: stay awake until it's delivered.
+        .backgroundTask(.watchConnectivity) {
+            await PhoneLink.shared.receivePending()
+        }
     }
 }
 
-/// Talks to the EV6 app on the iPhone: receives the car's state and asks it to send commands. The
+/// Talks to the My EV6 app on the iPhone: receives the car's state and asks it to send commands. The
 /// Watch never talks to Kia itself, so it needs no sign-in and shares the phone's request budget.
 @MainActor
 @Observable
@@ -42,10 +46,21 @@ final class PhoneLink: NSObject {
         guard let data, let new = try? JSONDecoder().decode(CarGlance.self, from: data) else { return }
         guard new != glance else { return }
         glance = new
+        // A new reading makes the last command's result old news.
+        if sending == nil { result = nil }
         UserDefaults.standard.set(data, forKey: Self.savedKey)
         // The complications read the same thing from the Keychain.
         GlanceKeychain.save(new)
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Waits (up to about 10 s) for WatchConnectivity to hand over what the iPhone sent.
+    func receivePending() async {
+        let session = WCSession.default
+        for _ in 0..<20 {
+            if session.activationState == .activated && !session.hasContentPending { return }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
     }
 
     func send(_ command: GlanceCommand) {
@@ -89,6 +104,12 @@ extension PhoneLink: WCSessionDelegate {
         let data = applicationContext["glance"] as? Data
         Task { @MainActor in PhoneLink.shared.received(data) }
     }
+
+    /// Complication updates the iPhone pushes with `transferCurrentComplicationUserInfo`.
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        let data = userInfo["glance"] as? Data
+        Task { @MainActor in PhoneLink.shared.received(data) }
+    }
 }
 
 // MARK: - Views
@@ -108,18 +129,25 @@ struct WatchCarView: View {
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
                     }
-                    controls
+                    if link.glance != nil {
+                        controls
+                    }
                 }
                 .padding(.horizontal, 4)
             }
-            .navigationTitle("EV6")
+            .navigationTitle("My EV6")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         link.send(.refresh)
                     } label: {
-                        Image(systemName: "arrow.clockwise")
+                        if link.sending == .refresh {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
                     }
+                    .accessibilityLabel("Refresh")
                     .disabled(link.sending != nil)
                 }
             }
@@ -139,9 +167,11 @@ struct WatchCarView: View {
                         .foregroundStyle(g.pluggedIn ? Color.green : .secondary)
                         .multilineTextAlignment(.center)
                 }
-                (Text("Updated ") + Text(g.carReportedAt ?? g.fetchedAt, style: .relative) + Text(" ago"))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                TimelineView(.everyMinute) { context in
+                    Text(g.busy ? g.busyText : g.updatedText(now: context.date))
+                        .font(.caption2)
+                        .foregroundStyle(!g.busy && g.isStale(at: context.date) ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.tertiary))
+                }
             }
         } else {
             VStack(spacing: 6) {
@@ -160,7 +190,7 @@ struct WatchCarView: View {
             Button {
                 link.send(g?.climateOn == true ? .climateStop : .climateStart)
             } label: {
-                buttonLabel(g?.climateOn == true ? "Stop Climate" : "Precondition",
+                buttonLabel(g?.climateOn == true ? "Stop climate" : "Start climate",
                             g?.climateOn == true ? "fan.slash.fill" : "fan.fill",
                             busy: link.sending == .climateStart || link.sending == .climateStop)
                     .font(.headline)
@@ -188,9 +218,9 @@ struct WatchCarView: View {
             }
             if g?.pluggedIn == true {
                 if g?.charging == true {
-                    action(.chargeStop, "Stop Charging", "bolt.slash.fill", .green)
+                    action(.chargeStop, "Stop charging", "bolt.slash.fill", .green)
                 } else {
-                    action(.chargeStart, "Start Charging", "bolt.fill", .green)
+                    action(.chargeStart, "Start charging", "bolt.fill", .green)
                 }
             }
         }

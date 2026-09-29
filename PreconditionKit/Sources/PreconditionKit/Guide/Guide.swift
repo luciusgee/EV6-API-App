@@ -56,8 +56,11 @@ public enum Guide {
             GuideStep("car.dashboard", "Your car at a glance",
                       "Charge, range, plug, locks and climate, from the car's last report. The line under the card says how old that report is.",
                       symbol: "gauge.with.dots.needle.67percent", tab: .car),
+            GuideStep("car.look", "A car with a mood",
+                      "The light around the car shows what it's doing: green sparks while it charges, a warm glow while it heats, cold flecks while it cools. Messages float up from the bottom and fade, and the line above the car says what it's up to.",
+                      symbol: "sparkles", tab: .car),
             GuideStep("car.refresh", "Refresh, or a full refresh",
-                      "The button at the top right. Refresh reads Kia's last copy, which can be a few minutes old. Full refresh from the car wakes it for up-to-the-minute figures: it takes up to 30 seconds and uses a little 12 V charge, so save it for when you need it. Pulling down does a normal refresh.",
+                      "Tap the button at the top right, or pull down, for Kia's latest copy. Press and hold it for a refresh from the car itself: slower (up to 30 seconds) and a little 12 V charge, so save it for when you need it. While charging, the app does this for you.",
                       symbol: "arrow.clockwise", tab: .car),
             GuideStep("car.controls", "Controls",
                       "Climate, locks, charging and the charge limit. After you tap one, the tile waits until the car confirms it did it, like the Kia app.",
@@ -157,6 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
+        GuideRelease(number: 9, title: "A fresh coat of paint", stepIds: ["car.look", "car.refresh", "settings.alerts"]),
         GuideRelease(number: 8, title: "Trips has its own tab, and a simpler planner", stepIds: ["trips.tab", "trips.plan", "trips.tesla"]),
         GuideRelease(number: 7, title: "A new widget and Watch look", stepIds: ["extras.glance"]),
         GuideRelease(number: 6, title: "Plug-in checks", stepIds: ["charging.plugAlerts"]),

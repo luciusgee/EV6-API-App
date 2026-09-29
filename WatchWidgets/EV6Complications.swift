@@ -6,11 +6,11 @@ import WidgetKit
 struct EV6Complications: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "EV6Complication", provider: Provider()) { entry in
-            ComplicationView(glance: entry.glance)
+            ComplicationView(glance: entry.glance, date: entry.date)
                 .containerBackground(for: .widget) { Color.clear }
         }
-        .configurationDisplayName("EV6")
-        .description("Your EV6's charge.")
+        .configurationDisplayName("My EV6")
+        .description("Your EV6's charge and range.")
         .supportedFamilies([.accessoryCircular, .accessoryCorner, .accessoryRectangular, .accessoryInline])
     }
 }
@@ -28,13 +28,21 @@ struct Provider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) {
-        completion(Timeline(entries: [Entry(date: .now, glance: GlanceKeychain.load())], policy: .after(.now.addingTimeInterval(3600))))
+        let glance = GlanceKeychain.load()
+        var entries = [Entry(date: .now, glance: glance)]
+        // Another entry when the data turns stale, so the face says how old it is.
+        if let glance {
+            let staleAt = glance.reportedAt.addingTimeInterval(CarGlance.staleAfter + 60)
+            if staleAt > .now { entries.append(Entry(date: staleAt, glance: glance)) }
+        }
+        completion(Timeline(entries: entries, policy: .after(.now.addingTimeInterval(3600))))
     }
 }
 
 struct ComplicationView: View {
     @Environment(\.widgetFamily) private var family
     let glance: CarGlance?
+    let date: Date
 
     private var soc: Int { glance?.socPercent ?? 0 }
     private var socText: String { glance?.socPercent.map(String.init) ?? "–" }
@@ -62,16 +70,28 @@ struct ComplicationView: View {
                     .tint(soc < 20 ? .orange : .green)
                 }
         case .accessoryInline:
-            Label("EV6 \(socText)% · \(glance?.rangeText ?? "–")", systemImage: symbol)
+            if let glance {
+                Label("EV6 \(socText)% · \(glance.rangeText ?? "–")", systemImage: symbol)
+            } else {
+                Label("My EV6", systemImage: "car.fill")
+            }
         default:
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Image(systemName: symbol)
-                    Text("EV6 \(socText)%").fontWeight(.semibold).monospacedDigit()
+                    Text(glance == nil ? "My EV6" : "EV6 \(socText)%").fontWeight(.semibold).monospacedDigit()
                 }
                 .widgetAccentable()
-                Text(glance?.rangeText.map { "\($0) range" } ?? "–")
-                Text(glance?.plan ?? glance?.summary ?? "Open My EV6 on your iPhone").lineLimit(1)
+                if let glance {
+                    if glance.isStale(at: date) {
+                        Text(glance.updatedText(now: date)).lineLimit(1)
+                    } else {
+                        Text(glance.rangeText.map { "\($0) range" } ?? "–")
+                    }
+                    Text(glance.plan ?? glance.summary).lineLimit(1)
+                } else {
+                    Text("Open My EV6 on iPhone").lineLimit(2)
+                }
             }
             .font(.caption)
             .frame(maxWidth: .infinity, alignment: .leading)

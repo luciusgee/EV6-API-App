@@ -48,7 +48,7 @@ public enum AskPlanner {
     }
 
     public static func text(_ rule: Rule, outsideC: Double?) -> String {
-        let weather = outsideC.map { "It's about \(Describe.temp($0)) out. " } ?? ""
-        return weather + "Hold for Start, In 15 min or Not today."
+        guard let outsideC else { return "Touch and hold to start it now, ask again in 15 minutes or skip today." }
+        return "It's about \(Describe.temp(outsideC)) out. Touch and hold to choose."
     }
 }

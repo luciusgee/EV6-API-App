@@ -10,10 +10,10 @@ struct PreconditionControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.luciusgee.ev6precondition.control.precondition") {
             ControlWidgetButton(action: CarCommandIntent(.climateStart)) {
-                Label("Start Climate", systemImage: "fan.fill")
+                Label("Start climate", systemImage: "fan.fill")
             }
         }
-        .displayName("Start EV6 Climate")
+        .displayName("Start climate")
         .description("Starts the car's climate.")
     }
 }
@@ -23,10 +23,10 @@ struct StopClimateControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.luciusgee.ev6precondition.control.stopclimate") {
             ControlWidgetButton(action: CarCommandIntent(.climateStop)) {
-                Label("Stop Climate", systemImage: "fan.slash")
+                Label("Stop climate", systemImage: "fan.slash")
             }
         }
-        .displayName("Stop EV6 Climate")
+        .displayName("Stop climate")
         .description("Stops the car's climate.")
     }
 }
@@ -36,10 +36,10 @@ struct LockControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.luciusgee.ev6precondition.control.lock") {
             ControlWidgetButton(action: CarCommandIntent(.lock)) {
-                Label("Lock EV6", systemImage: "lock.fill")
+                Label("Lock car", systemImage: "lock.fill")
             }
         }
-        .displayName("Lock EV6")
+        .displayName("Lock car")
         .description("Locks the car.")
     }
 }
@@ -49,10 +49,10 @@ struct RefreshControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.luciusgee.ev6precondition.control.refresh") {
             ControlWidgetButton(action: CarCommandIntent(.refresh)) {
-                Label("Update EV6", systemImage: "arrow.clockwise")
+                Label("Refresh car", systemImage: "arrow.clockwise")
             }
         }
-        .displayName("Update EV6")
-        .description("Reads the car's latest state (one Kia request).")
+        .displayName("Refresh car")
+        .description("Reads the car's latest state. Uses one Kia request.")
     }
 }

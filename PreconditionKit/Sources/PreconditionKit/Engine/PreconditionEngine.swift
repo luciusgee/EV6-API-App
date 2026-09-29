@@ -156,8 +156,8 @@ public final class PreconditionEngine: Sendable {
                 httpCode: meta.httpCode, requestsUsed: requests
             ))
             if case .startClimate(let target) = action {
-                let text = note == nil ? "Started manually" : "Started manually, charger held"
-                await notifier.commandSent(title: "Preconditioning to \(Describe.temp(target))", text: text, canStop: true)
+                let text = note == nil ? "Sent to the car." : "Sent to the car, with the charger held."
+                await notifier.commandSent(title: "Starting climate · \(Describe.temp(target))", text: text, canStop: true)
             }
             return .sent(description)
         case .failure(let error, _):

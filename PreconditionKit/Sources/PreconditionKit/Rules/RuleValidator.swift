@@ -49,7 +49,7 @@ public enum RuleValidator {
                 checkTemp(high)
                 if low >= high { add("temperature range: the lower limit must be below the upper limit") }
             case .socAtLeast(let p):
-                if !(0...100).contains(p) { add("SoC must be 0–100%") }
+                if !(0...100).contains(p) { add("Charge must be 0–100%") }
             case .pluggedIn:
                 break
             case .carAtPlace(let id):

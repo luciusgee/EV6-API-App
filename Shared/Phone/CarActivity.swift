@@ -11,13 +11,15 @@ struct CarActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         var socPercent: Int?
         var rangeText: String?
-        /// "Warming to 21.0 °C", "Charging to 80%".
+        /// "Climate on · 21.0 °C", "Charging to 80%".
         var title: String
         /// "Confirmed by the car", "7.2 kW".
         var detail: String?
         var startedAt: Date
         /// When climate stops or charging should finish.
         var endsAt: Date?
+        /// When the car reported this (charging); nil for climate.
+        var updatedAt: Date? = nil
     }
 
     var kind: Kind

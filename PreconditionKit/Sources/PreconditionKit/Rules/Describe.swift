@@ -49,7 +49,7 @@ extension Describe {
         case .tempBelow(let t, let s): return "\(source(s)) below \(temp(t))"
         case .tempAbove(let t, let s): return "\(source(s)) above \(temp(t))"
         case .tempOutside(let low, let high, let s): return "\(source(s)) below \(temp(low)) or above \(temp(high))"
-        case .socAtLeast(let p): return "SoC ≥ \(p)%"
+        case .socAtLeast(let p): return "charge at least \(p)%"
         case .pluggedIn(let e): return e ? "plugged in" : "not plugged in"
         case .carAtPlace(let id): return "car at \(placeName(id))"
         case .phoneNearCar(let m): return "phone within \(distance(m)) of the car"

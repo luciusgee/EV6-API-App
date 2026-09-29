@@ -67,10 +67,10 @@ final class GuardTests: XCTestCase {
     }
 
     func testSocGuard() {
-        XCTAssertEqual(Guards.soc(car(soc: 50), minPercent: 25), Check("SoC guard", .pass, "SoC 50% ≥ 25%"))
-        XCTAssertEqual(Guards.soc(car(soc: 20), minPercent: 25), Check("SoC guard", .fail, "SoC 20% below minimum 25%"))
+        XCTAssertEqual(Guards.soc(car(soc: 50), minPercent: 25), Check("Minimum charge", .pass, "charge 50% ≥ 25%"))
+        XCTAssertEqual(Guards.soc(car(soc: 20), minPercent: 25), Check("Minimum charge", .fail, "charge 20% is below the 25% minimum"))
         XCTAssertEqual(Guards.soc(car(soc: nil), minPercent: 25).result, .fail)
-        XCTAssertEqual(Guards.soc(car(soc: 5, plugged: true), minPercent: 25), Check("SoC guard", .pass, "plugged in"))
+        XCTAssertEqual(Guards.soc(car(soc: 5, plugged: true), minPercent: 25), Check("Minimum charge", .pass, "plugged in"))
     }
 
     func testClimateGuards() {
@@ -80,7 +80,7 @@ final class GuardTests: XCTestCase {
         XCTAssertEqual(Guards.running(car(climate: .running)).result, .pass)
         XCTAssertEqual(Guards.running(car(climate: .off)).result, .fail)
         XCTAssertEqual(Guards.running(car(climate: .unknown)).result, .fail)
-        XCTAssertEqual(Guards.soc(car(soc: 20), minPercent: 25).description, "SoC guard: SoC 20% below minimum 25%")
+        XCTAssertEqual(Guards.soc(car(soc: 20), minPercent: 25).description, "Minimum charge: charge 20% is below the 25% minimum")
     }
 }
 

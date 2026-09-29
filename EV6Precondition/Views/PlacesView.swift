@@ -78,6 +78,8 @@ struct PlaceEditorView: View {
     @State private var search = ""
     @State private var searching = false
     @State private var inUse: [String]?
+    @State private var notFound = false
+    @State private var saving = false
     let isNew: Bool
 
     init(place: Place, isNew: Bool) {
@@ -117,10 +119,11 @@ struct PlaceEditorView: View {
                         TextField("Search address", text: $search)
                             .submitLabel(.search)
                             .onSubmit { Task { await find() } }
+                            .onChange(of: search) { _, _ in notFound = false }
                         if searching { ProgressView() }
                     }
                 } footer: {
-                    Text("Tap the map to move the centre.")
+                    Text(notFound ? "No match for that address. Try adding the town or postcode." : "Tap the map to move the centre.")
                 }
                 Section {
                     VStack(alignment: .leading) {
@@ -137,7 +140,7 @@ struct PlaceEditorView: View {
                         Button {
                             withAnimation { place.centre = parked; recentre() }
                         } label: {
-                            Label("Use the Car's Position", systemImage: "car.fill")
+                            Label("Use the car's position", systemImage: "car.fill")
                         }
                     }
                     Button {
@@ -150,7 +153,7 @@ struct PlaceEditorView: View {
                 }
                 if !isNew {
                     Section {
-                        Button("Delete Place", role: .destructive) {
+                        Button("Delete place", role: .destructive) {
                             Task {
                                 if let users = await model.deletePlace(id: place.id) {
                                     inUse = users
@@ -174,12 +177,13 @@ struct PlaceEditorView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        saving = true
                         Task {
                             await model.save(place: place)
                             dismiss()
                         }
                     }
-                    .disabled(place.name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(saving || place.name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .onChange(of: place.radiusM) { _, _ in recentre() }
@@ -198,7 +202,11 @@ struct PlaceEditorView: View {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = query
         request.region = MKCoordinateRegion(center: place.centre.coordinate, latitudinalMeters: 200_000, longitudinalMeters: 200_000)
-        guard let item = try? await MKLocalSearch(request: request).start().mapItems.first else { return }
+        guard let item = try? await MKLocalSearch(request: request).start().mapItems.first else {
+            notFound = true
+            return
+        }
+        notFound = false
         let c = item.placemark.coordinate
         withAnimation {
             place.centre = LatLon(lat: c.latitude, lon: c.longitude)

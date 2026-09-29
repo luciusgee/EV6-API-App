@@ -134,7 +134,7 @@ final class ChargingTests: XCTestCase {
         let unlocked = snap("2026-09-29T19:30:00Z", soc: 60, locked: false, aux: 65, windows: ["front left"])
         let first = AlertEngine.evaluate(previous: nil, current: unlocked, state: &state, settings: settings, now: now)
         XCTAssertEqual(Set(first.map(\.kind)), [.leftUnlocked, .windowOpen, .lowAuxBattery])
-        XCTAssertTrue(first.contains { $0.body.contains("front left is open") })
+        XCTAssertTrue(first.contains { $0.body.contains("Front left is open") })
 
         let again = snap("2026-09-29T19:45:00Z", soc: 60, locked: false, aux: 65, windows: ["front left"])
         XCTAssertEqual(AlertEngine.evaluate(previous: unlocked, current: again, state: &state, settings: settings, now: now), [])

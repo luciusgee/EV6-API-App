@@ -56,7 +56,7 @@ final class EngineTests: XCTestCase {
         XCTAssertNotNil(state.lastCommand?.messageId, "kept to confirm with the car")
         XCTAssertEqual(state.lastCommand?.automated, false)
         let sent = await notifier.sent
-        XCTAssertEqual(sent, ["Preconditioning to 22.0 °C"])
+        XCTAssertEqual(sent, ["Starting climate · 22.0 °C"])
         let manual = await entries().filter { $0.kind == .manual }
         XCTAssertEqual(manual.map(\.decision), ["sent"])
         XCTAssertEqual(manual.first?.requestsUsed, 2) // a read, then the command
@@ -76,10 +76,10 @@ final class EngineTests: XCTestCase {
         await container.vehicles.clear()
         let refusal = await engine.manualStart()
         guard case .refused(let reason) = refusal else { return XCTFail("expected a refusal") }
-        XCTAssertEqual(reason, "SoC 10% below minimum 25%")
+        XCTAssertEqual(reason, "charge 10% is below the 25% minimum")
         let last = await entries().last
         XCTAssertEqual(last?.decision, "refused")
-        XCTAssertEqual(last?.reason, "climatise to 21.0 °C: SoC 10% below minimum 25%")
+        XCTAssertEqual(last?.reason, "climatise to 21.0 °C: charge 10% is below the 25% minimum")
     }
 
     func testPluggedInPassesTheSocGuard() async {

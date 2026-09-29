@@ -26,6 +26,8 @@ struct CarGlance: Codable, Equatable, Sendable {
     var plan: String? = nil
     /// The next scheduled rule, e.g. "Weekday warm-up · tomorrow 07:30".
     var next: String? = nil
+    /// Sent, and waiting for the car to confirm (nil in glances saved by older builds).
+    var waitingForCar: Bool? = nil
 
     static let preview = CarGlance(
         socPercent: 62, rangeText: "151 mi", charging: false, pluggedIn: false, locked: true,
@@ -45,6 +47,36 @@ struct CarGlance: Codable, Equatable, Sendable {
         if let locked { parts.append(locked ? "Locked" : "Unlocked") }
         parts.append(climateOn ? "Climate on" : "Climate off")
         return parts.joined(separator: " · ")
+    }
+
+    /// When the car last reported this, else when the app last read it.
+    var reportedAt: Date { carReportedAt ?? fetchedAt }
+
+    /// Older than this, the widgets and the Watch say how old the data is.
+    static let staleAfter: TimeInterval = 3600
+
+    func isStale(at now: Date) -> Bool { now.timeIntervalSince(reportedAt) > Self.staleAfter }
+
+    /// "Updated 14:05", "Updated yesterday 21:30", "Updated Thu 07:30". A fixed time rather than a
+    /// ticking "… ago", which runs long and changes every second.
+    func updatedText(now: Date) -> String { "Updated " + Self.when(reportedAt, now: now) }
+
+    /// What a busy glance is doing.
+    var busyText: String { waitingForCar == true ? "Waiting for the car…" : "Updating…" }
+
+    static func when(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+        let c = calendar.dateComponents([.hour, .minute], from: date)
+        let time = String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
+        if calendar.isDate(date, inSameDayAs: now) { return time }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return "yesterday \(time)"
+        }
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.locale = Locale(identifier: "en_GB")
+        f.dateFormat = now.timeIntervalSince(date) < 6 * 86400 ? "EEE" : "d MMM"
+        return "\(f.string(from: date)) \(time)"
     }
 }
 

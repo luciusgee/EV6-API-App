@@ -5,12 +5,21 @@ import SwiftUI
 /// Where the energy went over the last 30 days, from the car's own driving history.
 struct EnergyView: View {
     @Environment(CarModel.self) private var model
+    /// Set once you've asked for the data here, so a failure shows on this screen.
+    @State private var asked = false
 
     private var history: DrivingHistory? { model.energy }
     private var miles: Bool { model.settings.useMiles }
 
     var body: some View {
         List {
+            if asked, model.busy != .energy, let message = model.message, message.hasPrefix("Couldn't load energy data") {
+                Section {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
+                }
+            }
             if let history, !history.days.isEmpty {
                 Section {
                     summary(history)
@@ -60,25 +69,35 @@ struct EnergyView: View {
                     ContentUnavailableView {
                         Label("No energy data yet", systemImage: "chart.bar.xaxis")
                     } description: {
-                        Text("The last 30 days, from the car. Loading uses one request.")
+                        Text("See where your charge went over the last 30 days.")
                     } actions: {
-                        Button("Load Energy Data") { Task { await model.refreshEnergy() } }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(model.busy != nil)
+                        Button {
+                            load()
+                        } label: {
+                            HStack(spacing: 8) {
+                                if model.busy == .energy { ProgressView().tint(.white) }
+                                Text(model.busy == .energy ? "Loading…" : "Load energy data")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.busy != nil)
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Energy use")
-        .refreshable { await model.refreshEnergy() }
+        .refreshable {
+            asked = true
+            await model.refreshEnergy()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if model.busy == .energy {
                     ProgressView()
                 } else {
                     Button {
-                        Task { await model.refreshEnergy() }
+                        load()
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
@@ -86,6 +105,11 @@ struct EnergyView: View {
                 }
             }
         }
+    }
+
+    private func load() {
+        asked = true
+        Task { await model.refreshEnergy() }
     }
 
     private func summary(_ h: DrivingHistory) -> some View {
@@ -132,9 +156,9 @@ struct EnergyView: View {
     private func climateTip(_ share: Double) -> String {
         let pct = Int((share * 100).rounded())
         if share > 0.15 {
-            return "Climate took \(pct)% of your energy. Preconditioning while plugged in (with the charger kept off outside off-peak) warms the cabin before you set off, so less comes from the battery on the move."
+            return "Climate used \(pct)% of your energy. Warming the car while it's plugged in, before you set off, takes less from the battery on the go."
         }
-        return "Climate took \(pct)% of your energy."
+        return "Climate used \(pct)% of your energy."
     }
 }
 

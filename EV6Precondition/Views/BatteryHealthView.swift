@@ -100,6 +100,11 @@ struct BatteryHealthView: View {
                     }
                 }
                 .disabled(reports.scanning || obd.carState != .connected)
+                if obd.carState != .connected, !reports.scanning {
+                    Text("Connect an adapter first")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 if let progress = reports.progress {
                     VStack(alignment: .leading, spacing: 6) {
                         ProgressView(value: Double(progress.step), total: Double(progress.of))
@@ -112,7 +117,7 @@ struct BatteryHealthView: View {
                         .font(.subheadline)
                 }
             } footer: {
-                Text("Plug your OBD adapter in under the dashboard, switch the car on, connect below and tap Read. Takes about 10 seconds and changes nothing on the car.")
+                Text("Plug the OBD adapter in under the dashboard, switch the car on and connect below, then tap Read battery. It takes about 10 seconds and changes nothing on the car.")
             }
 
             if let report = reports.report {
@@ -211,16 +216,16 @@ struct AdapterPicker: View {
                     if case .failed(let reason) = link.state {
                         Text(reason).foregroundStyle(.orange)
                     } else if link.state == .bluetoothOff {
-                        Text("Turn Bluetooth on in Control Center.")
+                        Text("Turn Bluetooth on in Control Centre.")
                     } else if link.state == .bluetoothDenied {
-                        Text("Allow Bluetooth for EV6 in iOS Settings.")
+                        Text("Allow Bluetooth for My EV6 in iOS Settings.")
                     } else {
-                        Text("Connect adapters here, not in iOS Settings. It needs a Bluetooth LE or Wi-Fi adapter.")
+                        Text("Connect your adapter here, not in iOS Settings. Bluetooth LE and Wi-Fi adapters work.")
                     }
                 }
 
                 Section {
-                    Button("Connect to Wi-Fi Adapter") { link.connectWiFi() }
+                    Button("Connect to a Wi-Fi adapter") { link.connectWiFi() }
                 } footer: {
                     Text("Join the adapter's Wi-Fi network in iOS Settings first (it's usually called WiFi_OBDII or similar). Uses 192.168.0.10, port 35000.")
                 }
@@ -257,7 +262,7 @@ private struct ReportSections: View {
             HealthGauge(soh: report.sohPercent, description: report.packDescription)
                 .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
             ForEach(report.findings, id: \.self) { finding in
-                Label(finding, systemImage: "checkmark.seal")
+                Label(finding, systemImage: "info.circle")
                     .font(.subheadline)
             }
         } footer: {
@@ -282,7 +287,7 @@ private struct ReportSections: View {
         }
 
         Section("Pack") {
-            row("Charge (BMS)", report.socBMSPercent.map { String(format: "%.1f%%", $0) })
+            row("Charge (battery's own reading)", report.socBMSPercent.map { String(format: "%.1f%%", $0) })
             row("Charge (dashboard)", report.socDisplayPercent.map { String(format: "%.1f%%", $0) })
             row("Voltage", report.packVolts.map { String(format: "%.1f V", $0) })
             row("Current", report.packAmps.map { String(format: "%.1f A", $0) })
@@ -313,7 +318,7 @@ private struct ReportSections: View {
         }
 
         if !problems.isEmpty {
-            Section("Not read") {
+            Section("Couldn't read") {
                 ForEach(problems, id: \.self) { Text($0).font(.footnote).foregroundStyle(.secondary) }
             }
         }

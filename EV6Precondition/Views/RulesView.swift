@@ -56,13 +56,21 @@ struct RulesView: View {
                 }
                 if model.rules.isEmpty {
                     Section {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("No rules yet").font(.headline)
-                            Text("Type what you want, like “weekdays at 7:30 heat to 22 if it's below 5”, or tap + for a template.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                        ContentUnavailableView {
+                            Label("No rules yet", systemImage: "list.bullet.rectangle")
+                        } description: {
+                            Text("Say what you want, like “weekdays at 7:30 heat to 22 if it's below 5”, or start from a template.")
+                        } actions: {
+                            Button("Type a rule") { composing = true }
+                                .buttonStyle(.borderedProminent)
+                            Menu("Choose a template") {
+                                ForEach(Templates.all, id: \.title) { template in
+                                    Button(template.title) {
+                                        editing = EditorItem(rule: model.newRule(from: template), isNew: true)
+                                    }
+                                }
+                            }
                         }
-                        .padding(.vertical, 4)
                     }
                 } else {
                     Section {
@@ -204,7 +212,7 @@ private struct SuggestionRow: View {
                         .buttonStyle(.borderedProminent)
                         .tint(.purple)
                 }
-                Button("Not now", action: dismiss)
+                Button("No thanks", action: dismiss)
                     .buttonStyle(.bordered)
             }
             .controlSize(.small)

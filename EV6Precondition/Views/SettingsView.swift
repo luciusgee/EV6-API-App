@@ -10,9 +10,9 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                GuideSettingsSection()
-                MyCarSection()
                 KiaConnectSection()
+                MyCarSection()
+                GuideSettingsSection()
                 SafetySection()
                 AutomationSection()
                 Section {
@@ -27,12 +27,18 @@ struct SettingsView: View {
                         Label("Activity log", systemImage: "list.bullet.clipboard")
                     }
                 }
-                ChargerDataSection()
+                Section {
+                    NavigationLink {
+                        ChargerDataView()
+                    } label: {
+                        Label("Charger data", systemImage: "ev.charger")
+                    }
+                }
                 PermissionsSection()
                 Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
                 } footer: {
-                    Text("No analytics and no server. The app only talks to Kia.")
+                    Text("No analytics and no account with us. The app talks to Kia, and to Octopus, Open Charge Map, Google and weather services only for the features you use.")
                 }
             }
             .navigationTitle("Settings")
@@ -50,14 +56,17 @@ private struct MyCarSection: View {
         Section {
             CarHeroImage(rest: CarSpin.rear, paint: paint)
                 .padding(.vertical, 8)
-            Toggle("Miles", isOn: Binding(
+            Picker("Colour", selection: $paint) {
+                ForEach(CarPaint.allCases) { Text($0.name).tag($0) }
+            }
+            Toggle("Show distances in miles", isOn: Binding(
                 get: { model.settings.useMiles },
                 set: { on in Task { await model.updateSettings { $0.useMiles = on } } }
             ))
         } header: {
             Text("My EV6")
         } footer: {
-            Text("2022 EV6 GT-Line AWD · Runway Red · 77.4 kWh · 325 bhp")
+            Text("2022 EV6 GT-Line AWD · \(paint.name) · 77.4 kWh · 325 bhp")
         }
     }
 }
@@ -69,13 +78,18 @@ private struct KiaConnectSection: View {
     @State private var email = ""
     @State private var password = ""
     @State private var signInError: String?
-
+    @State private var confirmSignOut = false
 
     var body: some View {
         Section {
             if let failure = model.automation.authFailure {
-                Label("Problem: \(failure)", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(failure.capitalizingFirst, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                    Text(model.accountEmail == nil ? "Sign in again below." : "Sign out, then sign in again.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             if let account = model.accountEmail {
                 LabeledContent {
@@ -83,8 +97,15 @@ private struct KiaConnectSection: View {
                 } label: {
                     Label("Signed in", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
                 }
-                Button("Sign Out", role: .destructive) {
-                    Task { await model.signOut() }
+                Button("Sign out", role: .destructive) {
+                    confirmSignOut = true
+                }
+                .confirmationDialog("Sign out of Kia?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+                    Button("Sign out", role: .destructive) {
+                        Task { await model.signOut() }
+                    }
+                } message: {
+                    Text("Rules and alerts stop until you sign in again.")
                 }
             } else {
                 TextField("Kia account email", text: $email)
@@ -100,7 +121,7 @@ private struct KiaConnectSection: View {
                     signIn()
                 } label: {
                     HStack {
-                        Text(model.signingIn ? "Signing In…" : "Sign In")
+                        Text(model.signingIn ? "Signing in…" : "Sign in")
                         Spacer()
                         if model.signingIn { ProgressView() }
                     }
@@ -156,36 +177,46 @@ private struct SafetySection: View {
 // MARK: - Charger data
 
 /// Keys for charger details: Open Charge Map (free) and Google Places (live availability, reviews).
-private struct ChargerDataSection: View {
+private struct ChargerDataView: View {
     @State private var ocm = ChargerKeys.openChargeMap ?? ""
     @State private var google = ChargerKeys.google ?? ""
 
     var body: some View {
-        Section {
-            SecureField("Open Charge Map key", text: $ocm)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .onSubmit { ChargerKeys.openChargeMap = ocm.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .onChange(of: ocm) { _, v in ChargerKeys.openChargeMap = v.trimmingCharacters(in: .whitespacesAndNewlines) }
-            Link(destination: URL(string: "https://openchargemap.org/site/loginprovider/beginlogin")!) {
-                Label("Get a free key (My profile › API keys)", systemImage: "key")
+        Form {
+            Section {
+                TextField("Open Charge Map key", text: $ocm)
+                    .font(.body.monospaced())
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .onChange(of: ocm) { _, v in ChargerKeys.openChargeMap = v.trimmingCharacters(in: .whitespacesAndNewlines) }
+                Link(destination: URL(string: "https://openchargemap.org/site/loginprovider/beginlogin")!) {
+                    Label("Get a free key (My profile › API keys)", systemImage: "key")
+                }
+            } header: {
+                Text("Open Charge Map")
+            } footer: {
+                Text("Adds real charger speeds, connectors, prices and drivers' check-ins.")
             }
-            SecureField("Google key (optional)", text: $google)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .onChange(of: google) { _, v in ChargerKeys.google = v.trimmingCharacters(in: .whitespacesAndNewlines) }
-            Link(destination: URL(string: "https://console.cloud.google.com/google/maps-apis/api-list")!) {
-                Label("Google key: enable Places API (New)", systemImage: "key")
+            Section {
+                TextField("Google key (optional)", text: $google)
+                    .font(.body.monospaced())
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .onChange(of: google) { _, v in ChargerKeys.google = v.trimmingCharacters(in: .whitespacesAndNewlines) }
+                Link(destination: URL(string: "https://console.cloud.google.com/google/maps-apis/api-list")!) {
+                    Label("Get a key (turn on Places API (New))", systemImage: "key")
+                }
+            } header: {
+                Text("Google")
+            } footer: {
+                Text("Adds live availability and reviews. Google may charge after its free allowance. Keys stay in your iPhone's Keychain.")
             }
-        } header: {
-            Text("Charger data")
-        } footer: {
-            Text("Open Charge Map adds real charger speeds, connectors, prices and drivers' check-ins. Google adds live availability and reviews, and may charge after its free allowance. Keys stay in the iPhone Keychain.")
         }
+        .navigationTitle("Charger data")
     }
 }
 
-// MARK: - Automation and requests
+// MARK: - Automation
 
 private struct AutomationSection: View {
     @Environment(CarModel.self) private var model
@@ -205,37 +236,62 @@ private struct AutomationSection: View {
                 }
             }
             if let last = model.automation.lastCommand {
-                LabeledContent("Last command") {
-                    Text("\(last.description.capitalizingFirst), \(DisplayText.age(of: last.at, now: model.now))")
+                LabeledContent("Last sent") {
+                    Text("\(DisplayText.confirmed(last.description)), \(DisplayText.age(of: last.at, now: model.now))")
                         .multilineTextAlignment(.trailing)
                 }
             }
-            if let budget = model.budget {
-                VStack(alignment: .leading, spacing: 8) {
-                    LabeledContent("Kia requests left", value: "\(budget.remaining) of \(budget.limit)")
-                    ProgressView(value: Double(budget.remaining), total: Double(max(budget.limit, 1)))
-                        .tint(budget.exhaustedUntil == nil ? Color.accentColor : .red)
-                    Text(DisplayText.budget(budget)).font(.caption).foregroundStyle(.secondary)
+            NavigationLink {
+                KiaLimitsView()
+            } label: {
+                LabeledContent {
+                    Text(model.budget.map { "\($0.remaining) left" } ?? "")
+                } label: {
+                    Label("Kia limits", systemImage: "gauge.with.dots.needle.33percent")
                 }
-                .padding(.vertical, 2)
             }
-            RoundStepper("Requests per day", value: Binding(
-                get: { model.settings.budgetLimit },
-                set: { v in Task { await model.updateSettings { $0.budgetLimit = v } } }
-            ), in: 10...200, step: 10) { "\($0)" }
         } header: {
             Text("Automation")
         } footer: {
             Text(model.settings.automationPaused
                  ? "Paused. Rules still log what they would do, but send nothing."
-                 : "Kia allows about 200 requests a day. Automations stop \(model.settings.budgetReserve) short, so the app's buttons always work.")
+                 : "Rules and smart charging run by themselves while this is on.")
         }
+    }
+}
+
+/// How many times the app may contact the car, and how many rules may use.
+private struct KiaLimitsView: View {
+    @Environment(CarModel.self) private var model
+
+    var body: some View {
+        Form {
+            Section {
+                if let budget = model.budget {
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent("Left today", value: "\(budget.remaining) of \(budget.limit)")
+                        ProgressView(value: Double(budget.remaining), total: Double(max(budget.limit, 1)))
+                            .tint(budget.exhaustedUntil == nil ? Color.accentColor : Color.red)
+                        Text(DisplayText.budget(budget)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+                RoundStepper("Daily limit", value: Binding(
+                    get: { model.settings.budgetLimit },
+                    set: { v in Task { await model.updateSettings { $0.budgetLimit = v } } }
+                ), in: 10...200, step: 10) { "\($0)" }
+            } footer: {
+                Text("Kia lets an app contact your car about 200 times a day. Rules stop \(model.settings.budgetReserve) short, so the buttons in the app always work.")
+            }
+        }
+        .navigationTitle("Kia limits")
     }
 }
 
 // MARK: - Permissions
 
 private struct PermissionsSection: View {
+    @Environment(RulesModel.self) private var rules
     @State private var status: CLAuthorizationStatus = .notDetermined
     @Environment(\.scenePhase) private var scenePhase
 
@@ -249,20 +305,29 @@ private struct PermissionsSection: View {
         }
     }
 
+    /// Leave and arrive rules need Always to work with the app closed.
+    private var needsAlways: Bool {
+        status == .authorizedWhenInUse && !rules.places.isEmpty
+    }
+
     var body: some View {
         Section {
             LabeledContent("Location", value: statusText)
+            if needsAlways {
+                Label("Leave and arrive rules need Always", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
             if status == .notDetermined {
-                Button("Allow Location") {
+                Button("Allow location") {
                     LocationAccess.shared.requestIfNeeded()
                 }
-            } else if status == .denied || status == .restricted, let url = URL(string: UIApplication.openSettingsURLString) {
+            } else if status == .denied || status == .restricted || needsAlways, let url = URL(string: UIApplication.openSettingsURLString) {
                 Link("Open iOS Settings", destination: url)
             }
         } header: {
             Text("Permissions")
         } footer: {
-            Text("Location is used only for “phone near the car”: one reading when a rule runs, never tracked or sent anywhere.")
+            Text("Used for Places (leave and arrive rules) and “phone near the car”. Choose Always so leave and arrive rules work with the app closed. Your location never leaves your iPhone.")
         }
         .onChange(of: scenePhase) { _, _ in status = LocationAccess.shared.status }
         .task {

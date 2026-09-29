@@ -54,10 +54,20 @@ final class GlanceSync: NSObject {
         sendToWatch(glance)
     }
 
+    /// What the complications show, to tell when they need a (rationed) push.
+    private var lastComplication: String?
+
     private func sendToWatch(_ glance: CarGlance?) {
         guard let session, session.activationState == .activated, session.isPaired, session.isWatchAppInstalled,
               let glance, let data = try? JSONEncoder().encode(glance) else { return }
         try? session.updateApplicationContext(["glance": data])
+        // The application context only arrives when the Watch app next runs. Complications on the
+        // face get a direct push, which iOS rations (about 50 a day), so only when what they show changes.
+        let shown = "\(glance.socPercent ?? -1)|\(glance.charging)|\(glance.pluggedIn)|\(glance.rangeText ?? "")|\(glance.plan ?? "")"
+        if session.isComplicationEnabled, shown != lastComplication, session.remainingComplicationUserInfoTransfers > 0 {
+            lastComplication = shown
+            session.transferCurrentComplicationUserInfo(["glance": data])
+        }
     }
 
     static func glance(_ car: CarModel) -> CarGlance? {
@@ -75,10 +85,11 @@ final class GlanceSync: NSObject {
             minutesToFull: s.chargingState == .charging ? s.minutesToFullyCharged : nil,
             carReportedAt: s.carCapturedAt,
             fetchedAt: s.fetchedAt,
-            status: car.confirming.map { "Waiting for the car: \($0)…" } ?? car.message,
+            status: car.confirming != nil ? "Waiting for the car to confirm…" : car.message.map(DisplayText.plain),
             busy: car.busy != nil || car.confirming != nil,
             plan: GlanceText.chargePlan(s, smart: AppServices.shared.charging.plan, now: Date()),
-            next: GlanceText.nextRule(AppServices.shared.rules.rules, now: Date(), clock: LocalClock())
+            next: GlanceText.nextRule(AppServices.shared.rules.rules, now: Date(), clock: LocalClock()),
+            waitingForCar: car.confirming != nil || (car.busy != nil && car.busy != .refreshing && car.busy != .energy)
         )
     }
 
@@ -97,7 +108,7 @@ final class GlanceSync: NSObject {
         case .chargeStart: await car.send(.startCharging)
         case .chargeStop: await car.send(.stopCharging)
         }
-        return car.message ?? (command == .refresh ? "Updated." : "Sent.")
+        return car.message.map(DisplayText.plain) ?? (command == .refresh ? "Updated." : "Sent to the car.")
     }
 }
 

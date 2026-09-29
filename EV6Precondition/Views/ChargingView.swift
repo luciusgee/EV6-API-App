@@ -58,7 +58,8 @@ struct ChargingView: View {
         switch car.snapshot?.chargingState {
         case .charging: return "Charging"
         case .pluggedIn: return "Plugged in"
-        default: return "Unplugged"
+        case .unplugged: return "Unplugged"
+        case nil: return "No data"
         }
     }
 }
@@ -92,6 +93,13 @@ private extension ClockTime {
 private struct SmartChargeSection: View {
     @Environment(CarModel.self) private var car
     @Environment(ChargingModel.self) private var charging
+    /// Set once the AC limit button's been tapped, so its result shows here.
+    @State private var sentLimit = false
+
+    private var settingLimit: Bool {
+        if case .command(.setChargeLimits)? = car.busy { return true }
+        return false
+    }
 
     var body: some View {
         let smart = charging.settings.smart
@@ -129,18 +137,28 @@ private struct SmartChargeSection: View {
                 planRow
                 if let limit = car.snapshot?.details?.chargeLimitAC, limit != smart.targetPercent {
                     Button {
+                        sentLimit = true
                         Task { await car.send(.setChargeLimits(ac: smart.targetPercent, dc: car.snapshot?.details?.chargeLimitDC ?? 80)) }
                     } label: {
-                        Label("Set the car's AC limit to \(smart.targetPercent)% (now \(limit)%)", systemImage: "gauge.with.dots.needle.67percent")
+                        HStack {
+                            Label("Set the car's AC limit to \(smart.targetPercent)% (now \(limit)%)", systemImage: "gauge.with.dots.needle.67percent")
+                            Spacer()
+                            if settingLimit { ProgressView() }
+                        }
                     }
                     .disabled(car.busy != nil)
+                }
+                if sentLimit, !settingLimit, let message = car.message {
+                    Label(message, systemImage: "info.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
         } header: {
             Text("Smart charging")
         } footer: {
             Text(smart.enabled
-                 ? "Plug in as normal. Charging waits for the cheapest slot and stops at your target. You'll get a notification when it starts, with a button in case the app can't start it itself."
+                 ? "Plug in as usual. The car charges in the cheapest slots and stops at your target. If the app can't start it, you'll get a notification with a Start button."
                  : "Charge at the cheapest time before you need the car.")
         }
     }
@@ -159,7 +177,7 @@ private struct SmartChargeSection: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 if plan.savingPence >= 5 {
-                    Text("Saves \(DisplayText.money(pence: plan.savingPence)) on charging straight away")
+                    Text("\(DisplayText.money(pence: plan.savingPence)) less than charging now")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.green)
                 }
@@ -182,7 +200,14 @@ private struct PricesSection: View {
         let slots = charging.upcoming
         Section {
             if slots.isEmpty {
-                Text("No prices yet.").foregroundStyle(.secondary)
+                if charging.loadingPrices {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Loading prices…").foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("No prices yet. Pull down to try again.").foregroundStyle(.secondary)
+                }
             } else {
                 Chart {
                     ForEach(slots, id: \.start) { slot in
@@ -208,12 +233,14 @@ private struct PricesSection: View {
                     LabeledContent("Cheapest", value: String(format: "%.1fp at %@", cheapest.pencePerKWh, cheapest.start.formatted(date: .omitted, time: .shortened)))
                 }
             }
-            if charging.loadingPrices { ProgressView() }
+            if charging.loadingPrices && !slots.isEmpty { ProgressView() }
         } header: {
             Text("Prices ahead")
         } footer: {
             if case .agile = charging.settings.tariff {
                 Text("Tomorrow's prices arrive around 4 pm. Green is when the car will charge.")
+            } else if charging.plan != nil {
+                Text("Green is when the car will charge.")
             }
         }
     }
@@ -239,13 +266,13 @@ private struct CostsSummarySection: View {
                 LabeledContent(month.month.formatted(.dateTime.month(.wide)), value: DisplayText.money(pence: month.totals.costPence))
                 LabeledContent("Energy", value: String(format: "%.0f kWh in %d charge%@", month.totals.paidKWh, month.totals.sessions, month.totals.sessions == 1 ? "" : "s"))
             } else {
-                Text("Charges appear here once the app sees the battery go up.").foregroundStyle(.secondary)
+                Text("Home charges are added automatically when the app sees the battery rise.").foregroundStyle(.secondary)
             }
             if let perMile = charging.perMile {
                 let unit = car.settings.useMiles ? "mile" : "km"
                 let scale = car.settings.useMiles ? 1 : 1 / 1.609344
                 LabeledContent("Cost per \(unit)", value: String(format: "%.1fp", perMile.electric * scale))
-                LabeledContent("Petrol, per \(unit)", value: String(format: "%.1fp", perMile.petrol * scale))
+                LabeledContent("Petrol car, per \(unit)", value: String(format: "%.1fp", perMile.petrol * scale))
             }
             NavigationLink {
                 ChargeHistoryView()
@@ -265,7 +292,8 @@ struct ChargeHistoryView: View {
     var body: some View {
         List {
             if charging.data.sessions.isEmpty {
-                Text("No charges yet.").foregroundStyle(.secondary)
+                ContentUnavailableView("No charges yet", systemImage: "bolt.car",
+                                       description: Text("Home charges are logged automatically. Tap + to add a public one."))
             }
             ForEach(charging.monthly, id: \.month) { month in
                 Section {
@@ -329,16 +357,17 @@ private struct AddChargeSheet: View {
     @Environment(ChargingModel.self) private var charging
     @State private var when = Date()
     @State private var percent = 50
-    @State private var pounds = 20.0
+    @State private var pounds: Double?
     @State private var note = ""
+    @State private var saving = false
 
     var body: some View {
         NavigationStack {
             Form {
                 DatePicker("When", selection: $when)
-                RoundStepper("Added", value: $percent, in: 1...100, step: 1) { "\($0)%" }
+                RoundStepper("Added", value: $percent, in: 5...100, step: 5) { "\($0)%" }
                 LabeledContent("Cost (£)") {
-                    TextField("£", value: $pounds, format: .number.precision(.fractionLength(2)))
+                    TextField("0.00", value: $pounds, format: .number.precision(.fractionLength(2)))
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                 }
@@ -350,11 +379,14 @@ private struct AddChargeSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
+                        guard let cost = pounds, cost > 0 else { return }
+                        saving = true
                         Task {
-                            await charging.addManual(start: when, percentAdded: percent, costPounds: pounds, note: note.isEmpty ? nil : note)
+                            await charging.addManual(start: when, percentAdded: percent, costPounds: cost, note: note.isEmpty ? nil : note)
                             dismiss()
                         }
                     }
+                    .disabled(saving || (pounds ?? 0) <= 0)
                 }
             }
         }
@@ -367,9 +399,10 @@ private struct AddChargeSheet: View {
 private struct TariffSection: View {
     @Environment(ChargingModel.self) private var charging
     @State private var postcode = ""
+    @State private var lookingUp = false
 
     private enum Kind: String, CaseIterable, Identifiable {
-        case flat = "Standard", offPeak = "Off-peak (Go, IOG, E7)", agile = "Octopus Agile"
+        case flat = "Standard", offPeak = "Off-peak (Economy 7, Octopus Go…)", agile = "Octopus Agile"
         var id: String { rawValue }
     }
 
@@ -404,15 +437,27 @@ private struct TariffSection: View {
                     TextField("Postcode", text: $postcode)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
-                    Button(region == "?" ? "Look up" : "Change") { Task { await charging.useAgile(postcode: postcode) } }
+                    if lookingUp {
+                        ProgressView()
+                    } else {
+                        Button(region == "?" ? "Look up" : "Change") {
+                            lookingUp = true
+                            Task {
+                                await charging.useAgile(postcode: postcode)
+                                lookingUp = false
+                            }
+                        }
                         .disabled(postcode.count < 5)
+                    }
                 }
-                PenceField(title: "If no price yet", value: fallback) { v in set(.agile(region: region, fallbackPence: v)) }
+                PenceField(title: "Price if Agile's unavailable", value: fallback) { v in set(.agile(region: region, fallbackPence: v)) }
             }
         } header: {
             Text("Home tariff")
         } footer: {
-            Text("For Agile, prices come from Octopus for your area. No account needed.")
+            if case .agile = charging.settings.tariff {
+                Text("Prices come from Octopus for your area. No account needed.")
+            }
         }
         .onAppear { postcode = charging.settings.postcode ?? "" }
     }
@@ -421,15 +466,26 @@ private struct TariffSection: View {
         Task { await charging.update { $0.tariff = tariff } }
     }
 
+    /// The normal (non-cheap) price you've entered, carried over when you switch tariff type.
+    private var standardPrice: Double {
+        switch charging.settings.tariff {
+        case .flat(let p): return p
+        case .offPeak(let peak, _, _, _): return peak
+        case .agile(_, let fallback): return fallback
+        }
+    }
+
     private func choose(_ kind: Kind) {
+        guard kind != self.kind else { return }
+        let price = standardPrice
         switch kind {
-        case .flat: set(.flat(pencePerKWh: 24.5))
-        case .offPeak: set(.offPeak(peakPence: 28, offPeakPence: 7, from: ClockTime(hour: 23, minute: 30), to: ClockTime(hour: 5, minute: 30)))
+        case .flat: set(.flat(pencePerKWh: price))
+        case .offPeak: set(.offPeak(peakPence: price, offPeakPence: 7, from: ClockTime(hour: 23, minute: 30), to: ClockTime(hour: 5, minute: 30)))
         case .agile:
             if postcode.count >= 5 {
                 Task { await charging.useAgile(postcode: postcode) }
             } else {
-                set(.agile(region: "?", fallbackPence: 24.5))
+                set(.agile(region: "?", fallbackPence: price))
             }
         }
     }
@@ -458,7 +514,12 @@ private struct PenceField: View {
     }
 
     private func commit() {
-        if let v = Double(text.replacingOccurrences(of: ",", with: ".")), v != value, v > -100, v < 200 { onCommit(v) }
+        if let v = Double(text.replacingOccurrences(of: ",", with: ".")), v > -100, v < 200 {
+            if v != value { onCommit(v) }
+        } else {
+            // Not a price: put back the saved one.
+            text = String(format: "%g", value)
+        }
     }
 }
 
@@ -467,15 +528,19 @@ private struct CostSettingsSection: View {
 
     var body: some View {
         Section {
-            PenceField(title: "Public charging", value: charging.settings.publicPencePerKWh) { v in
+            PenceField(title: "Price", value: charging.settings.publicPencePerKWh) { v in
                 Task { await charging.update { $0.publicPencePerKWh = v } }
             }
-            RoundStepper("Petrol car", value: charging.binding(\.petrolMPG), in: 20...80, step: 1) { String(format: "%.0f mpg", $0) }
-            RoundStepper("Petrol", value: charging.binding(\.petrolPencePerLitre), in: 100...220, step: 1) { String(format: "%.0fp/litre", $0) }
         } header: {
-            Text("Comparisons")
+            Text("Public charging")
         } footer: {
-            Text("Home charges include about 10% lost in charging.")
+            Text("Used for public charges you add. Home charges include about 10% lost in charging.")
+        }
+        Section {
+            RoundStepper("Petrol car's economy", value: charging.binding(\.petrolMPG), in: 20...80, step: 1) { String(format: "%.0f mpg", $0) }
+            RoundStepper("Petrol price", value: charging.binding(\.petrolPencePerLitre), in: 100...220, step: 1) { String(format: "%.0fp/litre", $0) }
+        } header: {
+            Text("Compared with petrol")
         }
     }
 }

@@ -70,6 +70,14 @@ struct RootView: View {
                 .interactiveDismissDisabled(false)
                 .onDisappear { seenRelease = Guide.latest }
         }
+        .task {
+            // A problem notification that belongs in Settings (like a rejected sign-in) opens it.
+            AppServices.shared.notifier.onOpenSettings = { tour.tab = .settings }
+            if AppServices.shared.notifier.openSettingsPending {
+                AppServices.shared.notifier.openSettingsPending = false
+                tour.tab = .settings
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             // Opened mid-charge: get fresh figures from the car (no 12 V cost while it's charging),
             // at most every 10 minutes.

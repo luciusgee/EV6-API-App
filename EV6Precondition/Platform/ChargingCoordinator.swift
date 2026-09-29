@@ -110,7 +110,7 @@ final class ChargingCoordinator {
     }
 
     /// iOS can't promise a background wake at an exact time, so the cheapest window also gets a
-    /// notification with a Start Charging button that works from the Lock Screen.
+    /// notification with a Start charging button that works from the Lock Screen.
     func remindAtWindowStart() async {
         let charging = AppServices.shared.charging
         guard charging.settings.smart.enabled, let plan = charging.plan else {
@@ -120,8 +120,8 @@ final class ChargingCoordinator {
         let cost = DisplayText.money(pence: plan.costPence)
         await AppServices.shared.notifier.scheduleSmartReminder(
             at: plan.start,
-            title: "Cheapest charging starts now",
-            text: String(format: "%.1f kWh to %d%% for about %@ (%.1fp/kWh). The app starts it if it can; tap Start Charging if it hasn't.",
+            title: "Cheap charging starts now",
+            text: String(format: "%.1f kWh to %d%% for about %@ (%.1fp/kWh). If it hasn't started, tap Start charging.",
                          plan.kWh, plan.targetPercent, cost, plan.averagePence)
         )
     }

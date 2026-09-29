@@ -25,25 +25,25 @@ public struct Check: Equatable, Sendable, CustomStringConvertible {
 /// The wording is the Android app's; users read it in the log.
 public enum Guards {
     public static func soc(_ v: VehicleSnapshot, minPercent: Int) -> Check {
-        if v.pluggedIn == true { return Check("SoC guard", .pass, "plugged in") }
-        guard let soc = v.socPercent else { return Check("SoC guard", .fail, "state of charge unknown") }
-        if soc < minPercent { return Check("SoC guard", .fail, "SoC \(soc)% below minimum \(minPercent)%") }
-        return Check("SoC guard", .pass, "SoC \(soc)% ≥ \(minPercent)%")
+        if v.pluggedIn == true { return Check("Minimum charge", .pass, "plugged in") }
+        guard let soc = v.socPercent else { return Check("Minimum charge", .fail, "charge unknown") }
+        if soc < minPercent { return Check("Minimum charge", .fail, "charge \(soc)% is below the \(minPercent)% minimum") }
+        return Check("Minimum charge", .pass, "charge \(soc)% ≥ \(minPercent)%")
     }
 
     public static func notRunning(_ v: VehicleSnapshot) -> Check {
         switch v.climate {
-        case .off: return Check("not running", .pass, "climatisation off")
-        case .running: return Check("not running", .fail, "already running (\(v.climateRawState ?? "on"))")
-        case .unknown: return Check("not running", .fail, "climatisation state unknown")
+        case .off: return Check("Climate off", .pass, "climate off")
+        case .running: return Check("Climate off", .fail, "already running (\(v.climateRawState ?? "on"))")
+        case .unknown: return Check("Climate off", .fail, "climate state unknown")
         }
     }
 
     public static func running(_ v: VehicleSnapshot) -> Check {
         switch v.climate {
-        case .running: return Check("running", .pass, "climatisation running")
-        case .off: return Check("running", .fail, "climatisation already off")
-        case .unknown: return Check("running", .fail, "climatisation state unknown")
+        case .running: return Check("Climate on", .pass, "climate running")
+        case .off: return Check("Climate on", .fail, "climate already off")
+        case .unknown: return Check("Climate on", .fail, "climate state unknown")
         }
     }
 }

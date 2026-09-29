@@ -168,7 +168,7 @@ public struct AutomationState: Codable, Equatable, Sendable {
     /// Why automation won't run, or nil if it may.
     public var automationBlockedReason: String? {
         if let authFailure { return "automation stopped: \(authFailure)" }
-        if pausedAfterFailures { return "automation paused after \(consecutiveFailures) consecutive failures" }
+        if pausedAfterFailures { return "rules paused after \(consecutiveFailures) failed attempts in a row" }
         return nil
     }
 }

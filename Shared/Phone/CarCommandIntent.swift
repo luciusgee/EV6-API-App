@@ -21,7 +21,7 @@ enum CarAction: String, AppEnum {
 /// widget extension; in the app it's a `ForegroundContinuableIntent`, so iOS runs it in the app's
 /// process (in the background) where the Kia sign-in lives. The extension's copy never runs.
 struct CarCommandIntent: AppIntent {
-    static var title: LocalizedStringResource = "Send to EV6"
+    static var title: LocalizedStringResource = "Send to car"
     static var isDiscoverable = false
     static var openAppWhenRun = false
 

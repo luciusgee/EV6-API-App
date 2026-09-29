@@ -7,12 +7,18 @@ struct RuleEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: Rule
     @State private var result: Evaluation?
+    @State private var confirmDiscard = false
     let isNew: Bool
+    /// The rule as it was opened, to tell whether there's anything to lose on Cancel.
+    private let original: Rule
 
     init(rule: Rule, isNew: Bool) {
         _draft = State(initialValue: rule)
+        self.original = rule
         self.isNew = isNew
     }
+
+    private var changed: Bool { isNew || draft != original }
 
     private var problems: [String] { model.problems(draft) }
 
@@ -33,10 +39,14 @@ struct RuleEditorView: View {
                          ? "You'll get a notification with Start climate, In 15 min and Not today. Hold it to see the buttons."
                          : "Runs by itself when the rule's conditions are met.")
                 }
-                Section("Advanced") {
+                Section {
                     RoundStepper("Priority", value: $draft.priority, in: -10...10, step: 1) { _ in "\(draft.priority)" }
                     RoundStepper("Cooldown", value: $draft.cooldownMinutes, in: 0...720, step: 15) { _ in "\(draft.cooldownMinutes) min" }
-                    Toggle("Proceed when a condition is unknown", isOn: $draft.proceedIfUnknown)
+                    Toggle("Run if a condition can't be checked", isOn: $draft.proceedIfUnknown)
+                } header: {
+                    Text("Advanced")
+                } footer: {
+                    Text("Priority decides which rule wins if two run at once. Cooldown stops a rule running again too soon.")
                 }
                 if !problems.isEmpty {
                     Section("Fix before saving") {
@@ -49,10 +59,10 @@ struct RuleEditorView: View {
                     Button {
                         Task { result = await model.testNow(draft) }
                     } label: {
-                        if model.testing {
-                            ProgressView()
-                        } else {
+                        HStack {
                             Label("Test now", systemImage: "play.circle")
+                            Spacer()
+                            if model.testing { ProgressView() }
                         }
                     }
                     .disabled(model.testing)
@@ -74,11 +84,14 @@ struct RuleEditorView: View {
                     }
                 }
             }
+            .interactiveDismissDisabled(changed)
             .navigationTitle(isNew ? "New rule" : "Edit rule")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        if changed { confirmDiscard = true } else { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
@@ -89,6 +102,10 @@ struct RuleEditorView: View {
                     }
                     .disabled(!problems.isEmpty)
                 }
+            }
+            .confirmationDialog(isNew ? "Discard this rule?" : "Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("Discard", role: .destructive) { dismiss() }
+                Button("Keep editing", role: .cancel) {}
             }
         }
     }
@@ -151,6 +168,16 @@ private struct TriggerSection: View {
         )
     }
 
+    @ViewBuilder private var addPlaceLink: some View {
+        if places.isEmpty {
+            NavigationLink {
+                PlacesView()
+            } label: {
+                Label("Add a place", systemImage: "plus")
+            }
+        }
+    }
+
     var body: some View {
         Section {
             Picker("When", selection: kind) {
@@ -159,8 +186,10 @@ private struct TriggerSection: View {
             switch trigger {
             case .geofenceExit, .geofenceEnter:
                 PlacePicker(selection: place, places: places)
+                addPlaceLink
             case .approaching(let id, let km):
                 PlacePicker(selection: place, places: places)
+                addPlaceLink
                 RoundStepper("Within", value: Binding(get: { km }, set: { trigger = .approaching(placeId: id, km: $0) }), in: 0.5...100, step: 0.5) { _ in DisplayText.distance(km: km, miles: miles) }
             case .schedule(let days, let time):
                 DaysPicker(days: Binding(get: { days }, set: { trigger = .schedule(days: $0, time: time) }))
@@ -183,6 +212,12 @@ private struct TriggerSection: View {
 private struct ConditionsSection: View {
     @Binding var conditions: [Condition]
     let places: [Place]
+    /// One stable id per condition, so deleting a row never shifts another row's edits.
+    @State private var ids: [UUID] = []
+
+    private func syncIDs() {
+        if ids.count != conditions.count { ids = conditions.map { _ in UUID() } }
+    }
 
     private func defaultCondition(_ n: Int) -> Condition {
         switch n {
@@ -205,19 +240,31 @@ private struct ConditionsSection: View {
 
     var body: some View {
         Section {
-            ForEach(conditions.indices, id: \.self) { i in
+            if conditions.isEmpty {
+                Text("No conditions: runs every time it's triggered.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(Array(zip(ids, conditions.indices)), id: \.0) { pair in
                 ConditionRow(
                     condition: Binding(
-                        get: { i < conditions.count ? conditions[i] : .pluggedIn(expected: true) },
-                        set: { if i < conditions.count { conditions[i] = $0 } }
+                        get: { pair.1 < conditions.count ? conditions[pair.1] : .pluggedIn(expected: true) },
+                        set: { if pair.1 < conditions.count { conditions[pair.1] = $0 } }
                     ),
                     places: places
                 )
             }
-            .onDelete { conditions.remove(atOffsets: $0) }
+            .onDelete { offsets in
+                syncIDs()
+                ids.remove(atOffsets: offsets)
+                conditions.remove(atOffsets: offsets)
+            }
             Menu {
                 ForEach(addTitles.indices, id: \.self) { n in
-                    Button(addTitles[n]) { conditions.append(defaultCondition(n)) }
+                    Button(addTitles[n]) {
+                        syncIDs()
+                        ids.append(UUID())
+                        conditions.append(defaultCondition(n))
+                    }
                 }
             } label: {
                 Label("Add condition", systemImage: "plus.circle")
@@ -225,8 +272,10 @@ private struct ConditionsSection: View {
         } header: {
             Text("Only if all of these")
         } footer: {
-            Text("Swipe a condition to remove it. The minimum charge and request limit always apply.")
+            Text("Swipe left to remove a condition. Your minimum charge in Settings always applies.")
         }
+        .onAppear(perform: syncIDs)
+        .onChange(of: conditions.count) { _, _ in syncIDs() }
     }
 }
 
@@ -236,7 +285,7 @@ private struct ConditionRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(Describe.condition(condition) { id in places.first { $0.id == id }?.name ?? id })
+            Text(Describe.condition(condition) { id in places.first { $0.id == id }?.name ?? id }.capitalizingFirst)
                 .font(.subheadline.weight(.semibold))
             editor
         }
@@ -364,12 +413,12 @@ private struct TestResultSection: View {
     var body: some View {
         Section("Test result") {
             if let skip = evaluation.globalSkip {
-                Label("Would skip: \(skip)", systemImage: "pause.circle")
+                Label("Would skip: \(skip.capitalizingFirst)", systemImage: "pause.circle")
             }
             ForEach(Array(evaluation.verdicts.enumerated()), id: \.offset) { _, verdict in
-                Label(verdict.fired ? "Would fire" : "Would skip", systemImage: verdict.fired ? "checkmark.circle.fill" : "xmark.circle")
+                Label(verdict.fired ? "Would run" : "Would skip", systemImage: verdict.fired ? "checkmark.circle.fill" : "xmark.circle")
                     .foregroundStyle(verdict.fired ? Color.green : Color.red)
-                Text(verdict.reason).font(.subheadline)
+                Text(verdict.reason.capitalizingFirst).font(.subheadline)
                 ForEach(Array(verdict.checks.enumerated()), id: \.offset) { _, check in
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: icon(check.result))

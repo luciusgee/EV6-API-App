@@ -32,16 +32,14 @@ struct ComposeRuleView: View {
                         Task { await understand() }
                     } label: {
                         HStack {
-                            Label("Create rule", systemImage: "checkmark")
+                            Label("Check", systemImage: "text.magnifyingglass")
                             Spacer()
                             if thinking { ProgressView() }
                         }
                     }
                     .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty || thinking)
                 } footer: {
-                    Text(RuleAI.isAvailable
-                        ? "Worked out on your iPhone (Apple Intelligence helps with looser wording)."
-                        : "Worked out on your iPhone.")
+                    Text("Understood on your iPhone. Nothing is sent anywhere.")
                 }
 
                 if let result {

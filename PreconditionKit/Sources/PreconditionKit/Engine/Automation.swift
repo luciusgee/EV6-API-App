@@ -229,13 +229,13 @@ extension PreconditionEngine {
             let context = ([label] + [temperature.map { Describe.temp($0.celsius) }, note].compactMap { $0 }).joined(separator: ", ")
             let headline: String
             if case .startClimate(let target) = action {
-                headline = "Preconditioning to \(Describe.temp(target))"
+                headline = "starting climate · \(Describe.temp(target))"
             } else {
-                headline = "Climatisation stopped"
+                headline = "stopping climate"
             }
             var canStop = false
             if case .startClimate = action { canStop = true }
-            await notifier.commandSent(title: headline, text: "\(headline) — \(context) (\(rule.name))", canStop: canStop)
+            await notifier.commandSent(title: "\(rule.name): \(headline)", text: context.capitalizingFirstLetter + ".", canStop: canStop)
             return .fired(rule, action)
         case .failure(let error, _):
             await log.append(LogEntry(
@@ -287,10 +287,10 @@ extension PreconditionEngine {
             if $0.consecutiveFailures >= max { $0.pausedAfterFailures = true }
         }
         let what = rule.map { "“\($0.name)”" } ?? "Reading the car"
-        await notifier.problem(title: "Preconditioning failed", text: "\(what) failed: \(error.message).", openSettings: false)
+        await notifier.problem(title: "Rule failed", text: "\(what) failed: \(error.message).", openSettings: false)
         if s.pausedAfterFailures && s.consecutiveFailures == max {
             await log.append(LogEntry(at: now, kind: .error, decision: "paused", reason: "automation paused after \(max) consecutive failures", trigger: label))
-            await notifier.problem(title: "Automation paused", text: "\(max) preconditioning attempts failed in a row. Resume it from the dashboard.", openSettings: false)
+            await notifier.problem(title: "Automation paused", text: "\(max) rule attempts failed in a row. Resume automation from the dashboard.", openSettings: false)
         }
         return .failed(error, .none)
     }

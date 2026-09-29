@@ -153,10 +153,12 @@ extension PreconditionEngine {
             await notifier.commandSent(title: DisplayText.confirmed(description), text: "Confirmed by the car", canStop: description.hasPrefix("climatise"))
         case .failed:
             await log.append(LogEntry(at: now, kind: .error, decision: "refused by car", reason: "\(description): the car didn't carry it out", requestsUsed: polls))
-            await notifier.problem(title: "The car didn't do it", text: "\(description.capitalizingFirstLetter) failed. The car may be in use, or a door or the charge port may be open.", openSettings: false)
+            let what = DisplayText.request(description).capitalizingFirstLetter
+            await notifier.problem(title: "The car didn't carry it out", text: "\(what) didn't go through. The car may be in use, or a door or the charge port may be open.", openSettings: false)
         case .noResponse:
             await log.append(LogEntry(at: now, kind: .error, decision: "no answer", reason: "\(description): the car didn't respond (asleep or out of signal)", requestsUsed: polls))
-            await notifier.problem(title: "No answer from the car", text: "\(description.capitalizingFirstLetter): the car didn't respond. It may be out of mobile signal.", openSettings: false)
+            let what = DisplayText.request(description).capitalizingFirstLetter
+            await notifier.problem(title: "No answer from the car", text: "\(what) wasn't confirmed. The car may be out of mobile signal.", openSettings: false)
         case .pending, .unknown:
             await log.append(LogEntry(at: now, kind: .info, decision: "unconfirmed", reason: "\(description): no confirmation from the car yet", requestsUsed: polls))
         }

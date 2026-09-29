@@ -270,7 +270,7 @@ final class DescribeTests: XCTestCase {
         XCTAssertEqual(Describe.condition(.tempAbove(celsius: 1, source: .cabinBle), placeName: placeName), "cabin sensor above 1.0 °C")
         XCTAssertEqual(Describe.condition(.tempAbove(celsius: 1, source: .carOutside), placeName: placeName), "car outside temp above 1.0 °C")
         XCTAssertEqual(Describe.condition(.tempOutside(low: 16, high: 21, source: .weatherAtCar), placeName: placeName), "weather at car below 16.0 °C or above 21.0 °C")
-        XCTAssertEqual(Describe.condition(.socAtLeast(percent: 40), placeName: placeName), "SoC ≥ 40%")
+        XCTAssertEqual(Describe.condition(.socAtLeast(percent: 40), placeName: placeName), "charge at least 40%")
         XCTAssertEqual(Describe.condition(.pluggedIn(expected: true), placeName: placeName), "plugged in")
         XCTAssertEqual(Describe.condition(.pluggedIn(expected: false), placeName: placeName), "not plugged in")
         XCTAssertEqual(Describe.condition(.carAtPlace(placeId: "home"), placeName: placeName), "car at Home")

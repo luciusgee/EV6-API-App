@@ -10,22 +10,16 @@ struct TripsView: View {
         NavigationStack {
             List {
                 Section {
-                    NavigationLink {
-                        RoutePlannerView()
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.title3.weight(.semibold))
-                                .frame(width: 44, height: 44)
-                                .background(Color.accentColor.opacity(0.18), in: Circle())
-                                .foregroundStyle(.tint)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Where to?").font(.title3.weight(.semibold))
-                                Text("Charging stops, food and arrival times").font(.subheadline).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 6)
+                    // The big way in: a card with a little road drawn across it.
+                    ZStack {
+                        WhereToCard()
+                        NavigationLink { RoutePlannerView() } label: { EmptyView() }.opacity(0)
                     }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+
+                Section {
                     NavigationLink {
                         TrafficAheadView()
                     } label: {
@@ -131,5 +125,51 @@ private struct SavedTripsList: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Saved trips")
+    }
+}
+
+/// "Where to?" on a dark teal card, with a stylised route: start, a charging stop, the destination.
+private struct WhereToCard: View {
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(colors: [Color(red: 0.03, green: 0.28, blue: 0.3), Color(red: 0.05, green: 0.09, blue: 0.12)],
+                           startPoint: .topTrailing, endPoint: .bottomLeading)
+            GeometryReader { geo in
+                let w = geo.size.width, h = geo.size.height
+                let start = CGPoint(x: w * 0.55, y: h * 0.82)
+                let stop = CGPoint(x: w * 0.74, y: h * 0.42)
+                let end = CGPoint(x: w * 0.9, y: h * 0.16)
+                Path { p in
+                    p.move(to: start)
+                    p.addQuadCurve(to: stop, control: CGPoint(x: w * 0.72, y: h * 0.78))
+                    p.addQuadCurve(to: end, control: CGPoint(x: w * 0.78, y: h * 0.18))
+                }
+                .stroke(Color.white.opacity(0.35), style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [2, 7]))
+                Circle().fill(.white).frame(width: 9, height: 9).position(start)
+                Image(systemName: "bolt.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.black, .green)
+                    .shadow(color: .green.opacity(0.7), radius: 6)
+                    .position(stop)
+                Image(systemName: "mappin.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.white, .red)
+                    .position(end)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Where to?", systemImage: "magnifyingglass")
+                    .font(.title2.weight(.bold))
+                Text("Charging stops, food and\narrival times, planned for you")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+            .foregroundStyle(.white)
+            .padding(18)
+        }
+        .frame(height: 150)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }

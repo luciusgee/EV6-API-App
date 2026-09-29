@@ -1,14 +1,28 @@
 import PreconditionKit
 import SwiftUI
+import UIKit
+import UserNotifications
 
 /// Which car alerts to send, and how often to check the car in the background for them.
 struct AlertsSettingsView: View {
     @Environment(ChargingModel.self) private var charging
 
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var notificationsOff = false
+
     private var alerts: AlertSettings { charging.settings.alerts }
 
     var body: some View {
         Form {
+            if notificationsOff {
+                Section {
+                    Label("Notifications are off for this app, so alerts can't reach you.", systemImage: "bell.slash.fill")
+                        .foregroundStyle(.orange)
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        Link("Open iOS Settings", destination: url)
+                    }
+                }
+            }
             Section {
                 ForEach(CarAlertKind.allCases) { kind in
                     Toggle(isOn: Binding(
@@ -17,9 +31,17 @@ struct AlertsSettingsView: View {
                     )) {
                         Label(kind.title, systemImage: symbol(kind))
                     }
+                    if kind == .lowCharge, alerts.enabled.contains(.lowCharge) {
+                        RoundStepper("Below", value: charging.binding(\.alerts.lowChargePercent), in: 5...50, step: 5) { "\($0)%" }
+                    }
+                    if kind == .lowAuxBattery, alerts.enabled.contains(.lowAuxBattery) {
+                        RoundStepper("Below", value: charging.binding(\.alerts.lowAuxPercent), in: 40...90, step: 5) { "\($0)%" }
+                    }
                 }
+            } header: {
+                Text("Tell me when")
             } footer: {
-                Text("You're told once, and again only if it happens again.")
+                Text("You'll get each alert once, and again only if it happens again.")
             }
             Section {
                 Toggle("Remind me if it's not plugged in", isOn: Binding(
@@ -27,7 +49,7 @@ struct AlertsSettingsView: View {
                     set: { on in Task { await charging.update { $0.alerts.plugReminder.enabled = on }; await ChargingCoordinator.shared.rebookPlugReminder() } }
                 ))
                 if alerts.plugReminder.enabled {
-                    DatePicker("At", selection: Binding(
+                    DatePicker("Time", selection: Binding(
                         get: { Calendar.current.date(bySettingHour: alerts.plugReminder.at.hour, minute: alerts.plugReminder.at.minute, second: 0, of: Date()) ?? Date() },
                         set: { d in
                             let c = Calendar.current.dateComponents([.hour, .minute], from: d)
@@ -37,7 +59,7 @@ struct AlertsSettingsView: View {
                             }
                         }
                     ), displayedComponents: .hourAndMinute)
-                    RoundStepper("Not if it's above", value: Binding(
+                    RoundStepper("Skip if charge is above", value: Binding(
                         get: { alerts.plugReminder.skipAbovePercent },
                         set: { v in Task { await charging.update { $0.alerts.plugReminder.skipAbovePercent = v }; await ChargingCoordinator.shared.rebookPlugReminder() } }
                     ), in: 50...100, step: 5) { "\($0)%" }
@@ -46,10 +68,6 @@ struct AlertsSettingsView: View {
                 Text("Evening reminder")
             } footer: {
                 Text("Every evening, unless the app has seen the car plugged in since the morning. Ignore it if you don't need to charge.")
-            }
-            Section {
-                RoundStepper("Low charge below", value: charging.binding(\.alerts.lowChargePercent), in: 5...50, step: 5) { "\($0)%" }
-                RoundStepper("12 V battery below", value: charging.binding(\.alerts.lowAuxPercent), in: 40...90, step: 5) { "\($0)%" }
             }
             Section {
                 Toggle("Check in the background", isOn: Binding(
@@ -63,10 +81,14 @@ struct AlertsSettingsView: View {
                     ), in: 1...12, step: 1) { "\($0) h" }
                 }
             } footer: {
-                Text("Uses one Kia request each time. iOS decides exactly when, often less often than this.")
+                Text("iOS decides when to check, often less often than this. Each check counts towards Kia's daily limit.")
             }
         }
         .navigationTitle("Alerts")
+        .task(id: scenePhase) {
+            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+            notificationsOff = status == .denied
+        }
     }
 
     private func symbol(_ kind: CarAlertKind) -> String {

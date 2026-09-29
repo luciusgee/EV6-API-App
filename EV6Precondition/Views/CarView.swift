@@ -31,6 +31,12 @@ struct CarView: View {
                     HeroCard(snapshot: snapshot, paint: paint, miles: model.settings.useMiles)
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
+                } header: {
+                    Text(greeting)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .textCase(nil)
+                        .contentTransition(.opacity)
                 } footer: {
                     Text(ageText)
                         .frame(maxWidth: .infinity)
@@ -100,6 +106,33 @@ struct CarView: View {
                 ChargeLimitSheet(ac: details?.chargeLimitAC ?? 80, dc: details?.chargeLimitDC ?? 80)
             }
         }
+    }
+
+    /// "Good evening · Charging, full by 01:30": a friendly line about what the car's up to.
+    private var greeting: String {
+        let hour = Calendar.current.component(.hour, from: model.now)
+        let hello = hour < 5 ? "Hello" : (hour < 12 ? "Good morning" : (hour < 18 ? "Good afternoon" : "Good evening"))
+        guard let s = snapshot else { return hello }
+        let mood: String
+        if s.climate == .running {
+            let target = s.targetTempC.map { " to \(Describe.temp($0))" } ?? ""
+            mood = (s.outsideTempC.map { $0 > (s.targetTempC ?? 21) } ?? false) ? "Cooling down\(target)" : "Warming up\(target)"
+        } else if s.chargingState == .charging {
+            if let m = s.minutesToFullyCharged, m > 0 {
+                mood = "Charging, done by \((s.carCapturedAt ?? s.fetchedAt).addingTimeInterval(Double(m) * 60).formatted(date: .omitted, time: .shortened))"
+            } else {
+                mood = "Charging"
+            }
+        } else if s.details?.locked == false {
+            mood = "Unlocked"
+        } else if s.pluggedIn == true {
+            mood = "Plugged in"
+        } else if let soc = s.socPercent, soc < 20 {
+            mood = "Running low"
+        } else {
+            mood = "Parked" + (s.details?.locked == true ? " and locked" : "")
+        }
+        return "\(hello) · \(mood)"
     }
 
     /// We never wake the car, so its data can be old; say how old (HANDOVER.md §3.7).

@@ -276,9 +276,9 @@ private final class RuleRun {
             (result, detail) = await temperatureOutside(low: low, high: high, source: s)
         case .socAtLeast(let p):
             if let soc = await inputs.vehicle()?.socPercent {
-                (result, detail) = soc >= p ? (.pass, "SoC \(soc)% ≥ \(p)%") : (.fail, "SoC \(soc)% < \(p)%")
+                (result, detail) = soc >= p ? (.pass, "charge \(soc)% ≥ \(p)%") : (.fail, "charge \(soc)% < \(p)%")
             } else {
-                (result, detail) = (.unknown, "SoC unknown")
+                (result, detail) = (.unknown, "charge unknown")
             }
         case .pluggedIn(let expected):
             if let plugged = await inputs.vehicle()?.pluggedIn {

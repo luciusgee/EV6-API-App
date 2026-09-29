@@ -9,6 +9,9 @@ struct OffPeakView: View {
     @State private var end: Date
     @State private var only: Bool
     @State private var pin = ""
+    @State private var sending = false
+    /// Why the last send didn't work, shown under the button.
+    @State private var failure: String?
 
     init(current: OffPeakWindow?) {
         let window = current ?? OffPeakWindow(start: ClockTime(hour: 23), end: ClockTime(hour: 6))
@@ -34,7 +37,7 @@ struct OffPeakView: View {
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
                 } footer: {
-                    Text("Kia asks for your 4-digit PIN to change the schedule. It's kept in your iPhone's Keychain.")
+                    Text("Kia needs your 4-digit Kia Connect PIN to change this. It's stored in your iPhone's Keychain.")
                 }
             }
             Section {
@@ -42,15 +45,22 @@ struct OffPeakView: View {
                     Task { await save() }
                 } label: {
                     HStack {
-                        Text("Send to car")
+                        Text(sending ? "Sending…" : "Send to car")
                         Spacer()
-                        if model.busy != nil { ProgressView() }
+                        if sending { ProgressView() }
                     }
                 }
-                .disabled(model.busy != nil || (!model.hasPin && pin.count < 4) || window == model.snapshot?.details?.offPeak)
+                .disabled(sending || model.busy != nil || (!model.hasPin && pin.count < 4) || sameTimes || window == model.snapshot?.details?.offPeak)
+                if let failure {
+                    Label(failure, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                }
             } footer: {
-                if let current = model.snapshot?.details?.offPeak {
-                    Text("The car has \(current.text)\(current.onlyOffPeak ? ", off-peak only" : ""). Your departure times stay as they are.")
+                if sameTimes {
+                    Text("Pick different start and end times.")
+                } else if let current = model.snapshot?.details?.offPeak {
+                    Text("Currently \(current.text)\(current.onlyOffPeak ? " (off-peak only)" : ""). Your departure times won't change.")
                 }
             }
         }
@@ -58,16 +68,35 @@ struct OffPeakView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    private var sameTimes: Bool { Self.clock(start) == Self.clock(end) }
+
     private var window: OffPeakWindow {
         OffPeakWindow(start: Self.clock(start), end: Self.clock(end), onlyOffPeak: only)
     }
 
     private func save() async {
-        if !model.hasPin {
+        sending = true
+        failure = nil
+        defer { sending = false }
+        let newPin = !model.hasPin
+        if newPin {
             await model.saveCredentials(pin: pin)
         }
         await model.send(.setOffPeak(window))
-        dismiss()
+        let result = model.message ?? ""
+        let failed = result.hasPrefix("Not sent") || result.hasPrefix("Couldn't") || result.hasPrefix("Failed")
+        if !failed {
+            dismiss()
+            return
+        }
+        if result.localizedCaseInsensitiveContains("pin") {
+            // Don't keep a PIN Kia turned down.
+            if newPin { await model.saveCredentials(pin: "") }
+            pin = ""
+            failure = "Kia didn't accept that PIN. Check it and try again."
+        } else {
+            failure = result.isEmpty ? "Couldn't send. Try again." : result
+        }
     }
 
     private static func date(_ t: ClockTime) -> Date {

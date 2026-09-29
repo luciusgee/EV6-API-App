@@ -5,6 +5,7 @@ import SwiftUI
 struct ActivityView: View {
     @Environment(CarModel.self) private var model
     @State private var filter: Filter = .all
+    @State private var confirmClear = false
 
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -38,8 +39,15 @@ struct ActivityView: View {
     var body: some View {
         List {
             if entries.isEmpty {
-                Text(filter == .all ? "Nothing yet. Commands, rule decisions and problems appear here." : "Nothing here yet.")
-                    .foregroundStyle(.secondary)
+                switch filter {
+                case .all:
+                    ContentUnavailableView("No activity yet", systemImage: "list.bullet.clipboard",
+                                           description: Text("Commands, rule decisions and problems will appear here."))
+                case .commands:
+                    ContentUnavailableView("No commands yet", systemImage: "hand.tap")
+                case .problems:
+                    ContentUnavailableView("No problems", systemImage: "checkmark.circle")
+                }
             }
             ForEach(days, id: \.0) { group in
                 Section(dayTitle(group.0)) {
@@ -56,6 +64,11 @@ struct ActivityView: View {
                     Picker("Show", selection: $filter) {
                         ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
                     }
+                    Divider()
+                    Button("Clear log", systemImage: "trash", role: .destructive) {
+                        confirmClear = true
+                    }
+                    .disabled(model.log.isEmpty)
                 } label: {
                     Label("Filter", systemImage: filter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                 }
@@ -66,6 +79,13 @@ struct ActivityView: View {
                 }
                 .disabled(model.log.isEmpty)
             }
+        }
+        .confirmationDialog("Clear the activity log?", isPresented: $confirmClear, titleVisibility: .visible) {
+            Button("Clear log", role: .destructive) {
+                Task { await model.clearLog() }
+            }
+        } message: {
+            Text("This can't be undone.")
         }
     }
 }
@@ -113,16 +133,11 @@ private struct LogRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text(entry.reason)
+                Text(entry.reason.capitalizingFirst)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
-                let meta = [
-                    entry.trigger,
-                    entry.httpCode.map { "HTTP \($0)" },
-                    entry.requestsUsed > 0 ? "\(entry.requestsUsed) request\(entry.requestsUsed == 1 ? "" : "s")" : nil,
-                ].compactMap { $0 }
-                if !meta.isEmpty {
-                    Text(meta.joined(separator: " · "))
+                if let trigger = entry.trigger, !trigger.isEmpty {
+                    Text(trigger.capitalizingFirst)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

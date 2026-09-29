@@ -5,7 +5,7 @@ import PreconditionKit
 /// exact background alarms, so this is how schedule rules run on time.
 struct RunScheduledRulesIntent: AppIntent {
     static var title: LocalizedStringResource = "Run scheduled rules"
-    static var description = IntentDescription("Runs the EV6 schedule rules that are due now. Add it to a Shortcuts Time of Day automation set to run immediately.")
+    static var description = IntentDescription("Runs the schedule rules in My EV6 that are due now. Add it to a Shortcuts Time of Day automation set to run immediately.")
     static var openAppWhenRun: Bool = false
 
     @MainActor
@@ -20,7 +20,7 @@ struct RunScheduledRulesIntent: AppIntent {
         guard !outcomes.isEmpty else { return "No schedule rules are due right now." }
         return outcomes.map { outcome in
             switch outcome {
-            case .fired(let rule, let action): return "\(rule.name): \(Describe.action(action)) sent."
+            case .fired(let rule, let action): return "\(rule.name): \(DisplayText.request(Describe.action(action))) sent."
             case .skipped(let reason): return "Skipped: \(reason)."
             case .failed(let error, _): return "Failed: \(error.message)."
             }
@@ -30,7 +30,7 @@ struct RunScheduledRulesIntent: AppIntent {
 
 struct StartClimateIntent: AppIntent {
     static var title: LocalizedStringResource = "Start climate"
-    static var description = IntentDescription("Starts the EV6's climate. If the car is plugged in but not charging, the charger is stopped first (when Keep charger off is on). The minimum-charge guard still applies.")
+    static var description = IntentDescription("Starts your car's climate. If the car is plugged in but not charging, the charger is stopped first (when Keep charger off is on). The minimum-charge guard still applies.")
     static var openAppWhenRun: Bool = false
 
     @Parameter(title: "Temperature (°C)")
@@ -41,7 +41,7 @@ struct StartClimateIntent: AppIntent {
         let services = AppServices.shared
         await services.prepare()
         await services.car.start(targetC: temperature)
-        return .result(dialog: "\(services.car.message ?? "Done.")")
+        return .result(dialog: "\(Self.said(services.car.message))")
     }
 }
 
@@ -55,10 +55,17 @@ struct CarStatusIntent: AppIntent {
         let services = AppServices.shared
         await services.prepare()
         await services.car.refresh()
+        let failed = services.car.message?.hasPrefix("Couldn't refresh") == true
         guard let snapshot = services.car.snapshot else {
-            return .result(dialog: "\(services.car.message ?? "No data from the car yet.")")
+            return .result(dialog: "\(services.car.message.map(DisplayText.plain) ?? "No data from the car yet.")")
         }
-        return .result(dialog: "\(DisplayText.spokenStatus(snapshot, miles: services.car.settings.useMiles))")
+        let status = DisplayText.spokenStatus(snapshot, miles: services.car.settings.useMiles)
+        guard !failed else {
+            let at = (snapshot.carCapturedAt ?? snapshot.fetchedAt).formatted(date: .omitted, time: .shortened)
+            let text = "Couldn't reach the car. At \(at) it was: \(status)"
+            return .result(dialog: "\(text)")
+        }
+        return .result(dialog: "\(status)")
     }
 }
 
@@ -84,7 +91,7 @@ struct LockCarIntent: AppIntent {
         let services = AppServices.shared
         await services.prepare()
         await services.car.send(action == .lock ? .lock : .unlock)
-        return .result(dialog: "\(services.car.message ?? "Done.")")
+        return .result(dialog: "\(Self.said(services.car.message))")
     }
 }
 
@@ -96,10 +103,11 @@ enum ChargeAction: String, AppEnum {
 
 struct ChargingIntent: AppIntent {
     static var title: LocalizedStringResource = "Start or stop charging"
-    static var description = IntentDescription("Starts or stops charging while the EV6 is plugged in.")
+    static var description = IntentDescription("Starts or stops charging while the car is plugged in.")
     static var openAppWhenRun: Bool = false
 
-    @Parameter(title: "Action", default: .stop)
+    // No default: "Start charging" and "Stop charging" set it, and Siri asks otherwise.
+    @Parameter(title: "Action")
     var action: ChargeAction
 
     @MainActor
@@ -107,7 +115,7 @@ struct ChargingIntent: AppIntent {
         let services = AppServices.shared
         await services.prepare()
         await services.car.send(action == .start ? .startCharging : .stopCharging)
-        return .result(dialog: "\(services.car.message ?? "Done.")")
+        return .result(dialog: "\(Self.said(services.car.message))")
     }
 }
 
@@ -116,21 +124,24 @@ struct ChargeLimitIntent: AppIntent {
     static var description = IntentDescription("Sets where AC and DC charging stop, 50–100% in steps of 10.")
     static var openAppWhenRun: Bool = false
 
-    @Parameter(title: "Limit (%)", default: 80)
+    // No default, so Siri asks rather than quietly setting 80%.
+    @Parameter(title: "Limit (%)", inclusiveRange: (50, 100))
     var percent: Int
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let services = AppServices.shared
         await services.prepare()
-        await services.car.send(.setChargeLimits(ac: percent, dc: percent))
-        return .result(dialog: "\(services.car.message ?? "Done.")")
+        // The car takes steps of 10.
+        let limit = min(100, max(50, Int((Double(percent) / 10).rounded()) * 10))
+        await services.car.send(.setChargeLimits(ac: limit, dc: limit))
+        return .result(dialog: "\(Self.said(services.car.message))")
     }
 }
 
 struct StopClimateIntent: AppIntent {
     static var title: LocalizedStringResource = "Stop climate"
-    static var description = IntentDescription("Stops the EV6's climate.")
+    static var description = IntentDescription("Stops your car's climate.")
     static var openAppWhenRun: Bool = false
 
     @MainActor
@@ -138,7 +149,14 @@ struct StopClimateIntent: AppIntent {
         let services = AppServices.shared
         await services.prepare()
         await services.car.stop()
-        return .result(dialog: "\(services.car.message ?? "Done.")")
+        return .result(dialog: "\(Self.said(services.car.message))")
+    }
+}
+
+extension AppIntent {
+    /// The app's last message as Siri should say it.
+    static func said(_ message: String?) -> String {
+        message.map(DisplayText.plain) ?? "Done."
     }
 }
 
@@ -158,20 +176,20 @@ struct EV6Shortcuts: AppShortcutsProvider {
         )
         AppShortcut(
             intent: CarStatusIntent(),
-            phrases: ["Check my car with \(.applicationName)", "How's my EV6 in \(.applicationName)"],
+            phrases: ["Check my car with \(.applicationName)", "How's my car in \(.applicationName)"],
             shortTitle: "Check my EV6",
             systemImageName: "car.side"
         )
         AppShortcut(
             intent: LockCarIntent(),
-            phrases: ["Lock my car with \(.applicationName)"],
-            shortTitle: "Lock",
+            phrases: ["\(\.$action) my car with \(.applicationName)", "Lock my car with \(.applicationName)"],
+            shortTitle: "Lock or unlock",
             systemImageName: "lock.fill"
         )
         AppShortcut(
             intent: ChargingIntent(),
-            phrases: ["Stop charging with \(.applicationName)", "Start charging with \(.applicationName)"],
-            shortTitle: "Charging",
+            phrases: ["\(\.$action) charging with \(.applicationName)"],
+            shortTitle: "Start or stop charging",
             systemImageName: "bolt.car"
         )
         AppShortcut(
@@ -213,7 +231,7 @@ struct CheckCommuteIntent: AppIntent {
         let services = AppServices.shared
         await services.prepare()
         guard let chosen = services.commute.commute(named: commute) else {
-            return .result(value: "", dialog: "Add a commute in the EV6 app first (Trips, then Set up a commute).")
+            return .result(value: "", dialog: "Add a commute in My EV6 first: Trips, then Set up a commute.")
         }
         let advice = await services.commute.check(chosen.id)
         let text = services.commute.message(for: chosen.id) { $0.formatted(date: .omitted, time: .shortened) } ?? ""

@@ -405,7 +405,7 @@ final class CarControlEngineTests: XCTestCase {
         let refused = await engine.confirmLastCommand { _ in }
         XCTAssertEqual(refused, .failed)
         var problems = await notifier.problems
-        XCTAssertTrue(problems.last?.hasPrefix("The car didn't do it") == true, "\(problems)")
+        XCTAssertTrue(problems.last?.hasPrefix("The car didn't carry it out") == true, "\(problems)")
 
         fake.state.commandOutcome = .noResponse
         _ = await engine.manualCommand(.lock)
@@ -434,5 +434,15 @@ final class CarControlEngineTests: XCTestCase {
         XCTAssertEqual(DisplayText.confirmed("lock the car"), "Locked")
         XCTAssertEqual(DisplayText.confirmed("stop charging"), "Charging stopped")
         XCTAssertEqual(DisplayText.confirmed("set charge limits to 80% AC, 80% DC"), "Charge limits set")
+    }
+
+    func testPlainWording() {
+        XCTAssertEqual(DisplayText.request("climatise to 21.0 °C"), "start climate at 21.0 °C")
+        XCTAssertEqual(DisplayText.request("stop climatisation"), "stop climate")
+        XCTAssertEqual(DisplayText.plain("✓ Fresh from the car."), "Fresh from the car.")
+        XCTAssertEqual(DisplayText.plain("Sent: climatise to 21.0 °C. Waiting for the car to confirm…"),
+                       "Sent: start climate at 21.0 °C. Waiting for the car to confirm…")
+        XCTAssertEqual(AlertEngine.list(["front left", "rear right"]), "front left and rear right")
+        XCTAssertEqual(AlertEngine.list(["a", "b", "c"]), "a, b and c")
     }
 }

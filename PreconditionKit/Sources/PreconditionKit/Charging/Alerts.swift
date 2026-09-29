@@ -121,7 +121,7 @@ public struct PlugReminder: Codable, Equatable, Sendable {
     /// The reminder's words.
     public static func message(snapshot: VehicleSnapshot?, now: Date) -> (title: String, body: String) {
         let at = snapshot?.socPercent.map { "It's at \($0)%. " } ?? ""
-        return ("EV6 isn't plugged in yet", at + "Need to charge tonight? Plug in, and confirm the charger in its app if it asks.")
+        return ("Your EV6 isn't plugged in", at + "Plug in if it needs charging tonight, and confirm the charger in its app if it asks.")
     }
 }
 
@@ -181,10 +181,11 @@ public enum AlertEngine {
             }
         }
         condition(.leftUnlocked, details?.locked == false && parked && now.timeIntervalSince(reportedAt) >= 10 * 60,
-                  "EV6 is unlocked", "It has been unlocked since \(clock(reportedAt)). Lock it from the app.")
+                  "EV6 is unlocked", "It's been unlocked since at least \(clock(reportedAt)). Lock it from My EV6.")
         let windows = details?.openWindows ?? []
         condition(.windowOpen, !windows.isEmpty && parked,
-                  "EV6 window open", "\(windows.joined(separator: ", ")) \(windows.count == 1 ? "is" : "are") open.")
+                  windows.count == 1 ? "EV6 window open" : "EV6 windows open",
+                  "\(Self.list(windows).capitalizingFirstLetter) \(windows.count == 1 ? "is" : "are") open.")
         if let aux = details?.auxBatteryPercent {
             condition(.lowAuxBattery, aux < settings.lowAuxPercent,
                       "EV6 12 V battery at \(aux)%", "It's normally 80–100%. If it keeps falling, have the ICCU checked.")
@@ -223,8 +224,15 @@ public enum AlertEngine {
         return since >= 20 && since < length
     }
 
+    /// "front left", "front left and rear right", "front left, front right and rear right".
+    static func list(_ items: [String]) -> String {
+        guard let last = items.last, items.count > 1 else { return items.first ?? "" }
+        return items.dropLast().joined(separator: ", ") + " and " + last
+    }
+
     private static func clock(_ date: Date) -> String {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_GB")
         f.dateFormat = "HH:mm"
         return f.string(from: date)
     }

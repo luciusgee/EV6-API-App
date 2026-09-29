@@ -36,8 +36,14 @@ struct GlanceProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<GlanceEntry>) -> Void) {
-        let entry = GlanceEntry(date: .now, glance: GlanceKeychain.load())
-        completion(Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(30 * 60))))
+        let glance = GlanceKeychain.load()
+        var entries = [GlanceEntry(date: .now, glance: glance)]
+        // Another entry when the data turns stale, so the widget says how old it is.
+        if let glance {
+            let staleAt = glance.reportedAt.addingTimeInterval(CarGlance.staleAfter + 60)
+            if staleAt > .now { entries.append(GlanceEntry(date: staleAt, glance: glance)) }
+        }
+        completion(Timeline(entries: entries, policy: .after(.now.addingTimeInterval(30 * 60))))
     }
 }
 
@@ -49,8 +55,8 @@ struct EV6StatusWidget: Widget {
             StatusWidgetView(entry: entry)
                 .containerBackground(for: .widget) { WidgetBackground() }
         }
-        .configurationDisplayName("EV6")
-        .description("Charge, range, locks and climate, with quick buttons.")
+        .configurationDisplayName("My EV6")
+        .description("Charge, range, locks and climate, with a climate button.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
@@ -77,7 +83,7 @@ struct StatusWidgetView: View {
         } else {
             VStack(spacing: 6) {
                 Image("WidgetCar").resizable().scaledToFit()
-                Text("Open EV6 to sign in").font(.caption).foregroundStyle(.secondary)
+                Text("Open My EV6 to sign in").font(.caption).foregroundStyle(.secondary)
             }
             .environment(\.colorScheme, .dark)
         }
@@ -95,6 +101,9 @@ struct StatusWidgetView: View {
             Percent(glance: g, size: 30)
             Text(g.rangeText ?? "–").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
             ChargeBar(glance: g).padding(.top, 3)
+            if g.busy || g.isStale(at: entry.date) {
+                Updated(glance: g, now: entry.date).padding(.top, 2)
+            }
         }
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
@@ -111,7 +120,8 @@ struct StatusWidgetView: View {
                         StatusIcons(glance: g)
                     }
                     Percent(glance: g, size: 34)
-                    Text([g.rangeText, g.pluggedIn ? (g.charging ? "charging" : "plugged in") : "not plugged in"]
+                    // The plan line below already says whether it's plugged in.
+                    Text([g.rangeText, g.plan != nil ? nil : (g.pluggedIn ? (g.charging ? "charging" : "plugged in") : "not plugged in")]
                         .compactMap { $0 }.joined(separator: " · "))
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
@@ -129,15 +139,12 @@ struct StatusWidgetView: View {
             }
             Spacer(minLength: 2)
             HStack(alignment: .center, spacing: 8) {
-                VStack(alignment: .leading, spacing: 1) {
-                    if let next = g.next {
-                        Text("Next: \(next)").lineLimit(1)
-                    } else {
-                        Updated(glance: g)
-                    }
+                // How old the data is matters more than the next rule once it's stale.
+                if let next = g.next, !g.busy, !g.isStale(at: entry.date) {
+                    Text("Next: \(next)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                } else {
+                    Updated(glance: g, now: entry.date)
                 }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 ClimatePill(glance: g)
             }
@@ -153,15 +160,26 @@ struct ClimatePill: View {
     let glance: CarGlance
 
     var body: some View {
-        Button(intent: CarCommandIntent(glance.climateOn ? .climateStop : .climateStart)) {
-            Label(glance.climateOn ? "Stop" : "Climate", systemImage: glance.climateOn ? "fan.slash.fill" : "fan.fill")
-                .font(.caption.weight(.bold))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(Color.orange.opacity(glance.climateOn ? 0.3 : 1), in: Capsule())
-                .foregroundStyle(glance.climateOn ? Color.orange : .black)
+        if glance.busy {
+            // A command is already going: no second tap until it settles.
+            pill(glance.waitingForCar == true ? "Sending…" : "Updating…", "hourglass", filled: false)
+        } else {
+            Button(intent: CarCommandIntent(glance.climateOn ? .climateStop : .climateStart)) {
+                pill(glance.climateOn ? "Stop" : "Start climate", glance.climateOn ? "fan.slash.fill" : "fan.fill", filled: !glance.climateOn)
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+    }
+
+    private func pill(_ title: String, _ symbol: String, filled: Bool) -> some View {
+        Label(title, systemImage: symbol)
+            .font(.caption.weight(.bold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(Color.orange.opacity(filled ? 1 : 0.3), in: Capsule())
+            .foregroundStyle(filled ? Color.black : .orange)
     }
 }
 
@@ -203,9 +221,8 @@ struct StatusIcons: View {
     var body: some View {
         HStack(spacing: 4) {
             if glance.climateOn { Image(systemName: "fan.fill").foregroundStyle(.orange) }
-            if glance.charging {
-                Image(systemName: "bolt.fill").foregroundStyle(.green)
-            } else if glance.pluggedIn {
+            // Charging shows as a bolt by the percentage instead.
+            if glance.pluggedIn && !glance.charging {
                 Image(systemName: "powerplug.fill").foregroundStyle(.green)
             }
             if let locked = glance.locked {
@@ -218,35 +235,13 @@ struct StatusIcons: View {
 
 struct Updated: View {
     let glance: CarGlance
+    let now: Date
 
     var body: some View {
-        if glance.busy {
-            Text("Updating…").font(.caption2).foregroundStyle(.secondary)
-        } else {
-            (Text("Updated ") + Text(glance.carReportedAt ?? glance.fetchedAt, style: .relative) + Text(" ago"))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-    }
-}
-
-/// Sends the command straight from the widget: the app runs it in the background and the widget
-/// updates once the car confirms.
-struct ActionButton: View {
-    let action: CarAction
-    let symbol: String
-    let tint: Color
-
-    var body: some View {
-        Button(intent: CarCommandIntent(action)) {
-            Image(systemName: symbol)
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: 36, height: 36)
-                .background(tint.opacity(0.25), in: Circle())
-                .foregroundStyle(tint == .gray ? .white : tint)
-        }
-        .buttonStyle(.plain)
+        Text(glance.busy ? glance.busyText : glance.updatedText(now: now))
+            .font(.caption2)
+            .foregroundStyle(!glance.busy && glance.isStale(at: now) ? Color.orange : .secondary)
+            .lineLimit(1)
     }
 }
 
@@ -258,8 +253,8 @@ struct EV6LockScreenWidget: Widget {
             LockScreenView(entry: entry)
                 .containerBackground(for: .widget) { Color.clear }
         }
-        .configurationDisplayName("EV6 charge")
-        .description("Your EV6's charge on the Lock Screen.")
+        .configurationDisplayName("Charge")
+        .description("Your EV6's charge and range on the Lock Screen.")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryInline])
     }
 }
@@ -283,7 +278,7 @@ struct LockScreenView: View {
             if let g {
                 Label("EV6 \(g.socPercent.map { "\($0)%" } ?? "–") · \(g.rangeText ?? "–")", systemImage: g.charging ? "bolt.car.fill" : "car.fill")
             } else {
-                Label("EV6", systemImage: "car.fill")
+                Label("My EV6", systemImage: "car.fill")
             }
         default:
             VStack(alignment: .leading, spacing: 1) {
@@ -295,10 +290,14 @@ struct LockScreenView: View {
                 .font(.headline)
                 .widgetAccentable()
                 if let g {
-                    Text(g.rangeText.map { "\($0) range" } ?? "–")
+                    if g.isStale(at: entry.date) {
+                        Text(g.updatedText(now: entry.date)).lineLimit(1)
+                    } else {
+                        Text(g.rangeText.map { "\($0) range" } ?? "–")
+                    }
                     Text(g.plan ?? g.summary).lineLimit(1)
                 } else {
-                    Text("Open EV6 to sign in")
+                    Text("Open My EV6 to sign in")
                 }
             }
             .font(.caption)

@@ -94,7 +94,7 @@ final class AutomationTests: XCTestCase {
         XCTAssertTrue(fake.state.climateOn)
         XCTAssertEqual(fake.state.targetTempC, 21)
         let texts = await notifier.sent
-        XCTAssertEqual(texts, ["Preconditioning to 21.0 °C — left Office, 3.0 °C (Leaving work)"])
+        XCTAssertEqual(texts, ["Left Office, 3.0 °C."])
         let log = await entries()
         XCTAssertEqual(log.reduce(0) { $0 + $1.requestsUsed }, 2)
         XCTAssertTrue(log.contains { $0.kind == .fired && $0.ruleId == "leave" })
@@ -115,7 +115,7 @@ final class AutomationTests: XCTestCase {
         XCTAssertEqual(skipReason(outcome), "asked first")
         XCTAssertFalse(fake.state.climateOn, "nothing sent")
         let asks = await notifier.asks
-        XCTAssertEqual(asks, ["leave: Leaving work: start climate to 21.0 °C? It's about 3.0 °C out. Hold for Start, In 15 min or Not today."])
+        XCTAssertEqual(asks, ["leave: Leaving work: start climate to 21.0 °C? It's about 3.0 °C out. Touch and hold to choose."])
         let sentTexts = await notifier.sent
         XCTAssertTrue(sentTexts.isEmpty)
         // Its cooldown has started: leaving again straight away doesn't ask twice.
@@ -134,7 +134,7 @@ final class AutomationTests: XCTestCase {
         XCTAssertTrue(fake.state.climateOn)
         XCTAssertFalse(fake.state.charging)
         let texts = await notifier.sent
-        XCTAssertEqual(texts, ["Preconditioning to 21.0 °C — left Office, 3.0 °C, charger held (Leaving work)"])
+        XCTAssertEqual(texts, ["Left Office, 3.0 °C, charger held."])
         let log = await entries()
         XCTAssertEqual(log.reduce(0) { $0 + $1.requestsUsed }, 3)
         XCTAssertTrue(log.contains { $0.kind == .command && $0.reason.hasPrefix("stop charging accepted") && $0.trigger == "left Office" })
@@ -148,7 +148,7 @@ final class AutomationTests: XCTestCase {
         XCTAssertTrue(isSkipped(outcome))
         XCTAssertFalse(fake.state.climateOn)
         let log = await entries()
-        XCTAssertTrue(log.contains { $0.kind == .skipped && $0.reason.contains("SoC 20% below minimum 25%") })
+        XCTAssertTrue(log.contains { $0.kind == .skipped && $0.reason.contains("charge 20% is below the 25% minimum") })
         let texts = await notifier.sent
         XCTAssertTrue(texts.isEmpty)
     }
@@ -402,7 +402,7 @@ final class AutomationTests: XCTestCase {
         let draft = rule("draft", trigger: .geofenceEnter(placeId: "home"), conditions: [.socAtLeast(percent: 90)], enabled: false)
         let evaluation = await engine.dryRun(draft)
         XCTAssertNil(evaluation.winner)
-        XCTAssertTrue(evaluation.verdicts[0].reason.contains("SoC 62% < 90%"), evaluation.verdicts[0].reason)
+        XCTAssertTrue(evaluation.verdicts[0].reason.contains("charge 62% < 90%"), evaluation.verdicts[0].reason)
         let log = await entries()
         XCTAssertTrue(log.contains { $0.decision == "would skip" && $0.trigger == "test now" })
     }
@@ -416,7 +416,7 @@ final class AutomationTests: XCTestCase {
         XCTAssertTrue(isFired(outcome))
         XCTAssertFalse(fake.state.climateOn)
         let texts = await notifier.sent
-        XCTAssertEqual(texts, ["Climatisation stopped — arrived at Home (stop)"])
+        XCTAssertEqual(texts, ["Arrived at Home."])
     }
 
     func testLeavingWorkIsSkippedWhenThePhoneIsNotWithTheCar() async {

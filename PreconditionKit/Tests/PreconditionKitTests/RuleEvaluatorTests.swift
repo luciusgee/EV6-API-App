@@ -158,7 +158,7 @@ final class RuleEvaluatorTests: XCTestCase {
     func testLowStateOfChargeBlocksStart() async {
         let result = await evaluate([rule()], FakeInputs(vehicleState: snapshot(soc: 20)))
         XCTAssertNil(result.winner)
-        XCTAssertTrue(reason(result).contains("SoC 20% below minimum 25%"))
+        XCTAssertTrue(reason(result).contains("charge 20% is below the 25% minimum"))
     }
 
     func testLowStateOfChargeIsFineWhenPluggedIn() async {
@@ -169,7 +169,7 @@ final class RuleEvaluatorTests: XCTestCase {
     func testUnknownStateOfChargeBlocksStartEvenWhenTheRuleProceedsOnUnknowns() async {
         let result = await evaluate([rule(proceedIfUnknown: true)], FakeInputs(vehicleState: snapshot(soc: nil, plugged: nil)))
         XCTAssertNil(result.winner)
-        XCTAssertTrue(reason(result).contains("state of charge unknown"))
+        XCTAssertTrue(reason(result).contains("charge unknown"))
     }
 
     func testCustomMinimumSocIsRespected() async {
@@ -185,7 +185,7 @@ final class RuleEvaluatorTests: XCTestCase {
 
     func testUnknownClimateStateBlocksStart() async {
         let result = await evaluate([rule()], FakeInputs(vehicleState: snapshot(climate: .unknown)))
-        XCTAssertTrue(reason(result).contains("climatisation state unknown"))
+        XCTAssertTrue(reason(result).contains("climate state unknown"))
     }
 
     func testUnavailableVehicleStateBlocksEveryAction() async {
@@ -411,7 +411,7 @@ final class RuleEvaluatorTests: XCTestCase {
         let low = await evaluate([soc], FakeInputs(vehicleState: snapshot(soc: 49)))
         XCTAssertTrue(reason(low).contains("49% < 50%"))
         let unknownSoc = await evaluate([soc], FakeInputs(vehicleState: snapshot(soc: nil, plugged: true)))
-        XCTAssertTrue(reason(unknownSoc).contains("SoC unknown"))
+        XCTAssertTrue(reason(unknownSoc).contains("charge unknown"))
 
         let plugged = rule(conditions: [.pluggedIn(expected: true)])
         let yes = await evaluate([plugged], FakeInputs(vehicleState: snapshot(plugged: true)))
@@ -506,7 +506,7 @@ final class RuleEvaluatorTests: XCTestCase {
         XCTAssertEqual(lines.first, "PASS rule cooldown: not active")
         XCTAssertTrue(lines.contains("PASS condition 16:00–19:00: now 17:00"), "\(lines)")
         XCTAssertTrue(lines.contains("PASS condition Mon–Fri: today is Wed"), "\(lines)")
-        XCTAssertEqual(lines.last, "PASS not running: climatisation off")
+        XCTAssertEqual(lines.last, "PASS Climate off: climate off")
     }
 }
 

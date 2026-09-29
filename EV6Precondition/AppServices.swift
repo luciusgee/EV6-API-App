@@ -54,16 +54,6 @@ final class AppServices {
             GeofenceMonitor.shared.sync(rules: rules, places: places, carPosition: car.snapshot?.parkingPosition)
         }
         let presence = self.presence
-        GeofenceMonitor.shared.onPresence = { placeId, arrived, left, source in
-            await presence.load()
-            if let left {
-                await presence.left(placeId, at: left, arrivedAt: arrived, source: source)
-            } else if let arrived {
-                await presence.arrived(placeId, at: arrived, source: source)
-            }
-        }
-        // The phone's location is only watched when time is tracked by iPhone, not by the car.
-        presence.onTrackedChange = { _ in GeofenceMonitor.shared.track(presence.watchesPhone ? presence.tracked : []) }
         let engine2 = container.engine
         presence.fetchTrips = { day, kind in await engine2.trips(on: day, kind: kind) }
         let rulesModel = rules
@@ -80,7 +70,6 @@ final class AppServices {
         await car.load()
         await charging.load()
         await presence.load()
-        GeofenceMonitor.shared.track(presence.watchesPhone ? presence.tracked : [])
         // The fake car was a development aid; the app only talks to the real car now.
         if car.settings.fakeMode {
             await car.updateSettings { $0.fakeMode = false }

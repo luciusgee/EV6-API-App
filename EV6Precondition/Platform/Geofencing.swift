@@ -11,15 +11,7 @@ final class GeofenceMonitor: NSObject {
     private let manager = CLLocationManager()
     /// Set by `AppServices`: runs the engine for a crossed boundary.
     var onEvent: ((TriggerEvent, Date) async -> Void)?
-    /// Set by `AppServices`: logs arriving at and leaving tracked places (arrival, departure).
-    var onPresence: ((_ placeId: String, _ arrived: Date?, _ left: Date?, _ source: Visit.Source) async -> Void)?
     private(set) var watching: [String] = []
-    /// Places whose time is logged, and every place, for matching iOS visits.
-    private var tracked: Set<String> = []
-    private var places: [Place] = []
-    private var lastRules: [Rule] = []
-    private var lastCar: LatLon?
-    private var synced = false
 
     override private init() {
         super.init()
@@ -28,26 +20,9 @@ final class GeofenceMonitor: NSObject {
 
     var status: CLAuthorizationStatus { manager.authorizationStatus }
 
-    /// The tracked places changed: watch them too.
-    func track(_ placeIds: Set<String>) {
-        tracked = placeIds
-        // Before the rules and places have loaded, syncing would drop every region for a moment.
-        if synced { sync(rules: lastRules, places: places, carPosition: lastCar) }
-    }
-
-    /// Registers exactly the regions the enabled rules and tracked places need (up to iOS's 20).
+    /// Registers exactly the regions the enabled rules need (up to iOS's 20).
     func sync(rules: [Rule], places: [Place], carPosition: LatLon?) {
-        synced = true
-        lastRules = rules
-        self.places = places
-        lastCar = carPosition
-        // iOS's visit detection backs up the boundaries for time tracking, at almost no battery cost.
-        if tracked.isEmpty {
-            manager.stopMonitoringVisits()
-        } else {
-            manager.startMonitoringVisits()
-        }
-        let specs = Array(Geofences.required(rules, places: places, carPosition: carPosition, tracked: tracked).prefix(Geofences.iosRegionLimit))
+        let specs = Array(Geofences.required(rules, places: places, carPosition: carPosition).prefix(Geofences.iosRegionLimit))
         if !specs.isEmpty {
             switch manager.authorizationStatus {
             case .notDetermined: manager.requestWhenInUseAuthorization()
@@ -85,11 +60,8 @@ final class GeofenceMonitor: NSObject {
     }
 
     private func crossed(_ id: String, _ transition: Transition) {
-        let at = Date()
-        if let placeId = Geofences.placeId(for: id), tracked.contains(placeId), let onPresence {
-            Task { await onPresence(placeId, transition == .enter ? at : nil, transition == .exit ? at : nil, .boundary) }
-        }
         guard let event = Geofences.event(for: id, transition: transition), let onEvent else { return }
+        let at = Date()
         Task { await onEvent(event, at) }
     }
 }
@@ -103,20 +75,6 @@ extension GeofenceMonitor: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
         let id = region.identifier
         Task { @MainActor in self.crossed(id, .exit) }
-    }
-
-    /// iOS's own "you were here from … to …", matched to a tracked place.
-    nonisolated func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
-        let point = LatLon(lat: visit.coordinate.latitude, lon: visit.coordinate.longitude)
-        let arrived = visit.arrivalDate == .distantPast ? nil : visit.arrivalDate
-        let left = visit.departureDate == .distantFuture ? nil : visit.departureDate
-        let accuracy = visit.horizontalAccuracy
-        Task { @MainActor in
-            guard let onPresence = self.onPresence,
-                  let place = self.places.first(where: { self.tracked.contains($0.id) && $0.centre.distance(to: point) <= Double($0.radiusM) + max(accuracy, 50) })
-            else { return }
-            await onPresence(place.id, arrived, left, .visit)
-        }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {

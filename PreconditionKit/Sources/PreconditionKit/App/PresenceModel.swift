@@ -13,8 +13,6 @@ public final class PresenceModel {
     @ObservationIgnored public var fetchTrips: (@MainActor (CalendarDay, RequestKind) async -> ApiResult<[CarTrip]>)?
     /// Set by the app: the places, to match where the car was parked.
     @ObservationIgnored public var places: (@MainActor () -> [Place])?
-    /// Runs when the tracked places change, so the geofences can follow.
-    @ObservationIgnored public var onTrackedChange: (@MainActor (Set<String>) -> Void)?
 
     private let store: JSONFileStore<PresenceLog>
     private let movementsStore: JSONFileStore<CarMovements>
@@ -36,14 +34,6 @@ public final class PresenceModel {
         loaded = true
     }
 
-    public func setMode(_ mode: PresenceLog.Mode) async {
-        await change { $0.mode = mode }
-        onTrackedChange?(log.trackedPlaceIds)
-    }
-
-    /// Whether the phone's location should be watched for time tracking.
-    public var watchesPhone: Bool { log.mode == .phone && !log.trackedPlaceIds.isEmpty }
-
     // MARK: - The car's trips
 
     /// Notes where the car is parked, from each read of its state.
@@ -61,7 +51,7 @@ public final class PresenceModel {
     /// Fetches the car's trips for the days that need it (today, and past days not yet complete),
     /// newest first, up to `maxDays` requests.
     public func refreshCarTrips(days back: Int = 7, maxRequests: Int = 3, kind: RequestKind = .manual, calendar: Calendar = .current) async {
-        guard log.mode == .car, !log.trackedPlaceIds.isEmpty, let fetchTrips else { return }
+        guard !log.trackedPlaceIds.isEmpty, let fetchTrips else { return }
         if !loaded { await load() }
         loadingTrips = true
         defer { loadingTrips = false }
@@ -100,16 +90,7 @@ public final class PresenceModel {
 
     public func setTracked(_ placeId: String, _ on: Bool) async {
         await change { if on { $0.trackedPlaceIds.insert(placeId) } else { $0.trackedPlaceIds.remove(placeId) } }
-        onTrackedChange?(log.trackedPlaceIds)
         await rebuildCarStays()
-    }
-
-    public func arrived(_ placeId: String, at: Date, source: Visit.Source) async {
-        await change { $0.arrive(placeId, at: at, source: source) }
-    }
-
-    public func left(_ placeId: String, at: Date, arrivedAt: Date? = nil, source: Visit.Source) async {
-        await change { $0.leave(placeId, at: at, arrivedAt: arrivedAt, source: source) }
     }
 
     /// Adds or replaces a stay by hand.
@@ -132,6 +113,5 @@ public final class PresenceModel {
             $0.visits.removeAll { $0.placeId == placeId }
             $0.trackedPlaceIds.remove(placeId)
         }
-        onTrackedChange?(log.trackedPlaceIds)
     }
 }

@@ -107,16 +107,13 @@ public enum Geofences {
     public static let iosRegionLimit = 20
 
     /// - Parameter carPosition: where the car is parked, for near-car rules. Nil registers no car fences.
-    /// - Parameter tracked: places whose time is logged: watched both ways, and first in line for iOS's 20.
-    public static func required(_ rules: [Rule], places: [Place], carPosition: LatLon? = nil, tracked: Set<String> = []) -> [GeofenceSpec] {
+    public static func required(_ rules: [Rule], places: [Place], carPosition: LatLon? = nil) -> [GeofenceSpec] {
         let triggers = rules.filter(\.enabled).map(\.trigger)
         let byId = Dictionary(places.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-        let ordered = places.filter { tracked.contains($0.id) } + places.filter { !tracked.contains($0.id) }
-        let placeFences = ordered.compactMap { place -> GeofenceSpec? in
-            let logged = tracked.contains(place.id)
-            let enter = logged || triggers.contains { if case .geofenceEnter(place.id) = $0 { return true } else { return false } }
-            let exit = logged || triggers.contains { if case .geofenceExit(place.id) = $0 { return true } else { return false } }
+        let placeFences = places.compactMap { place -> GeofenceSpec? in
+            let enter = triggers.contains { if case .geofenceEnter(place.id) = $0 { return true } else { return false } }
+            let exit = triggers.contains { if case .geofenceExit(place.id) = $0 { return true } else { return false } }
             guard enter || exit else { return nil }
             return GeofenceSpec(id: placePrefix + place.id, centre: place.centre, radiusM: Double(place.radiusM), enter: enter, exit: exit)
         }
@@ -145,11 +142,6 @@ public enum Geofences {
             if rule.enabled, case .nearCar = rule.trigger { return true }
             return false
         }
-    }
-
-    /// The place a region watches, for place regions.
-    public static func placeId(for regionId: String) -> String? {
-        regionId.hasPrefix(placePrefix) ? String(regionId.dropFirst(placePrefix.count)) : nil
     }
 
     public static func event(for regionId: String, transition: Transition) -> TriggerEvent? {

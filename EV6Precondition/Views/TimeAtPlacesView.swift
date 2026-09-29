@@ -90,14 +90,6 @@ struct TimeAtPlacesView: View {
                     Label(place.name, systemImage: "mappin.circle")
                 }
             }
-            Picker("Using", selection: Binding(
-                get: { presence.log.mode },
-                set: { mode in Task { await presence.setMode(mode); await presence.refreshCarTrips() } }
-            )) {
-                Text("The car").tag(PresenceLog.Mode.car)
-                Text("iPhone").tag(PresenceLog.Mode.phone)
-            }
-            .pickerStyle(.segmented)
             if presence.loadingTrips {
                 HStack { ProgressView(); Text("Getting the car's trips…").foregroundStyle(.secondary) }
             }
@@ -107,9 +99,7 @@ struct TimeAtPlacesView: View {
         } header: {
             Text("Track time at")
         } footer: {
-            Text(presence.log.mode == .car
-                 ? "From the car's trip log and where it was parked. Each day of trips is one Kia request."
-                 : "From your iPhone's location, even with the app closed. Needs location set to Always.")
+            Text("From the car's trip log and where it was parked. Each day of trips is one Kia request.")
         }
     }
 
@@ -178,7 +168,7 @@ struct TimeAtPlacesView: View {
         } header: {
             Text("By day")
         } footer: {
-            Text("Tap a day to correct it. Popping out for under 10 minutes doesn't count as leaving.")
+            Text("Tap a day to correct it.")
         }
     }
 

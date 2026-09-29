@@ -2,8 +2,9 @@ import Foundation
 
 /// Checks a rule or place before it's saved or imported (HANDOVER.md §4.2). An empty list means valid.
 public enum RuleValidator {
-    public static let minTargetC = 16.0
-    public static let maxTargetC = 30.0
+    /// The EV6's climate control goes from 17 to 27 °C; outside that the car keeps its last setting.
+    public static let minTargetC = 17.0
+    public static let maxTargetC = 27.0
     public static let minCarRadiusM = 100
     public static let maxCarRadiusM = 5000
     public static let minPhoneDistanceM = 50

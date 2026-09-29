@@ -84,7 +84,7 @@ final class RuleJSONTests: XCTestCase {
         let byName = Dictionary(result.issues.map { ($0.name ?? "", $0) }, uniquingKeysWith: { a, _ in a })
         XCTAssertTrue(byName["Bad time"]!.message.contains("25:00"), byName["Bad time"]!.message)
         XCTAssertTrue(byName["Gym"]!.message.contains("unknown place 'gym'"))
-        XCTAssertTrue(byName["Too hot"]!.message.contains("16–30"))
+        XCTAssertTrue(byName["Too hot"]!.message.contains("17–27"))
         XCTAssertTrue(byName["Duplicate"]!.message.contains("duplicate id"))
         XCTAssertTrue(byName["Unknown type"]!.message.contains("teleport"))
         XCTAssertTrue(byName["No action"]!.message.contains("action"))

@@ -235,7 +235,7 @@ final class StoreTests: XCTestCase {
     func testSettingsAreClamped() {
         let s = AppSettings(minSocPercent: 150, defaultTargetC: 40.3, budgetLimit: 1000, budgetReserve: 900).clamped
         XCTAssertEqual(s.minSocPercent, 100)
-        XCTAssertEqual(s.defaultTargetC, 30)
+        XCTAssertEqual(s.defaultTargetC, 27)
         XCTAssertEqual(s.budgetLimit, 200)
         XCTAssertEqual(s.budgetReserve, 100)
         XCTAssertEqual(AppSettings(defaultTargetC: 21.3).clamped.defaultTargetC, 21.5)

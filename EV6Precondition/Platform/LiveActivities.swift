@@ -5,8 +5,8 @@ import PreconditionKit
 /// Starts, updates and ends the climate and charging Live Activities from what the app knows.
 @MainActor
 enum LiveActivities {
-    /// Kia runs remote climate for this long.
-    static let climateMinutes: Double = 10
+    /// Kia runs remote climate for this long (the app asks for 15, like Kia's own app).
+    static let climateMinutes: Double = 15
 
     static func update(_ car: CarModel) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }

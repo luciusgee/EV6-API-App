@@ -2,8 +2,9 @@ import Foundation
 
 /// The non-secret settings (HANDOVER.md §6, Settings). Credentials live in the Keychain, not here.
 public struct AppSettings: Codable, Equatable, Sendable {
-    public static let minTargetC = 16.0
-    public static let maxTargetC = 30.0
+    /// The EV6's climate control goes from 17 to 27 °C; outside that the car keeps its last setting.
+    public static let minTargetC = 17.0
+    public static let maxTargetC = 27.0
 
     public var minSocPercent: Int
     public var defaultTargetC: Double

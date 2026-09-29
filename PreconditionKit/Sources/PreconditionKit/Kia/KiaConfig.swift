@@ -32,7 +32,7 @@ public struct KiaConfig: Equatable, Sendable {
         serviceSecret: String = "secret",
         appId: String = "a2b8469b-30a3-4361-8e13-6fceea8fbe74",
         cfbBase64: String = "wLTVxwidmH8CfJYBWSnHD6E0huk0ozdiuygB4hLkM5XCgzAL1Dk5sE36d/bx5PFMbZs=",
-        climateMinutes: Int = 10,
+        climateMinutes: Int = 15,
         oneAppClientId: String = "01b36c86-79e8-486c-8009-15f2ad88d670",
         oneAppRedirect: String = "https://oneapp.kia.com/redirect",
         cciBase: String = "https://cci-api-eu.kia.com"

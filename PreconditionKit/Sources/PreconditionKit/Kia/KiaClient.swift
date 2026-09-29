@@ -68,7 +68,8 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
     public func startClimate(targetC: Double, kind: RequestKind, options extras: ClimateOptions) async -> ApiResult<CommandReceipt> {
         await call(kind) { s, creds in
             let id = try Self.vehicleId(s)
-            let target = Self.roundToHalf(min(max(targetC, KiaConfig.minTempC), KiaConfig.maxTempC))
+            // The EV6 only takes 17–27 °C; anything outside is ignored and it keeps its last setting.
+            let target = Self.roundToHalf(min(max(targetC, AppSettings.minTargetC), AppSettings.maxTargetC))
             let minutes = JSONValue.number(Double(self.config.climateMinutes))
             if s.ccs2 == 0 {
                 let options: JSONValue = [

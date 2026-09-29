@@ -313,7 +313,7 @@ final class KiaClientTests: XCTestCase {
         let start = try XCTUnwrap(body(server.last("/control/temperature")))
         XCTAssertEqual(start["action"], "start")
         XCTAssertEqual(start["tempCode"], "0EH")
-        XCTAssertEqual(start.path("options.igniOnDuration"), 10)
+        XCTAssertEqual(start.path("options.igniOnDuration"), 15)
         XCTAssertEqual(server.last("/control/temperature")?.header("Authorization"), "Bearer acc-1")
         XCTAssertEqual(server.last("/control/temperature")?.method, "POST")
 
@@ -404,9 +404,16 @@ final class KiaClientTests: XCTestCase {
 
     func testClimatePayloadsMatchTheFixtures() async throws {
         let payloads = try Fixtures.json("kia-climate-payloads.json")
+        // The handover fixtures ran climate for 10 minutes; the app now asks for 15, like Kia's app.
+        func tenMinutes(_ v: JSONValue?) -> JSONValue? {
+            guard var text = v.map({ String(decoding: $0.data, as: UTF8.self) }) else { return nil }
+            text = text.replacingOccurrences(of: "\"igniOnDuration\":10", with: "\"igniOnDuration\":15")
+                .replacingOccurrences(of: "\"ignitionDuration\":10", with: "\"ignitionDuration\":15")
+            return JSONValue.parse(text)
+        }
 
         _ = await client.startClimate(targetC: 21, kind: .manual)
-        XCTAssertEqual(body(server.last("/control/temperature")), payloads.path("legacy_start.body"))
+        XCTAssertEqual(body(server.last("/control/temperature")), tenMinutes(payloads.path("legacy_start.body")))
         _ = await client.stopClimate(.manual)
         XCTAssertEqual(body(server.last("/control/temperature")), payloads.path("legacy_stop.body"))
 
@@ -414,7 +421,7 @@ final class KiaClientTests: XCTestCase {
         server.respond("/spa/vehicles", okResponse(Self.vehiclesCcs2))
         creds.set(Credentials(refreshToken: Self.refresh, pin: "1234"))
         _ = await client.startClimate(targetC: 21, kind: .manual)
-        XCTAssertEqual(body(server.last("/ccs2/control/temperature")), payloads.path("ccs2_start.body"))
+        XCTAssertEqual(body(server.last("/ccs2/control/temperature")), tenMinutes(payloads.path("ccs2_start.body")))
         _ = await client.stopClimate(.manual)
         XCTAssertEqual(body(server.last("/ccs2/control/temperature")), payloads.path("ccs2_stop.body"))
     }

@@ -20,7 +20,8 @@ final class RoutePlannerTests: XCTestCase {
         let town = ConsumptionModel(baseKWhPer100km: 17, averageKmh: 60, outsideC: 18, marginPercent: 0)
         XCTAssertEqual(town.kWhPer100km, 17, accuracy: 0.001)
         let winterMotorway = ConsumptionModel(baseKWhPer100km: 17, averageKmh: 110, outsideC: -2, marginPercent: 0)
-        XCTAssertEqual(winterMotorway.kWhPer100km, 17 * 1.24 * 1.25, accuracy: 0.001)
+        let expected: Double = 17.0 * 1.24 * 1.25
+        XCTAssertEqual(winterMotorway.kWhPer100km, expected, accuracy: 0.001)
     }
 
     func testShortTripNeedsNoStop() {
@@ -28,7 +29,9 @@ final class RoutePlannerTests: XCTestCase {
                                      trip: TripSettings(startPercent: 80), model: ConsumptionModel(baseKWhPer100km: 18, averageKmh: 90, marginPercent: 0))
         XCTAssertTrue(plan.stops.isEmpty)
         XCTAssertFalse(plan.unreachable)
-        XCTAssertEqual(plan.arrivePercent, 80 - 150 * 18 * 1.12 / 100 / 74 * 100, accuracy: 0.01)
+        // 90 km/h average: +12% on 18 kWh/100 km.
+        let used: Double = 150.0 * 18.0 * 1.12 / 74.0
+        XCTAssertEqual(plan.arrivePercent, 80.0 - used, accuracy: 0.01)
     }
 
     func testLongTripStopsAtTheFarthestFastChargerAndOnlyChargesWhatsNeeded() throws {

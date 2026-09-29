@@ -52,7 +52,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: EV6
+        INFOPLIST_KEY_CFBundleDisplayName: My EV6
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
@@ -87,7 +87,7 @@ targets:
         # Shared/Phone code that only the app may run checks this.
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WIDGET_EXTENSION
         GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: EV6
+        INFOPLIST_KEY_CFBundleDisplayName: My EV6
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SKIP_INSTALL: "YES"
 
@@ -113,7 +113,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "4"
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: EV6
+        INFOPLIST_KEY_CFBundleDisplayName: My EV6
         INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.luciusgee.ev6precondition
         INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: "NO"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -141,7 +141,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: WatchWidgets/EV6Complications.entitlements
         GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: EV6
+        INFOPLIST_KEY_CFBundleDisplayName: My EV6
         SKIP_INSTALL: "YES"
 schemes:
   EV6Precondition:

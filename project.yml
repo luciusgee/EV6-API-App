@@ -35,6 +35,7 @@ targets:
       properties:
         # Read at run time to name the Keychain group shared with the widgets.
         AppIdentifierPrefix: $(AppIdentifierPrefix)
+        NSSupportsLiveActivities: true
         CFBundleURLTypes:
           - CFBundleURLName: com.luciusgee.ev6precondition
             CFBundleURLSchemes: [ev6]
@@ -80,6 +81,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: Widgets/EV6Widgets.entitlements
+        # Shared/Phone code that only the app may run checks this.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WIDGET_EXTENSION
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: EV6
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -91,7 +94,8 @@ targets:
     platform: watchOS
     sources:
       - path: Watch
-      - path: Shared
+      - path: Shared/CarGlance.swift
+      - path: Shared/GlanceKeychain.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.luciusgee.ev6precondition.watchkitapp

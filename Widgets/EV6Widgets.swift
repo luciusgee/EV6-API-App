@@ -6,6 +6,13 @@ struct EV6WidgetBundle: WidgetBundle {
     var body: some Widget {
         EV6StatusWidget()
         EV6LockScreenWidget()
+        EV6LiveActivity()
+        if #available(iOSApplicationExtension 18.0, *) {
+            PreconditionControl()
+            StopClimateControl()
+            LockControl()
+            RefreshControl()
+        }
     }
 }
 
@@ -113,12 +120,12 @@ struct StatusWidgetView: View {
                 Image("WidgetCar").resizable().scaledToFit()
                 HStack(spacing: 8) {
                     if g.climateOn {
-                        ActionLink(command: .climateStop, symbol: "fan.slash", tint: .orange)
+                        ActionButton(action: .climateStop, symbol: "fan.slash", tint: .orange)
                     } else {
-                        ActionLink(command: .climateStart, symbol: "fan", tint: .orange)
+                        ActionButton(action: .climateStart, symbol: "fan", tint: .orange)
                     }
-                    ActionLink(command: .lock, symbol: "lock.fill", tint: .blue)
-                    ActionLink(command: .refresh, symbol: "arrow.clockwise", tint: .gray)
+                    ActionButton(action: .lock, symbol: "lock.fill", tint: .blue)
+                    ActionButton(action: .refresh, symbol: "arrow.clockwise", tint: .gray)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -195,20 +202,22 @@ struct Updated: View {
     }
 }
 
-/// Opens the app, which sends the command and shows the car's confirmation.
-struct ActionLink: View {
-    let command: GlanceCommand
+/// Sends the command straight from the widget: the app runs it in the background and the widget
+/// updates once the car confirms.
+struct ActionButton: View {
+    let action: CarAction
     let symbol: String
     let tint: Color
 
     var body: some View {
-        Link(destination: command.url) {
+        Button(intent: CarCommandIntent(action)) {
             Image(systemName: symbol)
                 .font(.system(size: 15, weight: .semibold))
                 .frame(width: 36, height: 36)
                 .background(tint.opacity(0.25), in: Circle())
                 .foregroundStyle(tint == .gray ? .white : tint)
         }
+        .buttonStyle(.plain)
     }
 }
 

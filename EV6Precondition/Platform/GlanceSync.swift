@@ -28,7 +28,8 @@ final class GlanceSync: NSObject {
     private func observe() {
         guard let car else { return }
         let glance = withObservationTracking {
-            Self.glance(car)
+            LiveActivities.update(car)
+            return Self.glance(car)
         } onChange: {
             Task { @MainActor in GlanceSync.shared.observe() }
         }

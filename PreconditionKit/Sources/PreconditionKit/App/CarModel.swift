@@ -121,8 +121,18 @@ public final class CarModel {
     /// Charging, locks, charge limits.
     public func send(_ command: CarCommand) async {
         guard busy == nil else { return }
+        if let already = alreadySet(command) {
+            message = already
+            return
+        }
         busy = .command(command)
-        report(await container.engine.manualCommand(command))
+        let outcome = await container.engine.manualCommand(command)
+        if case .sent(let description) = outcome, !command.confirmedByCar {
+            // Kia accepted it and there's nothing more the car will report.
+            message = "✓ \(DisplayText.confirmed(description))."
+        } else {
+            report(outcome)
+        }
         busy = nil
         fakeCar = container.fakeCar.state
         await reloadState()
@@ -141,6 +151,21 @@ public final class CarModel {
         }
         busy = nil
         await reloadState()
+    }
+
+    /// A setting the car already has: nothing to send.
+    private func alreadySet(_ command: CarCommand) -> String? {
+        let details = snapshot?.details
+        switch command {
+        case .setChargeLimits(let ac, let dc):
+            guard details?.chargeLimitAC == KiaClient.chargeLimit(ac), details?.chargeLimitDC == KiaClient.chargeLimit(dc) else { return nil }
+            return "The car's already set to AC \(KiaClient.chargeLimit(ac))% · DC \(KiaClient.chargeLimit(dc))%."
+        case .setOffPeak(let window):
+            guard details?.offPeak == window else { return nil }
+            return "The car's already set to \(window.text)."
+        default:
+            return nil
+        }
     }
 
     /// Follows the command until the car reports back, like the Kia app does.

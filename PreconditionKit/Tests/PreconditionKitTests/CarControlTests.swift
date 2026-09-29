@@ -382,6 +382,23 @@ final class CarControlEngineTests: XCTestCase {
         XCTAssertEqual(last?.requestsUsed, 3)
     }
 
+    func testACommandKiaNeverListsIsntWaitedOnForLong() async throws {
+        _ = await engine.manualCommand(.lock)
+        // As with charge limits: Kia accepted it, but it never appears in the command history.
+        await container.stores.automationState.update { $0.lastCommand?.messageId = "never-listed" }
+        let slept = Locked<[TimeInterval]>([])
+        let status = await engine.confirmLastCommand(delays: [1, 1, 1, 1, 1, 1, 1, 1]) { d in slept.withLock { $0.append(d) } }
+        XCTAssertEqual(status, .unknown)
+        XCTAssertEqual(slept.current.count, 3)
+        XCTAssertFalse(CarCommand.setChargeLimits(ac: 80, dc: 80).confirmedByCar)
+        XCTAssertFalse(CarCommand.setOffPeak(OffPeakWindow(start: ClockTime(hour: 23), end: ClockTime(hour: 6))).confirmedByCar)
+        XCTAssertTrue(CarCommand.lock.confirmedByCar)
+        XCTAssertEqual(DisplayText.confirmed(CarCommand.setOffPeak(OffPeakWindow(start: ClockTime(hour: 23), end: ClockTime(hour: 6))).description),
+                       "Off-peak charging set to 23:00–06:00")
+        XCTAssertEqual(DisplayText.confirmed(CarCommand.sendToCar([NavPoint(name: "Manchester", position: LatLon(lat: 53.5, lon: -2.2))]).description),
+                       "Sent Manchester to the car's nav")
+    }
+
     func testARefusalAndNoAnswerAreReported() async throws {
         fake.state.commandOutcome = .fail
         _ = await engine.manualCommand(.unlock)

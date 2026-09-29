@@ -89,6 +89,8 @@ extension PreconditionEngine {
 
     /// Waits between checks on a command: about 80 s in all, most commands report within 20–40 s.
     public static let confirmDelays: [TimeInterval] = [5, 5, 6, 8, 10, 12, 15, 20]
+    /// Checks in a row that don't find the command before giving up on it.
+    static let unlistedLimit = 3
     /// Shorter for the charger stop that comes before climate.
     static let chargerStopDelays: [TimeInterval] = [3, 4, 4, 5, 6]
 
@@ -97,6 +99,7 @@ extension PreconditionEngine {
     func follow(_ id: String, kind: RequestKind, delays: [TimeInterval]) async -> (CommandStatus, Int) {
         var polls = 0
         var status = CommandStatus.pending
+        var unlisted = 0
         for delay in delays {
             await pause(commandGap == 0 ? 0 : delay)
             guard await budget.available(kind) >= 2 else { break }
@@ -105,6 +108,9 @@ extension PreconditionEngine {
             guard let s = result.value else { break }
             status = s
             if s.isFinal { break }
+            // Kia lists a command within seconds; one that never shows up won't be confirmed.
+            unlisted = s == .unknown ? unlisted + 1 : 0
+            if unlisted >= Self.unlistedLimit { break }
         }
         return (status, polls)
     }
@@ -121,6 +127,7 @@ extension PreconditionEngine {
         guard let command = await state.load().lastCommand, let id = command.messageId, command.status == nil else { return .unknown }
         var status = CommandStatus.pending
         var polls = 0
+        var unlisted = 0
         for delay in delays {
             do { try await sleep(delay) } catch { break }
             // A newer command replaced this one: that one gets its own confirmation.
@@ -131,6 +138,8 @@ extension PreconditionEngine {
             guard let s = result.value else { break }
             status = s
             if s.isFinal { break }
+            unlisted = s == .unknown ? unlisted + 1 : 0
+            if unlisted >= Self.unlistedLimit { break }
         }
         let now = time.now()
         let final = status

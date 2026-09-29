@@ -99,7 +99,11 @@ public enum DisplayText {
         case "unlock the car": return "Unlocked"
         case "start charging": return "Charging started"
         case "stop charging": return "Charging stopped"
-        default: return description.hasPrefix("set charge limits") ? "Charge limits set" : description.capitalizingFirstLetter
+        default:
+            if description.hasPrefix("set charge limits") { return "Charge limits set" }
+            if description.hasPrefix("set off-peak charging to ") { return "Off-peak charging set to " + description.dropFirst("set off-peak charging to ".count) }
+            if description.hasPrefix("send ") { return "Sent " + description.dropFirst("send ".count) }
+            return description.capitalizingFirstLetter
         }
     }
 }

@@ -167,6 +167,17 @@ public enum CarCommand: Equatable, Sendable {
     }
 }
 
+public extension CarCommand {
+    /// Whether the car itself carries it out and reports back in Kia's command history. Charge limits,
+    /// the off-peak window and places sent to the nav are settings Kia stores: never listed there.
+    var confirmedByCar: Bool {
+        switch self {
+        case .startCharging, .stopCharging, .lock, .unlock: return true
+        case .setChargeLimits, .setOffPeak, .sendToCar: return false
+        }
+    }
+}
+
 /// What Kia hands back for an accepted command: its id, to ask later whether the car carried it out.
 public struct CommandReceipt: Equatable, Sendable {
     public var messageId: String?

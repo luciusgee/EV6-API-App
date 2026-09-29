@@ -103,7 +103,6 @@ struct ChargeSiteView: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 2) {
                     if let updated = site.statusUpdated { Text("Status updated \(updated.formatted(date: .abbreviated, time: .omitted)).") }
-                    if ChargerKeys.google == nil { Text("Add a Google key in Settings for live availability and reviews.") }
                 }
             }
         }

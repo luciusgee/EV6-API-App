@@ -160,7 +160,7 @@ struct CommuteDetailView: View {
         } header: {
             Text("Routes")
         } footer: {
-            Text("In the order you'd rather take them. Tap one to see it in Google Maps. \(ChargerKeys.google == nil ? "Timed with Apple Maps; add a Google key in Settings for Google's traffic and delays." : "Traffic from Google.")")
+            Text("In the order you'd rather take them. Tap one to see it in Google Maps.")
         }
     }
 

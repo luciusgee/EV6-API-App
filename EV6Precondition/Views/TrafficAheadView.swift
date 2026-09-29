@@ -159,7 +159,7 @@ struct TrafficAheadView: View {
             Text("Ways to go")
         } footer: {
             if let checkedAt {
-                Text("From where you are, checked \(checkedAt.formatted(date: .omitted, time: .shortened)). Pull down to check again.\(ChargerKeys.google == nil ? " Apple Maps traffic; a Google key in Settings adds how much is delay." : "")")
+                Text("From where you are, checked \(checkedAt.formatted(date: .omitted, time: .shortened)). Pull down to check again.")
             }
         }
     }

@@ -115,7 +115,7 @@ struct ChargersView: View {
                 }
             } footer: {
                 if sites.isEmpty && !results.isEmpty {
-                    Text("From Apple Maps. Tap one for directions. Add a free Open Charge Map key in Settings for speeds and details.")
+                    Text("From Apple Maps. Tap one for directions.")
                 }
             }
         }

@@ -254,7 +254,7 @@ struct RoutePlannerView: View {
             VStack(alignment: .leading, spacing: 4) {
                 if let problem = found.problem { Text(problem).foregroundStyle(.orange) }
                 Text(found.sites.isEmpty
-                     ? "Charger speeds are estimated. Add a free Open Charge Map key in Settings for real speeds, connectors and check-ins."
+                     ? "Charger speeds are estimated from the network. Set a stop in the car's sat nav so the battery warms up for faster charging."
                      : "Tap a stop for its connectors, price and check-ins. Set it in the car's sat nav so the battery warms up for faster charging.")
             }
         }
@@ -584,8 +584,6 @@ struct GuessedChargerView: View {
             Section {
                 Text(charger.name).font(.headline)
                 LabeledContent("Speed", value: "~\(Int(charger.powerKW)) kW (estimated)")
-            } footer: {
-                Text("Add a free Open Charge Map key in Settings for its connectors, price and drivers' check-ins.")
             }
             Section {
                 Button {

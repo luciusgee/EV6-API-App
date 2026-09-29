@@ -19,6 +19,8 @@ struct CommuteImportView: View {
     @State private var working = false
     @State private var problems: [String] = []
     @State private var done = false
+    /// How many commutes were saved.
+    @State private var added = 0
 
     var body: some View {
         NavigationStack {
@@ -45,7 +47,8 @@ struct CommuteImportView: View {
                 }
                 if done {
                     Section {
-                        Label("Added. Open Trips › Manage commutes to add the message and phone number.", systemImage: "checkmark.circle.fill")
+                        Label("Added \(added) commute\(added == 1 ? "" : "s"). Add the message and phone number in Trips › Manage commutes.",
+                              systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     }
                 }
@@ -70,6 +73,7 @@ struct CommuteImportView: View {
         working = true
         defer { working = false }
         problems = []
+        var saved = 0
         for c in list {
             var routes: [CommuteRoute] = []
             for r in c.routes {
@@ -86,7 +90,10 @@ struct CommuteImportView: View {
                 commute.message = "I'll be at work at {eta}"
             }
             await model.save(commute)
+            saved += 1
         }
-        done = true
+        added = saved
+        // Nothing saved: keep Add so it can be tried again.
+        done = saved > 0
     }
 }

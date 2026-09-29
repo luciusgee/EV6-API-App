@@ -9,9 +9,21 @@ struct TimeAtPlacesView: View {
     @State private var customFrom = Calendar.current.startOfDay(for: Date().addingTimeInterval(-6 * 86400))
     @State private var customTo = Date()
     @State private var editing: Visit?
+    /// Toggles flipped but not yet saved, so they don't jump back while saving.
+    @State private var pendingTracked: [String: Bool] = [:]
+    /// The timesheet for the period shown, written when the period or the log changes.
+    @State private var csvURL: URL?
+
+    /// What the timesheet file depends on.
+    private struct ExportKey: Equatable {
+        var from: Date
+        var to: Date
+        var log: PresenceLog
+        var names: [String: String]
+    }
 
     enum Period: String, CaseIterable, Identifiable {
-        case thisWeek = "This week", lastWeek = "Last week", thisMonth = "This month", lastMonth = "Last month", custom = "Dates"
+        case thisWeek = "This week", lastWeek = "Last week", thisMonth = "This month", lastMonth = "Last month", custom = "Custom dates"
         var id: String { rawValue }
     }
 
@@ -55,17 +67,24 @@ struct TimeAtPlacesView: View {
         .navigationTitle("Time at places")
         .task { await presence.refreshCarTrips() }
         .refreshable { await presence.refreshCarTrips() }
+        .task(id: ExportKey(from: range.from, to: range.to, log: presence.log, names: names)) {
+            csvURL = csvFile()
+        }
         .toolbar {
             if !trackedPlaces.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    ShareLink(item: csvFile(), preview: SharePreview("Timesheet")) {
-                        Label("Export", systemImage: "square.and.arrow.up")
+                if let csvURL {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ShareLink(item: csvURL, preview: SharePreview("Timesheet")) {
+                            Label("Export", systemImage: "square.and.arrow.up")
+                        }
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        let start = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
-                        editing = Visit(placeId: trackedPlaces[0].id, arrived: start, left: start.addingTimeInterval(8 * 3600), source: .manual)
+                        let now = Date()
+                        let start = min(Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: now) ?? now, now)
+                        let end = max(min(start.addingTimeInterval(8 * 3600), now), start.addingTimeInterval(60))
+                        editing = Visit(placeId: trackedPlaces[0].id, arrived: start, left: end, source: .manual)
                     } label: {
                         Label("Add time", systemImage: "plus")
                     }
@@ -84,8 +103,14 @@ struct TimeAtPlacesView: View {
             }
             ForEach(rules.places) { place in
                 Toggle(isOn: Binding(
-                    get: { presence.tracked.contains(place.id) },
-                    set: { on in Task { await presence.setTracked(place.id, on) } }
+                    get: { pendingTracked[place.id] ?? presence.tracked.contains(place.id) },
+                    set: { on in
+                        pendingTracked[place.id] = on
+                        Task {
+                            await presence.setTracked(place.id, on)
+                            pendingTracked[place.id] = nil
+                        }
+                    }
                 )) {
                     Label(place.name, systemImage: "mappin.circle")
                 }
@@ -99,7 +124,7 @@ struct TimeAtPlacesView: View {
         } header: {
             Text("Track time at")
         } footer: {
-            Text("From the car's trip log and where it was parked. Each day of trips is one Kia request.")
+            Text("From the car's trips and where it parked. Each day loaded uses one Kia request.")
         }
     }
 
@@ -149,6 +174,7 @@ struct TimeAtPlacesView: View {
             ForEach(rows) { row in
                 Button {
                     editing = visit(for: row)
+                        ?? Visit(placeId: row.placeId, arrived: row.firstArrival, left: row.open ? nil : row.lastDeparture, source: .manual)
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -196,6 +222,8 @@ private struct VisitEditor: View {
     @State var visit: Visit
     let places: [Place]
     @State private var stillThere = false
+    @State private var saving = false
+    @State private var confirmDelete = false
 
     init(visit: Visit, places: [Place]) {
         _visit = State(initialValue: visit)
@@ -219,27 +247,37 @@ private struct VisitEditor: View {
                 }
                 if presence.log.visits.contains(where: { $0.id == visit.id }) {
                     Section {
-                        Button("Delete", role: .destructive) {
-                            Task {
-                                await presence.delete(visit.id)
-                                dismiss()
-                            }
-                        }
+                        Button("Delete", role: .destructive) { confirmDelete = true }
                     }
                 }
             }
-            .navigationTitle("Time")
+            .navigationTitle(presence.log.visits.contains(where: { $0.id == visit.id }) ? "Edit time" : "Add time")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         var v = visit
-                        if stillThere { v.left = nil } else if v.left == nil { v.left = v.arrived.addingTimeInterval(3600) }
+                        if stillThere {
+                            v.left = nil
+                        } else if v.left.map({ $0 <= v.arrived }) ?? true {
+                            // No departure, or one before the arrival: make it an hour's stay.
+                            v.left = v.arrived.addingTimeInterval(3600)
+                        }
+                        saving = true
                         Task {
                             await presence.save(v)
                             dismiss()
                         }
+                    }
+                    .disabled(saving)
+                }
+            }
+            .confirmationDialog("Delete this time?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    Task {
+                        await presence.delete(visit.id)
+                        dismiss()
                     }
                 }
             }

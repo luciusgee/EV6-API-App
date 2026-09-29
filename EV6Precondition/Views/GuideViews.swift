@@ -137,7 +137,6 @@ struct GuideScreenSheet: View {
 /// Every update's new things, newest first, each with a tour.
 struct WhatsNewView: View {
     var releases: [GuideRelease] = Guide.releases
-    var onTour: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -148,11 +147,10 @@ struct WhatsNewView: View {
                         StepRow(step: step)
                     }
                     Button {
-                        onTour?()
                         dismiss()
                         Tour.shared.start(release.steps, title: "What's new")
                     } label: {
-                        Label("Show me around", systemImage: "play.circle.fill")
+                        Label("Tour these", systemImage: "play.circle.fill")
                     }
                 } header: {
                     Text(release.title)
@@ -205,14 +203,6 @@ struct WhatsNewSheet: View {
                         Label(firstTime ? "Take the tour" : "Show me what's new", systemImage: "play.circle.fill")
                             .font(.headline)
                     }
-                    if firstTime {
-                        Button {
-                            finish()
-                            Tour.shared.start(Guide.releases.flatMap(\.steps), title: "Recently added")
-                        } label: {
-                            Label("Just the recent additions", systemImage: "sparkles")
-                        }
-                    }
                 }
                 ForEach(firstTime ? [] : Guide.unseenReleases) { release in
                     Section(release.title) {
@@ -221,9 +211,11 @@ struct WhatsNewSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .navigationTitle(firstTime ? "Welcome" : "What's new")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Later") { finish() }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Not now") { finish() }
                 }
             }
         }

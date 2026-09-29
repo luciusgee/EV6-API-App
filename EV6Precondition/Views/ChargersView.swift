@@ -60,16 +60,20 @@ struct ChargersView: View {
                     Picker("Speed", selection: $minKW) {
                         Text("Any").tag(0.0)
                         Text("50 kW+").tag(50.0)
+                        Text("100 kW+").tag(100.0)
                         Text("150 kW+").tag(150.0)
                     }
                     .pickerStyle(.segmented)
+                    if shownSites.isEmpty {
+                        Text("None this fast nearby. Try Any.").foregroundStyle(.secondary)
+                    }
                     ForEach(shownSites) { site in
                         NavigationLink {
                             ChargeSiteView(site: site)
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: site.operational == false ? "exclamationmark.triangle.fill" : "ev.charger.fill")
-                                    .foregroundStyle(site.operational == false ? .red : ((site.maxKW ?? 0) >= 50 ? .green : .teal))
+                                    .foregroundStyle(site.operational == false ? .red : ((site.maxKW ?? 0) >= 100 ? .green : .teal))
                                     .frame(width: 24)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(site.name).lineLimit(1)
@@ -79,7 +83,10 @@ struct ChargersView: View {
                                 Spacer()
                                 VStack(alignment: .trailing, spacing: 2) {
                                     Text(site.maxKW.map { "\(Int($0)) kW" } ?? "–").font(.subheadline.weight(.semibold)).monospacedDigit()
-                                    Text("\(site.connectors.map(\.count).reduce(0, +)) connectors").font(.caption).foregroundStyle(.secondary)
+                                    let n = site.connectors.map(\.count).reduce(0, +)
+                                    if n > 0 {
+                                        Text("\(n) connector\(n == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
@@ -89,7 +96,12 @@ struct ChargersView: View {
                 }
             }
             Section {
-                if searching { ProgressView() }
+                if searching {
+                    HStack {
+                        ProgressView()
+                        Text("Finding chargers…").foregroundStyle(.secondary)
+                    }
+                }
                 if let problem { Text(problem).foregroundStyle(.secondary) }
                 ForEach(results, id: \.self) { item in
                     Button {
@@ -121,10 +133,16 @@ struct ChargersView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Chargers nearby")
-        .task { await search() }
+        .task {
+            // Runs again on coming back from a charger; keep what's already found.
+            if sites.isEmpty && results.isEmpty { await search() }
+        }
         .refreshable { await search() }
         .onChange(of: selected) { _, item in
-            item?.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+            guard let item else { return }
+            item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+            // So tapping the same marker again works.
+            selected = nil
         }
     }
 
@@ -165,7 +183,7 @@ struct ChargersView: View {
                 let found = try await OpenChargeMapClient(transport: URLSessionTransport(), key: key).near(here, radiusKm: 8)
                 sites = found.sorted { $0.position.distance(to: here) < $1.position.distance(to: here) }
                 results = []
-                problem = sites.isEmpty ? "No chargers found nearby." : nil
+                problem = sites.isEmpty ? "No chargers found nearby. Pull down to try again." : nil
                 return
             } catch {
                 problem = (error as? OpenChargeMapClient.Failure)?.description

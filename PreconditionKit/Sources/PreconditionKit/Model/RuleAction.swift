@@ -7,6 +7,10 @@ public enum RuleAction: Equatable, Hashable, Sendable {
     case stopClimate
 }
 
+public extension RuleAction {
+    var isStop: Bool { self == .stopClimate }
+}
+
 extension RuleAction: Codable {
     private enum CodingKeys: String, CodingKey { case type, targetC }
 

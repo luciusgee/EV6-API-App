@@ -98,6 +98,7 @@ public final class CarModel {
     public func refresh(wake: Bool = false) async {
         guard busy == nil else { return }
         busy = .refreshing
+        message = nil
         waking = wake
         refreshStartedAt = now
         defer {
@@ -106,9 +107,9 @@ public final class CarModel {
         }
         let result = await container.engine.refreshVehicle(wake: wake)
         if let error = result.error {
-            message = "Refresh failed: \(error.message)"
+            message = "Couldn't refresh: \(error.message)"
         } else if wake {
-            message = "✓ Fresh from the car."
+            message = "✓ Up to date from the car"
         }
         busy = nil
         await reloadState()
@@ -117,6 +118,7 @@ public final class CarModel {
     public func start(targetC: Double? = nil) async {
         guard busy == nil else { return }
         busy = .starting
+        message = nil
         report(await container.engine.manualStart(targetC: targetC))
         busy = nil
         fakeCar = container.fakeCar.state
@@ -126,6 +128,7 @@ public final class CarModel {
     public func stop() async {
         guard busy == nil else { return }
         busy = .stopping
+        message = nil
         report(await container.engine.manualStop())
         busy = nil
         await reloadState()
@@ -139,10 +142,11 @@ public final class CarModel {
             return
         }
         busy = .command(command)
+        message = nil
         let outcome = await container.engine.manualCommand(command)
         if case .sent(let description) = outcome, !command.confirmedByCar {
             // Kia accepted it and there's nothing more the car will report.
-            message = "✓ \(DisplayText.confirmed(description))."
+            message = "✓ \(DisplayText.confirmed(description))"
         } else {
             report(outcome)
         }
@@ -155,12 +159,13 @@ public final class CarModel {
     public func refreshEnergy() async {
         guard busy == nil else { return }
         busy = .energy
+        message = nil
         switch await container.engine.drivingHistory() {
         case .success(let history, _):
             energy = history
             await container.stores.energy.save(history)
         case .failure(let error, _):
-            message = "Energy data unavailable: \(error.message)"
+            message = "Couldn't load energy data: \(error.message)"
         }
         busy = nil
         await reloadState()
@@ -194,13 +199,13 @@ public final class CarModel {
             self.confirming = nil
             switch status {
             case .success:
-                self.message = "✓ \(DisplayText.confirmed(description)): confirmed by the car."
+                self.message = "✓ \(DisplayText.confirmed(description))"
             case .failed:
-                self.message = "The car didn't \(description). It may be in use, or a door or the charge port may be open."
+                self.message = "Couldn't \(Self.verb(description)). The car may be in use, or a door or the charge port may be open."
             case .noResponse:
-                self.message = "The car didn't answer (\(description)). It may be out of mobile signal."
+                self.message = "No reply from the car. It may be out of mobile signal. Pull down to check again shortly."
             case .pending, .unknown:
-                self.message = "Sent: \(description). The car hasn't confirmed yet."
+                self.message = "Sent. The car hasn't confirmed it yet."
             }
             await self.reloadState()
         }
@@ -214,13 +219,22 @@ public final class CarModel {
     private func report(_ outcome: ManualOutcome) {
         switch outcome {
         case .sent(let description):
-            message = "Sent: \(description). Waiting for the car to confirm…"
+            message = "Waiting for the car to confirm…"
             confirm(description)
         case .refused(let reason):
-            message = "Not sent: \(reason)"
+            message = reason.contains("budget") ? "Not sent. Kia's daily limit is used up." : "Not sent: \(reason)."
         case .failed(let error):
-            message = "Failed: \(error.message)"
+            message = "Couldn't send: \(error.message)"
         }
+    }
+
+    /// "climatise to 21.0 °C" → "start climate", for "Couldn't …".
+    nonisolated static func verb(_ description: String) -> String {
+        if description.hasPrefix("climatise") { return "start climate" }
+        if description.hasPrefix("stop climatisation") { return "turn climate off" }
+        if description.hasPrefix("set charge limits") { return "set the charge limits" }
+        if description.hasPrefix("set off-peak") { return "set off-peak charging" }
+        return description
     }
 
     // MARK: - Settings

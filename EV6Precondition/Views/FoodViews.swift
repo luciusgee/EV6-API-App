@@ -18,11 +18,11 @@ struct FoodLine: View {
                 } else if !matched.isEmpty {
                     Text(matched.map(\.name).joined(separator: " · ")).foregroundStyle(.primary)
                 } else if let names, !names.isEmpty {
-                    Text("None of your places. \(names.prefix(3).joined(separator: ", "))").foregroundStyle(.secondary).lineLimit(1)
+                    Text("Other food: \(names.prefix(3).joined(separator: ", "))").foregroundStyle(.secondary).lineLimit(1)
                 } else {
-                    Text("No food found nearby").foregroundStyle(.secondary)
+                    Text("No food nearby").foregroundStyle(.secondary)
                 }
-                Text([arrive.map { "Around \($0)" }, "Change stop"].compactMap { $0 }.joined(separator: " · "))
+                Text([arrive.map { "Around \($0)" }, "Choose another stop"].compactMap { $0 }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -108,9 +108,9 @@ struct StopChoiceView: View {
             } else {
                 ForEach(matched) { chain in
                     Label {
-                        Text(chain.name).font(.caption.weight(.semibold)) + Text(chain.vegan.isEmpty ? "" : "  \(chain.vegan)").font(.caption)
+                        Text(chain.name).font(.caption.weight(.semibold)) + Text(chain.vegan.isEmpty ? "" : " · \(chain.vegan)").font(.caption)
                     } icon: {
-                        Image(systemName: "leaf.fill").foregroundStyle(.green)
+                        Image(systemName: chain.vegan.isEmpty ? "fork.knife" : "leaf.fill").foregroundStyle(.green)
                     }
                     .foregroundStyle(.primary)
                 }
@@ -126,6 +126,9 @@ struct SavedTripView: View {
     @Environment(CarModel.self) private var car
     @Environment(TripsModel.self) private var trips
     @Environment(\.dismiss) private var dismiss
+    /// Something was sent to the car from here, so its reply belongs on this screen.
+    @State private var sent = false
+    @State private var confirmDelete = false
 
     var body: some View {
         List {
@@ -136,9 +139,11 @@ struct SavedTripView: View {
                 ForEach(Array(trip.stops.enumerated()), id: \.offset) { i, stop in
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(i + 1). \(stop.name)").font(.body.weight(.medium))
-                        Text([stop.kW.map { "\(Int($0)) kW" }, stop.chargeMinutes.map { "about \(max(1, Int($0.rounded()))) min charging" }]
-                            .compactMap { $0 }.joined(separator: " · "))
-                            .font(.caption).foregroundStyle(.secondary)
+                        let detail = [stop.kW.map { "\(Int($0)) kW" }, stop.chargeMinutes.map { "about \(max(1, Int($0.rounded()))) min charging" }]
+                            .compactMap { $0 }.joined(separator: " · ")
+                        if !detail.isEmpty {
+                            Text(detail).font(.caption).foregroundStyle(.secondary)
+                        }
                         if !stop.food.isEmpty {
                             Label(stop.food.joined(separator: " · "), systemImage: "leaf.fill")
                                 .font(.caption).foregroundStyle(.green)
@@ -149,33 +154,43 @@ struct SavedTripView: View {
             }
             Section {
                 Button {
+                    sent = true
                     Task { await car.send(.sendToCar(trip.navPoints)) }
                 } label: {
                     HStack {
-                        Label("Send to the car", systemImage: "car.side.arrowtriangle.up.fill")
-                        if car.busy != nil { Spacer(); ProgressView() }
+                        Label(sent && isSending ? "Sending…" : "Send to the car", systemImage: "car.side.arrowtriangle.up.fill")
+                        if sent && isSending { Spacer(); ProgressView() }
                     }
                 }
                 .disabled(car.busy != nil)
                 if let url = googleMapsURL {
                     Link(destination: url) { Label("Open in Google Maps", systemImage: "map") }
                 }
-                if let message = car.message { Text(message).font(.footnote).foregroundStyle(.secondary) }
+                if sent, let message = car.message { Text(message).font(.footnote).foregroundStyle(.secondary) }
             } footer: {
-                Text("Sends the stops and the destination to the car's nav. Needs your Kia Connect PIN.")
+                Text("Puts the charging stops and destination in the car's sat nav. You'll need your Kia Connect PIN.")
             }
             Section {
-                Button("Delete trip", role: .destructive) {
-                    Task {
-                        await trips.delete(trip.id)
-                        dismiss()
-                    }
-                }
+                Button("Delete trip", role: .destructive) { confirmDelete = true }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle(trip.name)
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Delete this trip?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                Task {
+                    await trips.delete(trip.id)
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    /// The car is busy sending this trip to its sat nav (not refreshing or doing something else).
+    private var isSending: Bool {
+        if case .some(.command(.sendToCar(_))) = car.busy { return true }
+        return false
     }
 
     private var googleMapsURL: URL? {
@@ -197,10 +212,14 @@ struct SavedTripView: View {
 struct FoodChainsView: View {
     @Environment(TripsModel.self) private var trips
     @State private var newName = ""
+    @State private var confirmReset = false
 
     var body: some View {
         List {
             Section {
+                if trips.chains.isEmpty {
+                    Text("No places yet. Add one below, or start from the vegan list.").foregroundStyle(.secondary)
+                }
                 ForEach(trips.chains) { chain in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(chain.name)
@@ -218,24 +237,32 @@ struct FoodChainsView: View {
                     Task { await trips.setChains(list) }
                 }
             } footer: {
-                Text("Drag to put your favourites first; they're listed first at each stop. Swipe to remove one.")
+                Text("Tap Edit to reorder; your favourites are listed first at each stop. Swipe to remove one.")
             }
             Section {
                 HStack {
                     TextField("Add a place, e.g. Five Guys", text: $newName)
-                    Button("Add") {
-                        let name = newName.trimmingCharacters(in: .whitespaces)
-                        guard !name.isEmpty else { return }
-                        Task { await trips.setChains(trips.chains + [FoodChain(name: name)]) }
-                        newName = ""
-                    }
-                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .submitLabel(.done)
+                        .onSubmit { add() }
+                    Button("Add") { add() }
+                        .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                Button("Reset to the vegan list") { Task { await trips.setChains(FoodChain.ukVegan) } }
+                Button("Reset to the vegan list") { confirmReset = true }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Food I look for")
         .toolbar { EditButton() }
+        .confirmationDialog("Replace your list with the vegan list?", isPresented: $confirmReset, titleVisibility: .visible) {
+            Button("Replace", role: .destructive) { Task { await trips.setChains(FoodChain.ukVegan) } }
+        }
+    }
+
+    private func add() {
+        let name = newName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        newName = ""
+        guard !trips.chains.contains(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) else { return }
+        Task { await trips.setChains(trips.chains + [FoodChain(name: name)]) }
     }
 }

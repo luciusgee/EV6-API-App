@@ -29,7 +29,7 @@ struct TripsView: View {
                     NavigationLink {
                         TrafficAheadView()
                     } label: {
-                        Label("Traffic ahead", systemImage: "exclamationmark.triangle")
+                        Label("Traffic ahead", systemImage: "road.lanes")
                     }
                 }
 
@@ -62,11 +62,16 @@ struct TripsView: View {
                             NavigationLink {
                                 SavedTripView(trip: t)
                             } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(t.name)
-                                    Text(t.stops.isEmpty ? "No stops" : t.stops.map(\.name).joined(separator: " → "))
-                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                }
+                                SavedTripRow(trip: t)
+                            }
+                        }
+                        .onDelete { idx in
+                            let ids = idx.map { trips.trips[$0].id }
+                            Task { for id in ids { await trips.delete(id) } }
+                        }
+                        if trips.trips.count > 5 {
+                            NavigationLink("All saved trips (\(trips.trips.count))") {
+                                SavedTripsList()
                             }
                         }
                     } header: {
@@ -90,5 +95,41 @@ struct TripsView: View {
             .listStyle(.insetGrouped)
             .navigationTitle("Trips")
         }
+    }
+}
+
+/// A saved trip's name, with its stops under it.
+private struct SavedTripRow: View {
+    let trip: SavedTrip
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(trip.name)
+            Text(trip.stops.isEmpty ? "No stops" : trip.stops.map(\.name).joined(separator: " → "))
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+    }
+}
+
+/// Every saved trip.
+private struct SavedTripsList: View {
+    @Environment(TripsModel.self) private var trips
+
+    var body: some View {
+        List {
+            ForEach(trips.trips) { t in
+                NavigationLink {
+                    SavedTripView(trip: t)
+                } label: {
+                    SavedTripRow(trip: t)
+                }
+            }
+            .onDelete { idx in
+                let ids = idx.map { trips.trips[$0].id }
+                Task { for id in ids { await trips.delete(id) } }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Saved trips")
     }
 }

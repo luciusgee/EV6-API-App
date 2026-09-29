@@ -12,6 +12,11 @@ struct RoutePlannerView: View {
     @State private var savingTrip = false
     @State private var tripName = ""
     @State private var savedNote: String?
+    /// This trip has been saved, so Save doesn't make a copy.
+    @State private var saved = false
+    /// Something was sent to the car from here, so its reply belongs on this screen.
+    @State private var sent = false
+    @State private var settingCharge = false
     @State private var search = DestinationSearch()
     @State private var destination: MKMapItem?
     @State private var trip = TripSettings()
@@ -80,6 +85,7 @@ struct RoutePlannerView: View {
         .onChange(of: fromSearch.query) { _, _ in fromSearch.update() }
         .onChange(of: origin) { _, _ in
             outsideC = nil
+            clearResults()
             if destination != nil, origin != .place || fromPlace != nil { Task { await planRoute() } }
         }
         .task(id: plan?.stops.map(\.id)) {
@@ -106,15 +112,26 @@ struct RoutePlannerView: View {
             .pickerStyle(.menu)
             if origin == .place {
                 placeSearch("Starting from?", search: $fromSearch.query, results: fromSearch.results,
-                            showResults: fromPlace == nil || fromSearch.query != (fromPlace?.name ?? "")) { r in
+                            showResults: fromPlace == nil || fromSearch.query != (fromPlace?.name ?? ""),
+                            onClear: {
+                                fromSearch.query = ""
+                                fromPlace = nil
+                                clearResults()
+                            }) { r in
                     Task { await chooseStart(r) }
                 }
             }
             placeSearch("Where to?", search: $search.query, results: search.results,
-                        showResults: destination == nil || search.query != (destination?.name ?? "")) { r in
+                        showResults: destination == nil || search.query != (destination?.name ?? ""),
+                        onClear: {
+                            search.query = ""
+                            destination = nil
+                            problem = nil
+                            clearResults()
+                        }) { r in
                 Task { await choose(r) }
             }
-            if destination == nil, search.query.count >= 3, search.results.isEmpty {
+            if destination == nil, search.query.count >= 3, search.results.isEmpty, !search.searching {
                 Text("No places found.").foregroundStyle(.secondary)
             }
             DatePicker(selection: $leaving, in: Date()..., displayedComponents: [.date, .hourAndMinute]) {
@@ -132,6 +149,7 @@ struct RoutePlannerView: View {
     /// A search field with Apple Maps suggestions under it.
     @ViewBuilder
     private func placeSearch(_ prompt: String, search: Binding<String>, results: [MKLocalSearchCompletion], showResults: Bool,
+                             onClear: @escaping () -> Void,
                              pick: @escaping (MKLocalSearchCompletion) -> Void) -> some View {
         HStack {
             Image(systemName: prompt == "Where to?" ? "mappin.circle.fill" : "circle.circle.fill")
@@ -141,7 +159,7 @@ struct RoutePlannerView: View {
                 .autocorrectionDisabled()
                 .submitLabel(.search)
             if !search.wrappedValue.isEmpty {
-                Button { search.wrappedValue = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                Button { onClear() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
                     .accessibilityLabel("Clear")
                     .buttonStyle(.borderless)
             }
@@ -184,8 +202,7 @@ struct RoutePlannerView: View {
     private var consumptionText: String {
         let model = consumptionModel
         let eff = DisplayText.efficiency(kWhPer100km: model.kWhPer100km, miles: miles) ?? ""
-        var parts = ["Planning at \(eff)"]
-        parts.append(car.energy?.kWhPer100km != nil ? "from your last 30 days" : "(typical EV6 AWD)")
+        var parts = ["Planning at \(eff)" + (car.energy?.kWhPer100km != nil ? ", from your last 30 days" : " (a typical EV6 AWD figure)")]
         if model.speedFactor > 1.01 { parts.append(String(format: "+%.0f%% for motorway speed", (model.speedFactor - 1) * 100)) }
         if model.temperatureFactor > 1.01, let t = outsideC { parts.append(String(format: "+%.0f%% for %.0f °C", (model.temperatureFactor - 1) * 100, t)) }
         return parts.joined(separator: ", ") + "."
@@ -235,7 +252,7 @@ struct RoutePlannerView: View {
                 Divider()
                 summary(value: DisplayText.duration(minutes: Int(plan.totalMinutes.rounded())), label: "total")
                 Divider()
-                summary(value: plan.stops.isEmpty ? "None" : "\(plan.stops.count)", label: plan.stops.count == 1 ? "stop" : "stops")
+                summary(value: "\(plan.stops.count)", label: plan.stops.count == 1 ? "stop" : "stops")
                 Divider()
                 summary(value: "\(Int(plan.arrivePercent.rounded()))%", label: "left")
             }
@@ -292,7 +309,8 @@ struct RoutePlannerView: View {
                         replan()
                     }
                 } label: {
-                    FoodLine(names: food.food(at: stop.charger), loading: food.loading.contains(stop.charger.id), chains: trips.chains)
+                    FoodLine(names: food.food(at: stop.charger), loading: food.loading.contains(stop.charger.id), chains: trips.chains,
+                             arrive: time(arrive))
                 }
             }
             legRow(icon: "mappin.circle.fill", tint: .red, title: destination?.name ?? "Destination",
@@ -302,19 +320,27 @@ struct RoutePlannerView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if let problem = found.problem { Text(problem).foregroundStyle(.orange) }
-                Text("Tap a stop for its details, or the food line to pick a different stop. Put the stop in the car's sat nav so the battery warms up for faster charging.")
+                Text("Tap a stop for details, or its food line to choose a different charger. Send the trip to the car so the battery warms up before each stop.")
             }
         }
 
         Section {
             Button {
                 Task {
-                    if let t = savedTrip(name: defaultTripName) { await car.send(.sendToCar(t.navPoints)) }
+                    if let t = savedTrip(name: defaultTripName) {
+                        sent = true
+                        await car.send(.sendToCar(t.navPoints))
+                    }
                 }
             } label: {
                 HStack {
                     Spacer()
-                    if car.busy != nil { ProgressView().tint(.white) } else { Label("Send to the car", systemImage: "car.side.arrowtriangle.up.fill") }
+                    if sent, isSending {
+                        ProgressView().tint(.white)
+                        Text("Sending…")
+                    } else {
+                        Label("Send to the car", systemImage: "car.side.arrowtriangle.up.fill")
+                    }
                     Spacer()
                 }
                 .font(.headline)
@@ -329,8 +355,9 @@ struct RoutePlannerView: View {
                     tripName = defaultTripName
                     savingTrip = true
                 } label: {
-                    Label("Save", systemImage: "bookmark").frame(maxWidth: .infinity)
+                    Label(saved ? "Saved" : "Save", systemImage: saved ? "bookmark.fill" : "bookmark").frame(maxWidth: .infinity)
                 }
+                .disabled(saved)
                 Menu {
                     if let url = RouteService.googleMapsURL(from: start ?? found.route.polyline.coordinate,
                                                             to: destination?.placemark.coordinate ?? found.route.polyline.coordinate, stops: plan.stops) {
@@ -351,8 +378,8 @@ struct RoutePlannerView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if let savedNote { Text(savedNote).foregroundStyle(.green) }
-                if let message = car.message { Text(message) }
-                Text("Send puts the charging stops and the destination in the car's sat nav. Needs your Kia Connect PIN.")
+                if sent, let message = car.message { Text(message) }
+                Text("Puts the charging stops and destination in the car's sat nav. You'll need your Kia Connect PIN.")
             }
         }
 
@@ -379,10 +406,6 @@ struct RoutePlannerView: View {
         return plan.stops[i].charger.alongKm * perKm + earlier
     }
 
-    private func arrival(atMinutes m: Double) -> String {
-        leaving.addingTimeInterval(m * 60).formatted(date: .omitted, time: .shortened)
-    }
-
     private var defaultTripName: String {
         let day = leaving.formatted(.dateTime.weekday(.abbreviated).hour().minute())
         return "\(destination?.name ?? "Trip") · \(day)"
@@ -406,7 +429,8 @@ struct RoutePlannerView: View {
     private func saveTrip() async {
         guard let t = savedTrip(name: tripName.isEmpty ? defaultTripName : tripName) else { return }
         await trips.save(t)
-        savedNote = "Saved. It's in the Trips tab, ready to send to the car."
+        saved = true
+        savedNote = "Saved to your trips."
     }
 
     @ViewBuilder
@@ -433,9 +457,9 @@ struct RoutePlannerView: View {
                 Label("Food I look for", systemImage: "fork.knife")
             }
         } header: {
-            Text(trips.trips.isEmpty ? "Food" : "Saved trips")
+            if !trips.trips.isEmpty { Text("Saved trips") }
         } footer: {
-            Text("Each charging stop shows which of your food places are there, and you can switch stops to eat where you like.")
+            Text("Choose the food places to look for at each charging stop.")
         }
     }
 
@@ -447,9 +471,9 @@ struct RoutePlannerView: View {
         return Section {
             DisclosureGroup("All chargers on the route (\(found.chargers.filter { found.sites[$0.id] != nil }.count))") {
             Picker("At least", selection: $minKW) {
-                Text("50 kW").tag(50.0)
-                Text("100 kW").tag(100.0)
-                Text("150 kW").tag(150.0)
+                Text("50 kW+").tag(50.0)
+                Text("100 kW+").tag(100.0)
+                Text("150 kW+").tag(150.0)
             }
             .pickerStyle(.segmented)
             if sites.isEmpty {
@@ -468,7 +492,8 @@ struct RoutePlannerView: View {
                         Spacer()
                         VStack(alignment: .trailing, spacing: 2) {
                             Text(site.maxKW.map { "\(Int($0)) kW" } ?? "–").font(.subheadline.weight(.semibold)).monospacedDigit()
-                            Text("\(max(site.rapidCount, 1)) \(site.rapidCount == 1 ? "charger" : "chargers")").font(.caption).foregroundStyle(.secondary)
+                            let n = max(site.rapidCount, 1)
+                            Text("\(n) \(n == 1 ? "charger" : "chargers")").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -489,20 +514,27 @@ struct RoutePlannerView: View {
     }
 
     private func chargeForTripNeeded(_ plan: TripPlan) -> Bool {
-        origin == .car && (Int((trip.startPercent / 10).rounded(.up) * 10) > (car.snapshot?.socPercent ?? 0) || chargedForTrip != nil)
+        guard origin == .car, let soc = car.snapshot?.socPercent else { return chargedForTrip != nil }
+        return Int((trip.startPercent / 10).rounded(.up) * 10) > soc || chargedForTrip != nil
     }
 
     @ViewBuilder
     private func chargeForTripRow(_ plan: TripPlan) -> some View {
         let needed = Int((trip.startPercent / 10).rounded(.up) * 10)
-        let current = car.snapshot?.socPercent ?? 0
-        if needed > current {
+        if let current = car.snapshot?.socPercent, needed > current {
             Button {
-                Task { await chargeForTrip(to: needed) }
+                Task {
+                    settingCharge = true
+                    await chargeForTrip(to: needed)
+                    settingCharge = false
+                }
             } label: {
-                Label("Charge to \(needed)% by \(leaving.formatted(date: .omitted, time: .shortened))", systemImage: "bolt.badge.clock")
+                HStack {
+                    Label("Charge to \(needed)% by \(leaving.formatted(date: .omitted, time: .shortened))", systemImage: "bolt.badge.clock")
+                    if settingCharge { Spacer(); ProgressView() }
+                }
             }
-            .disabled(car.busy != nil)
+            .disabled(car.busy != nil || settingCharge)
             if let noStop = plan.noStopStartPercent, !plan.stops.isEmpty, noStop <= 100 {
                 Text("Leave with \(Int(noStop.rounded(.up)))% and you won't need to stop.")
                     .font(.footnote)
@@ -544,6 +576,7 @@ struct RoutePlannerView: View {
         }
         destination = item
         search.query = item.name ?? result.title
+        clearResults()
         await planRoute()
     }
 
@@ -556,7 +589,10 @@ struct RoutePlannerView: View {
         fromPlace = item
         fromSearch.query = item.name ?? result.title
         outsideC = nil
-        if destination != nil { await planRoute() }
+        if destination != nil {
+            clearResults()
+            await planRoute()
+        }
     }
 
     private func planRoute() async {
@@ -583,6 +619,23 @@ struct RoutePlannerView: View {
         } catch {
             problem = (error as? RouteService.Failure)?.description ?? "Apple Maps couldn't plan that route."
         }
+    }
+
+    /// Forgets the last route and anything done with it, when where the trip starts or ends changes.
+    private func clearResults() {
+        found = nil
+        plan = nil
+        preferred = []
+        savedNote = nil
+        chargedForTrip = nil
+        saved = false
+        sent = false
+    }
+
+    /// The car is busy sending a trip to its sat nav (not refreshing or doing something else).
+    private var isSending: Bool {
+        if case .some(.command(.sendToCar(_))) = car.busy { return true }
+        return false
     }
 
     private func replan() {
@@ -631,6 +684,8 @@ struct RoutePlannerView: View {
 final class DestinationSearch: NSObject, MKLocalSearchCompleterDelegate {
     var query = ""
     private(set) var results: [MKLocalSearchCompletion] = []
+    /// Waiting for Apple Maps to suggest places for the latest query.
+    private(set) var searching = false
     @ObservationIgnored private let completer = MKLocalSearchCompleter()
 
     override init() {
@@ -643,17 +698,24 @@ final class DestinationSearch: NSObject, MKLocalSearchCompleterDelegate {
     func update() {
         if query.count < 2 {
             results = []
+            searching = false
         } else {
+            searching = true
             completer.queryFragment = query
         }
     }
 
     nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
         let results = Array(completer.results.prefix(6))
-        Task { @MainActor in self.results = results }
+        Task { @MainActor in
+            self.results = results
+            self.searching = false
+        }
     }
 
-    nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {}
+    nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        Task { @MainActor in self.searching = false }
+    }
 }
 
 /// A charger found through Apple Maps, without Open Charge Map's details.

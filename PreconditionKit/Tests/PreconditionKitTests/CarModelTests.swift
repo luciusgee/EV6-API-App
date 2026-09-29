@@ -42,7 +42,7 @@ final class CarModelTests: XCTestCase {
     func testRefreshWithoutATokenSaysWhy() async {
         await model.load()
         await model.refresh()
-        XCTAssertEqual(model.message, "Refresh failed: Kia Connect refresh token not set")
+        XCTAssertEqual(model.message, "Couldn't refresh: Kia Connect refresh token not set")
         XCTAssertNil(model.busy)
     }
 
@@ -66,13 +66,13 @@ final class CarModelTests: XCTestCase {
         await model.load()
         await model.saveCredentials(token: KiaClientTests.refresh)
         await model.start(targetC: 20)
-        XCTAssertEqual(model.message, "Sent: climatise to 20.0 °C. Waiting for the car to confirm…")
+        XCTAssertEqual(model.message, "Waiting for the car to confirm…")
         XCTAssertEqual(model.automation.lastCommand?.description, "climatise to 20.0 °C")
         XCTAssertEqual(body(live.last("/control/temperature"))?["tempCode"], "0CH")
 
         live.respond("/control/temperature", jsonResponse(#"{"retCode":"F","resCode":"5031","resMsg":"busy"}"#, status: 400))
         await model.stop()
-        XCTAssertEqual(model.message, "Failed: vehicle not accepting requests")
+        XCTAssertEqual(model.message, "Couldn't send: vehicle not accepting requests")
     }
 
     func testARejectedTokenShowsTheFixAndANewTokenClearsIt() async {
@@ -149,7 +149,7 @@ final class CarModelTests: XCTestCase {
             $0.consecutiveFailures = 3
         }
         await model.load()
-        XCTAssertTrue(model.banners.contains(.paused("automation paused after 3 consecutive failures")))
+        XCTAssertTrue(model.banners.contains(.paused("rules paused after 3 failed attempts in a row")))
         await model.resumeAutomation()
         XCTAssertFalse(model.banners.contains { if case .paused = $0 { return true } else { return false } })
     }

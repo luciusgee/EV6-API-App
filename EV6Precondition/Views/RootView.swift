@@ -43,7 +43,9 @@ struct RootView: View {
                 .padding(.bottom, 58)
                 .animation(.spring(duration: 0.35), value: tour.current?.id)
         }
-        .alert("Add these rules?", isPresented: Binding(get: { inbox.rules != nil }, set: { if !$0 { inbox.rules = nil } })) {
+        // On its own view: two alerts on one view don't both work.
+        .background {
+            Color.clear.alert("Add these rules?", isPresented: Binding(get: { inbox.rules != nil }, set: { if !$0 { inbox.rules = nil } })) {
             Button("Add") {
                 if let text = inbox.rules {
                     Task {
@@ -55,6 +57,7 @@ struct RootView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(inbox.rules.map { RuleJSON.import($0).rules.map(\.name).joined(separator: ", ") } ?? "")
+        }
         }
         .sheet(isPresented: Binding(get: { inbox.pending != nil }, set: { if !$0 { inbox.pending = nil } })) {
             if let list = inbox.pending { CommuteImportView(list: list) }
@@ -78,8 +81,11 @@ struct RootView: View {
             // After an update with something new (or the first time), offer the guide once.
             guard seenRelease < Guide.latest else { return }
             Guide.seenBefore = seenRelease
-            // After the launch animation.
+            // After the launch animation, and not over anything else that's asking for attention.
             try? await Task.sleep(nanoseconds: 2_600_000_000)
+            while asks.pending != nil || inbox.rules != nil || inbox.pending != nil || tour.showing != nil {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
             whatsNew = true
         }
         // An "ask first" question tapped open from its notification.
@@ -87,9 +93,13 @@ struct RootView: View {
             get: { asks.pending != nil },
             set: { if !$0 { asks.pending = nil } }
         ), presenting: asks.pending) { rule in
-            Button("Start now") { Task { await asks.run(rule) } }
+            Button(rule.action.isStop ? "Stop now" : "Start now") { Task { await asks.run(rule) } }
             Button("In 15 min") { Task { await asks.answer(rule.id, .later) } }
             Button("Not today", role: .cancel) {}
+        } message: { _ in
+            if let outside = car.snapshot?.outsideTempC {
+                Text("It's about \(Describe.temp(outside)) out.")
+            }
         }
     }
 }

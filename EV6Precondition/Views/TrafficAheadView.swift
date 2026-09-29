@@ -19,6 +19,10 @@ struct TrafficAheadView: View {
     @State private var problem: String?
     @State private var checkedAt: Date?
     @State private var camera: MapCameraPosition = .automatic
+    /// The latest traffic check, so a newer one replaces it rather than racing it.
+    @State private var checkTask: Task<Void, Never>?
+    /// Something was sent to the car from here, so its reply belongs on this screen.
+    @State private var sent = false
 
     private var lastSent: NavPoint? { try? JSONDecoder().decode(NavPoint.self, from: lastSentData) }
     private var fastest: DriveOption? { options.min { $0.time.seconds < $1.time.seconds } }
@@ -40,12 +44,15 @@ struct TrafficAheadView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Traffic ahead")
-        .refreshable { await check() }
+        .refreshable {
+            checkTask?.cancel()
+            await check()
+        }
         .onChange(of: search.query) { _, _ in search.update() }
         .task {
             if destination == nil, let lastSent {
                 destination = lastSent
-                await check()
+                startCheck()
             }
         }
     }
@@ -78,7 +85,8 @@ struct TrafficAheadView: View {
             if !search.query.isEmpty && search.query != destination?.name {
                 ForEach(search.results, id: \.self) { result in
                     Button {
-                        Task { await choose(result) }
+                        checkTask?.cancel()
+                        checkTask = Task { await choose(result) }
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(result.title).foregroundStyle(.primary)
@@ -87,13 +95,16 @@ struct TrafficAheadView: View {
                     }
                 }
             } else {
-                ForEach(quickPicks, id: \.name) { pick in
+                ForEach(Array(quickPicks.enumerated()), id: \.offset) { _, pick in
                     Button {
+                        guard pick != destination || options.isEmpty else { return }
                         destination = pick
                         search.query = ""
-                        Task { await check() }
+                        clearOptions()
+                        startCheck()
                     } label: {
-                        Label(pick.name, systemImage: pick == lastSent ? "car.fill" : "house.fill")
+                        Label(pick.name, systemImage: pick == lastSent ? "car.fill"
+                              : (pick.name.localizedCaseInsensitiveContains("home") ? "house.fill" : "building.2.fill"))
                             .foregroundStyle(pick == destination ? Color.accentColor : .primary)
                     }
                 }
@@ -104,7 +115,7 @@ struct TrafficAheadView: View {
         } header: {
             Text("Destination")
         } footer: {
-            Text("Kia doesn't share where the car's nav is going, so pick it here. The last place sent to the car from this app is remembered.")
+            Text("Kia doesn't share where the car's sat nav is going, so choose it here. The last place you sent to the car is remembered.")
         }
     }
 
@@ -149,7 +160,7 @@ struct TrafficAheadView: View {
                         Spacer()
                         VStack(alignment: .trailing, spacing: 2) {
                             Text(TrafficAhead.duration(option.time.seconds)).font(.headline).monospacedDigit().foregroundStyle(.primary)
-                            Text("arrive \(Date().addingTimeInterval(option.time.seconds).formatted(date: .omitted, time: .shortened))")
+                            Text("Arrive \(Date().addingTimeInterval(option.time.seconds).formatted(date: .omitted, time: .shortened))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -159,7 +170,7 @@ struct TrafficAheadView: View {
             Text("Ways to go")
         } footer: {
             if let checkedAt {
-                Text("From where you are, checked \(checkedAt.formatted(date: .omitted, time: .shortened)). Pull down to check again.")
+                Text("Checked \(checkedAt.formatted(date: .omitted, time: .shortened)). Pull down to check again.")
             }
         }
     }
@@ -168,7 +179,8 @@ struct TrafficAheadView: View {
         var parts: [String] = []
         if let delay = option.time.delayMinutes { parts.append(delay < 5 ? "Clear" : "\(delay) min of traffic") }
         if let fastest, option.id != fastest.id {
-            parts.append("\(Int(((option.time.seconds - fastest.time.seconds) / 60).rounded())) min slower")
+            let slower = Int(((option.time.seconds - fastest.time.seconds) / 60).rounded())
+            if slower > 0 { parts.append("\(slower) min slower") }
         } else if options.count > 1 {
             parts.append("Quickest")
         }
@@ -187,8 +199,8 @@ struct TrafficAheadView: View {
                 Task { await sendToCar() }
             } label: {
                 HStack {
-                    Label("Send this way to the car", systemImage: "car.side.arrowtriangle.up.fill")
-                    if car.busy != nil { Spacer(); ProgressView() }
+                    Label(sent && isSending ? "Sending…" : "Send this route to the car", systemImage: "car.side.arrowtriangle.up.fill")
+                    if sent && isSending { Spacer(); ProgressView() }
                 }
             }
             .disabled(car.busy != nil)
@@ -197,11 +209,11 @@ struct TrafficAheadView: View {
             } label: {
                 Label("Open in Google Maps", systemImage: "map")
             }
-            if let message = car.message {
+            if sent, let message = car.message {
                 Text(message).font(.caption).foregroundStyle(.secondary)
             }
         } footer: {
-            Text("Sends the destination, and a point on this way so the car's nav follows it, to the car. It asks on the car's screen before starting. Needs your Kia Connect PIN.")
+            Text("Sends the destination to the car's sat nav, with a point on this route so it follows it. The car asks before starting. You'll need your Kia Connect PIN.")
         }
     }
 
@@ -213,9 +225,11 @@ struct TrafficAheadView: View {
             problem = "Couldn't find that place."
             return
         }
+        guard !Task.isCancelled else { return }
         let c = item.placemark.coordinate
         destination = NavPoint(name: item.name ?? result.title, position: LatLon(lat: c.latitude, lon: c.longitude), address: item.placemark.title ?? "")
         search.query = ""
+        clearOptions()
         await check()
     }
 
@@ -223,27 +237,53 @@ struct TrafficAheadView: View {
         guard let destination else { return }
         problem = nil
         loading = true
-        defer { loading = false }
+        defer { if !Task.isCancelled { loading = false } }
         LocationAccess.shared.requestIfNeeded()
         let here = await LocationPhoneLocator().locate() ?? car.snapshot?.parkingPosition
+        guard !Task.isCancelled else { return }
         guard let here else {
+            clearOptions()
             problem = "Allow location so traffic can be checked from where you are."
             return
         }
         from = here
         do {
+            let found: [DriveOption]
             if let key = ChargerKeys.google {
-                options = try await GoogleRoutesClient(transport: URLSessionTransport(), key: key).alternatives(from: here, to: destination.position)
+                found = try await GoogleRoutesClient(transport: URLSessionTransport(), key: key).alternatives(from: here, to: destination.position)
             } else {
-                options = try await Self.appleOptions(from: here, to: destination.position)
+                found = try await Self.appleOptions(from: here, to: destination.position)
             }
+            guard !Task.isCancelled else { return }
+            options = found
             selected = nil
             checkedAt = Date()
             camera = .automatic
         } catch {
+            guard !Task.isCancelled else { return }
             options = []
             problem = (error as? GoogleRoutesClient.Failure)?.description ?? "Couldn't get routes: \(error.localizedDescription)"
         }
+    }
+
+    /// Starts a traffic check, replacing any still running.
+    private func startCheck() {
+        checkTask?.cancel()
+        checkTask = Task { await check() }
+    }
+
+    /// Forgets the ways found for the last destination.
+    private func clearOptions() {
+        options = []
+        selected = nil
+        checkedAt = nil
+        sent = false
+    }
+
+    /// The car is busy sending a route to its sat nav (not refreshing or doing something else).
+    private var isSending: Bool {
+        if case .some(.command(.sendToCar(_))) = car.busy { return true }
+        return false
     }
 
     static func appleOptions(from: LatLon, to: LatLon) async throws -> [DriveOption] {
@@ -278,6 +318,7 @@ struct TrafficAheadView: View {
     private func sendToCar() async {
         let points = navPoints
         guard let destination, !points.isEmpty else { return }
+        sent = true
         await car.send(.sendToCar(points))
         if let data = try? JSONEncoder().encode(destination) { lastSentData = data }
     }

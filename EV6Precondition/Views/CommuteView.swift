@@ -34,9 +34,12 @@ struct CommuteView: View {
                 } label: {
                     Label("Add a commute", systemImage: "plus")
                 }
-            } footer: {
-                if !model.commutes.isEmpty {
-                    Text(Self.automationHelp)
+            }
+            if !model.commutes.isEmpty {
+                Section {
+                    DisclosureGroup("Run it automatically") {
+                        Text(Self.automationHelp).font(.subheadline).foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -48,9 +51,8 @@ struct CommuteView: View {
     }
 
     static let automationHelp = """
-    To have it run as you leave: in Shortcuts, make an Automation (e.g. Time of Day on weekdays, or when you \
-    leave work), set it to Run Immediately, and add "Check my commute" from EV6. To text your ETA without \
-    tapping, add Send Message after it and pass it the result.
+    In Shortcuts, create an automation (a time on weekdays, or when you leave work) and set it to Run \
+    Immediately. Add Check my commute from My EV6, then Send Message with its result.
     """
 }
 
@@ -60,6 +62,9 @@ struct CommuteDetailView: View {
     @Environment(\.openURL) private var openURL
     @State private var editing = false
     @State private var composing = false
+    /// A check has finished since the screen opened, so no advice means it failed.
+    @State private var tried = false
+    @Environment(\.dismiss) private var dismiss
 
     private var commute: Commute? { model.commutes.first { $0.id == id } }
     private var advice: CommuteAdvice? { model.advice[id] }
@@ -80,11 +85,19 @@ struct CommuteDetailView: View {
                 Button("Edit") { editing = true }
             }
         }
-        .refreshable { await model.check(id) }
+        .refreshable {
+            await model.check(id)
+            tried = true
+        }
+        .onChange(of: commute == nil) { _, gone in
+            // Deleted from the edit sheet: there's nothing left to show.
+            if gone { dismiss() }
+        }
         .task {
             // Checking costs a Google request per route; don't redo one from the last few minutes.
             if let a = advice, Date().timeIntervalSince(a.checkedAt) < 180 { return }
             await model.check(id)
+            tried = true
         }
         .sheet(isPresented: $editing) {
             if let commute { CommuteEditView(commute: commute, isNew: false) }
@@ -123,6 +136,8 @@ struct CommuteDetailView: View {
                     .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
+            } else if tried && !checking {
+                Text("Couldn't check the traffic. Pull down to try again.").foregroundStyle(.secondary)
             }
         }
     }
@@ -175,7 +190,7 @@ struct CommuteDetailView: View {
                 }
                 ShareLink(item: text) { Label("Share…", systemImage: "square.and.arrow.up") }
             } else {
-                Text(commute.message).foregroundStyle(.secondary)
+                Text("Your message will show here once the traffic's been checked.").foregroundStyle(.secondary)
             }
         } header: {
             Text("ETA message")
@@ -247,6 +262,8 @@ struct CommuteEditView: View {
     @State private var newLink = ""
     @State private var adding = false
     @State private var problem: String?
+    @State private var saving = false
+    @State private var confirmDelete = false
 
     var body: some View {
         NavigationStack {
@@ -273,7 +290,7 @@ struct CommuteEditView: View {
                 } header: {
                     Text("Routes, favourite first")
                 } footer: {
-                    Text("Press and hold a route to move it. The first one is taken unless another is more than \(commute.toleranceMinutes) min quicker.")
+                    Text("Press and hold a route to move it. The first is used unless another is more than \(commute.toleranceMinutes) min quicker.")
                 }
                 Section {
                     TextField("Name, e.g. M1 and A14", text: $newName)
@@ -297,7 +314,7 @@ struct CommuteEditView: View {
                     Text("Paste the link you share from Google Maps (the same ones your shortcut opens). The start, end and the points you dragged the route through are read from it.")
                 }
                 Section {
-                    Stepper("Allow \(commute.toleranceMinutes) min slower", value: $commute.toleranceMinutes, in: 0...45, step: 5)
+                    Stepper(commute.toleranceMinutes == 0 ? "Always take the quickest" : "Allow \(commute.toleranceMinutes) min slower", value: $commute.toleranceMinutes, in: 0...45, step: 5)
                 } footer: {
                     Text("How much longer your favourite can take before another route is suggested.")
                 }
@@ -316,12 +333,7 @@ struct CommuteEditView: View {
                 }
                 if !isNew {
                     Section {
-                        Button("Delete commute", role: .destructive) {
-                            Task {
-                                await model.delete(commute.id)
-                                dismiss()
-                            }
-                        }
+                        Button("Delete commute", role: .destructive) { confirmDelete = true }
                     }
                 }
             }
@@ -331,12 +343,21 @@ struct CommuteEditView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        saving = true
                         Task {
                             await model.save(commute)
                             dismiss()
                         }
                     }
-                    .disabled(commute.name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(saving || commute.name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .confirmationDialog("Delete this commute?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    Task {
+                        await model.delete(commute.id)
+                        dismiss()
+                    }
                 }
             }
         }

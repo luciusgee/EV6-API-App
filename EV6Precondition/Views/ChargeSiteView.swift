@@ -30,18 +30,28 @@ struct ChargeSiteView: View {
                     .padding(.top, 2)
                 }
                 .padding(.vertical, 4)
+            } footer: {
+                if let updated = site.statusUpdated { Text("Status updated \(updated.formatted(date: .abbreviated, time: .omitted)).") }
             }
 
             if let live {
                 liveSection(live)
             } else if ChargerKeys.google != nil {
                 Section("Right now") {
-                    if loadingLive { ProgressView() }
+                    if loadingLive {
+                        HStack {
+                            ProgressView()
+                            Text("Checking availability…").foregroundStyle(.secondary)
+                        }
+                    }
                     if let liveProblem { Text(liveProblem).foregroundStyle(.secondary) }
                 }
             }
 
             Section("Connectors") {
+                if site.connectors.isEmpty {
+                    Text("No connector details listed.").foregroundStyle(.secondary)
+                }
                 ForEach(Array(site.connectors.enumerated()), id: \.offset) { _, c in
                     HStack {
                         Image(systemName: c.dc ? "bolt.fill" : "powerplug")
@@ -52,7 +62,7 @@ struct ChargeSiteView: View {
                             if c.operational == false { Text("Not working").font(.caption).foregroundStyle(.red) }
                         }
                         Spacer()
-                        Text("\(c.count) × \(c.kW.map { "\(Int($0)) kW" } ?? "?")").monospacedDigit().foregroundStyle(.secondary)
+                        Text(c.kW.map { "\(c.count) × \(Int($0)) kW" } ?? "\(c.count)").monospacedDigit().foregroundStyle(.secondary)
                     }
                 }
                 if let cost = site.cost, !cost.isEmpty { LabeledContent("Price", value: cost) }
@@ -100,10 +110,6 @@ struct ChargeSiteView: View {
                 if let url = live?.mapsURL {
                     Link(destination: url) { Label("Open in Google Maps", systemImage: "map") }
                 }
-            } footer: {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let updated = site.statusUpdated { Text("Status updated \(updated.formatted(date: .abbreviated, time: .omitted)).") }
-                }
             }
         }
         .listStyle(.insetGrouped)
@@ -127,7 +133,7 @@ struct ChargeSiteView: View {
                             .monospacedDigit()
                             .foregroundStyle(free > 0 ? .green : .orange)
                     } else {
-                        Text("\(a.count)").foregroundStyle(.secondary)
+                        Text("\(a.count) total").foregroundStyle(.secondary)
                     }
                 }
                 if let broken = a.outOfService, broken > 0 {

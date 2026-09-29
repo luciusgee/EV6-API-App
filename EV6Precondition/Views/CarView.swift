@@ -22,8 +22,9 @@ struct CarView: View {
                     Section { BannerRow(banner: banner) }
                 }
 
-                if model.busy == .refreshing {
-                    Section { RefreshingRow(waking: model.waking, since: model.refreshStartedAt ?? .now) }
+                // A normal refresh has the pull-down spinner; waking the car takes long enough to explain.
+                if model.busy == .refreshing && model.waking {
+                    Section { RefreshingRow(waking: true, since: model.refreshStartedAt ?? .now) }
                 }
 
                 Section {
@@ -40,10 +41,6 @@ struct CarView: View {
                     controls
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
-                } footer: {
-                    if let message = model.message {
-                        Text(message)
-                    }
                 }
 
                 if let alerts = details?.alerts, !alerts.isEmpty {
@@ -60,6 +57,12 @@ struct CarView: View {
                 statusSection
             }
             .listStyle(.insetGrouped)
+            .animation(.default, value: model.busy == .refreshing && model.waking)
+            .safeAreaInset(edge: .bottom) {
+                StatusToast(confirming: model.confirming, message: model.message)
+                    .padding(.bottom, 6)
+            }
+            .sensoryFeedback(.success, trigger: model.message) { _, new in new?.hasPrefix("✓") == true }
             .navigationTitle("My EV6")
             .refreshable { await model.refresh() }
             .toolbar {
@@ -67,6 +70,7 @@ struct CarView: View {
                     if model.busy == .refreshing {
                         ProgressView()
                     } else {
+                        // Tap to refresh; press and hold for a refresh straight from the car.
                         Menu {
                             Button {
                                 Task { await model.refresh() }
@@ -76,10 +80,12 @@ struct CarView: View {
                             Button {
                                 Task { await model.refresh(wake: true) }
                             } label: {
-                                Label("Full refresh from the car", systemImage: "antenna.radiowaves.left.and.right")
+                                Label("Refresh from the car (slower)", systemImage: "antenna.radiowaves.left.and.right")
                             }
                         } label: {
                             Label("Refresh", systemImage: "arrow.clockwise")
+                        } primaryAction: {
+                            Task { await model.refresh() }
                         }
                         .disabled(model.busy != nil)
                     }
@@ -98,10 +104,10 @@ struct CarView: View {
 
     /// We never wake the car, so its data can be old; say how old (HANDOVER.md §3.7).
     private var ageText: String {
-        guard let snapshot else { return "No data yet. Pull down to read the car." }
-        let fetched = "Read \(DisplayText.age(of: snapshot.fetchedAt, now: model.now))"
-        guard let reported = snapshot.carCapturedAt else { return fetched }
-        return "\(fetched) · car reported \(DisplayText.age(of: reported, now: model.now))"
+        guard let snapshot else { return "No data yet. Pull down to refresh." }
+        let fetched = "Updated \(DisplayText.age(of: snapshot.fetchedAt, now: model.now))"
+        guard let reported = snapshot.carCapturedAt, snapshot.fetchedAt.timeIntervalSince(reported) > 5 * 60 else { return fetched }
+        return "\(fetched) · car last reported \(DisplayText.age(of: reported, now: model.now))"
     }
 
     // MARK: Controls
@@ -114,7 +120,7 @@ struct CarView: View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
             ControlTile(
                 title: "Climate",
-                subtitle: waiting(["climatise", "stop climatisation"]) ? "Waiting for car…" : (climateOn ? (snapshot?.targetTempC.map { "On · \(Describe.temp($0))" } ?? "On") : "Off"),
+                subtitle: waiting(["climatise", "stop climatisation"]) ? "Waiting for car…" : (snapshot == nil ? "–" : (climateOn ? (snapshot?.targetTempC.map { "On · \(Describe.temp($0))" } ?? "On") : "Off · \(Describe.temp(shownTarget))")),
                 systemImage: climateOn ? "fan.fill" : "fan",
                 tint: .orange,
                 active: climateOn,
@@ -122,23 +128,27 @@ struct CarView: View {
             ) {
                 Task { climateOn ? await model.stop() : await model.start(targetC: shownTarget) }
             }
+            .disabled(waiting(["climatise", "stop climatisation"]))
             ControlTile(
-                title: details?.locked == false ? "Unlocked" : "Locked",
-                subtitle: waiting(["lock the car", "unlock the car"]) ? "Waiting for car…" : (details?.locked == nil ? "Unknown" : (details?.locked == true ? "Tap to unlock" : "Tap to lock")),
+                title: details?.locked == nil ? "Doors" : (details?.locked == true ? "Locked" : "Unlocked"),
+                subtitle: waiting(["lock the car", "unlock the car"]) ? "Waiting for car…" : (details?.locked == nil ? "Unknown · tap to refresh" : (details?.locked == true ? "Tap to unlock" : "Tap to lock")),
                 systemImage: details?.locked == false ? "lock.open.fill" : "lock.fill",
                 tint: details?.locked == false ? .red : .blue,
                 active: details?.locked == false,
                 busy: model.busy == .command(.lock) || model.busy == .command(.unlock) || waiting(["lock the car", "unlock the car"])
             ) {
-                if details?.locked == false {
+                if details?.locked == nil {
+                    Task { await model.refresh() }
+                } else if details?.locked == false {
                     Task { await model.send(.lock) }
                 } else {
                     confirmUnlock = true
                 }
             }
+            .disabled(waiting(["lock the car", "unlock the car"]))
             ControlTile(
                 title: "Charging",
-                subtitle: waiting(["start charging", "stop charging"]) ? "Waiting for car…" : (charging ? (snapshot?.chargePowerKw.map { String(format: "%.1f kW", $0) } ?? "On") : (pluggedIn ? "Paused" : "Unplugged")),
+                subtitle: waiting(["start charging", "stop charging"]) ? "Waiting for car…" : (snapshot == nil ? "–" : (charging ? (snapshot?.chargePowerKw.map { String(format: "%.1f kW", $0) } ?? "On") : (pluggedIn ? "Plugged in · tap to charge" : "Unplugged"))),
                 systemImage: charging ? "bolt.fill" : (pluggedIn ? "powerplug.fill" : "powerplug"),
                 tint: .green,
                 active: charging,
@@ -146,7 +156,7 @@ struct CarView: View {
             ) {
                 Task { await model.send(charging ? .stopCharging : .startCharging) }
             }
-            .disabled(!pluggedIn)
+            .disabled(!pluggedIn || waiting(["start charging", "stop charging"]))
             ControlTile(
                 title: "Charge limit",
                 subtitle: limitsText,
@@ -158,7 +168,8 @@ struct CarView: View {
                 editingLimits = true
             }
         }
-        .disabled(model.busy != nil && model.busy != .refreshing)
+        // One thing at a time: the car model ignores taps while it's busy, so say so by dimming.
+        .disabled(model.busy != nil)
     }
 
     /// Whether a command starting with one of `prefixes` is waiting for the car to confirm.
@@ -200,9 +211,9 @@ struct CarView: View {
                 ) {
                     Text("Temperature")
                 } minimumValueLabel: {
-                    Text("\(Int(AppSettings.minTargetC))°").font(.caption).foregroundStyle(.secondary)
+                    Image(systemName: "snowflake").font(.caption.weight(.semibold)).foregroundStyle(.cyan)
                 } maximumValueLabel: {
-                    Text("\(Int(AppSettings.maxTargetC))°").font(.caption).foregroundStyle(.secondary)
+                    Image(systemName: "flame.fill").font(.caption.weight(.semibold)).foregroundStyle(.orange)
                 } onEditingChanged: { editing in
                     guard !editing else { return }
                     let v = shownTarget
@@ -221,12 +232,12 @@ struct CarView: View {
                 Label("Heated wheel & mirrors", systemImage: "steeringwheel")
             }
             Toggle(isOn: setting(\.holdChargerOnClimate)) {
-                Label("Don't start charging", systemImage: "powerplug")
+                Label("Keep the charger off", systemImage: "powerplug")
             }
         } header: {
             Text("Climate")
         } footer: {
-            Text("If the car's plugged in but not charging, starting climate won't set off a charge at peak rates.")
+            Text("With the charger kept off, starting climate while plugged in won't also start a charge at peak rates.")
         }
     }
 
@@ -308,7 +319,7 @@ struct CarView: View {
             }
             if let aux = details?.auxBatteryPercent {
                 LabeledContent {
-                    Text("\(aux)%").foregroundStyle(aux < 60 ? .orange : .secondary)
+                    Text("\(aux)%").foregroundStyle(aux < chargingModel.settings.alerts.lowAuxPercent ? .orange : .secondary)
                 } label: {
                     Label("12 V battery", systemImage: "minus.plus.batteryblock")
                 }
@@ -401,6 +412,14 @@ private struct HeroCard: View {
                 Text("%")
                     .font(.system(size: 24, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
+                if snapshot?.chargingState == .charging {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.green)
+                        .shadow(color: .green.opacity(0.7), radius: 6)
+                        .symbolEffect(.pulse)
+                        .transition(.scale.combined(with: .opacity))
+                }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(snapshot?.rangeKm.map { DisplayText.distance(km: Double($0), miles: miles) } ?? "–")
@@ -469,7 +488,12 @@ private struct HeroCard: View {
 
     private var accessibilityText: String {
         guard let soc else { return "Battery unknown" }
-        return "Battery \(soc) percent" + (snapshot?.rangeKm.map { ", \(DisplayText.distance(km: Double($0), miles: miles)) range" } ?? "")
+        var parts = ["Battery \(soc) percent"]
+        if let r = snapshot?.rangeKm { parts.append("\(DisplayText.distance(km: Double(r), miles: miles)) range") }
+        if let s = snapshot, let c = DisplayText.charging(s) { parts.append(c) }
+        if let locked = snapshot?.details?.locked { parts.append(locked ? "Locked" : "Unlocked") }
+        if snapshot?.climate == .running { parts.append("Climate on") }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -480,14 +504,16 @@ private struct RefreshingRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ProgressView()
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.tint)
+                .symbolEffect(.variableColor.iterative.reversing)
+                .frame(width: 32)
             VStack(alignment: .leading, spacing: 2) {
                 Text(waking ? "Waking the car…" : "Refreshing…").font(.headline)
                 TimelineView(.periodic(from: since, by: 1)) { context in
                     let seconds = max(0, Int(context.date.timeIntervalSince(since)))
-                    Text(waking
-                         ? "Asking the car for fresh figures. This can take up to 30 seconds · \(seconds) s"
-                         : "Reading the latest from Kia · \(seconds) s")
+                    Text(waking ? "Can take up to 30 seconds · \(seconds) s" : "Checking with Kia · \(seconds) s")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -518,6 +544,63 @@ private struct Chip: View {
     }
 }
 
+// MARK: - Status
+
+/// What just happened, floating over the bottom of the page: a spinner while the car's being asked,
+/// then a tick (or a warning) that fades after a few seconds.
+private struct StatusToast: View {
+    let confirming: String?
+    let message: String?
+    @State private var shown: String?
+    @State private var hideTask: Task<Void, Never>?
+
+    private var waiting: Bool { confirming != nil }
+    private var text: String? { confirming.map { "Waiting for the car · \(DisplayText.confirmed($0))" } ?? shown }
+    private var good: Bool { text?.hasPrefix("✓") == true }
+
+    var body: some View {
+        Group {
+            if let text {
+                HStack(spacing: 10) {
+                    if waiting {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: good ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                            .foregroundStyle(good ? Color.green : .orange)
+                            .symbolEffect(.bounce, value: text)
+                    }
+                    Text(text.replacingOccurrences(of: "✓ ", with: ""))
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
+                .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+                .padding(.horizontal, 20)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .onTapGesture { withAnimation { shown = nil } }
+            }
+        }
+        .animation(.spring(duration: 0.4), value: text)
+        .onChange(of: message, initial: true) { _, new in show(new) }
+        .onChange(of: confirming) { _, new in if new == nil { show(message) } }
+    }
+
+    private func show(_ new: String?) {
+        hideTask?.cancel()
+        shown = new
+        guard new != nil, confirming == nil else { return }
+        hideTask = Task {
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            withAnimation { shown = nil }
+        }
+    }
+}
+
 // MARK: - Control tiles
 
 /// A Control Center–style button: icon, name and state; filled with its colour when on.
@@ -530,9 +613,13 @@ private struct ControlTile: View {
     let busy: Bool
     let action: () -> Void
     @Environment(\.isEnabled) private var isEnabled
+    @State private var taps = 0
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            taps += 1
+            action()
+        } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     ZStack {
@@ -570,7 +657,7 @@ private struct ControlTile: View {
             .opacity(isEnabled ? 1 : 0.5)
         }
         .buttonStyle(PressableStyle())
-        .sensoryFeedback(.impact(weight: .light), trigger: active)
+        .sensoryFeedback(.impact(weight: .light), trigger: taps)
         .animation(.spring(duration: 0.4), value: active)
         .animation(.easeInOut(duration: 0.2), value: busy)
         .accessibilityLabel("\(title), \(subtitle)")
@@ -589,8 +676,8 @@ private struct ChargeLimitSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    limitRow("AC (home, public AC)", value: $ac, systemImage: "powerplug")
-                    limitRow("DC (rapid chargers)", value: $dc, systemImage: "bolt.car")
+                    limitRow("Home and AC posts", value: $ac, systemImage: "powerplug")
+                    limitRow("Rapid chargers (DC)", value: $dc, systemImage: "bolt.car")
                 } footer: {
                     Text("80% is kinder to the battery day to day. Use 100% before a long trip.")
                 }
@@ -607,10 +694,11 @@ private struct ChargeLimitSheet: View {
                         dismiss()
                         Task { await model.send(.setChargeLimits(ac: a, dc: d)) }
                     }
+                    .disabled(ac == model.snapshot?.details?.chargeLimitAC && dc == model.snapshot?.details?.chargeLimitDC)
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 
     private func limitRow(_ title: String, value: Binding<Int>, systemImage: String) -> some View {
@@ -660,7 +748,7 @@ private struct BannerRow: View {
         case .setupNeeded: return "Sign in with your Kia account in Settings to connect your car."
         case .authStopped(let reason): return reason
         case .paused(let reason): return reason.capitalizingFirst
-        case .fakeMode: return "Fake car on. Nothing is sent to Kia."
+        case .fakeMode: return "Demo mode is on. Nothing is sent to your car."
         }
     }
 

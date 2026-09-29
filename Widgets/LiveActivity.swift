@@ -66,30 +66,31 @@ struct LiveActivityBanner: View {
     let state: CarActivityAttributes.ContentState
 
     var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Label {
+                    Text(state.title).lineLimit(1)
+                } icon: {
                     Image(systemName: kind.symbol).foregroundStyle(kind.tint)
-                    Text(state.title).font(.headline)
                 }
-                HStack(spacing: 8) {
-                    if let soc = state.socPercent {
-                        Text("\(soc)%").monospacedDigit()
-                    }
-                    if let range = state.rangeText { Text(range) }
-                    if let detail = state.detail { Text(detail) }
-                }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                ActivityProgress(kind: kind, state: state)
-            }
-            Spacer(minLength: 0)
-            VStack(alignment: .trailing, spacing: 2) {
+                .font(.headline)
+                Spacer(minLength: 8)
                 Countdown(state: state)
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(kind.tint)
-                Text(kind == .climate ? "left" : "to go").font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 84, alignment: .trailing)
             }
+            ActivityProgress(kind: kind, state: state)
+            HStack {
+                Text([state.socPercent.map { "\($0)%" }, state.rangeText].compactMap { $0 }.joined(separator: " · "))
+                    .monospacedDigit()
+                Spacer(minLength: 8)
+                if let detail = state.detail {
+                    Text(detail).lineLimit(1)
+                }
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
         }
         .foregroundStyle(.white)
     }

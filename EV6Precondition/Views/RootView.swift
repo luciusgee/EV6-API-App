@@ -8,6 +8,8 @@ struct RootView: View {
                 .tabItem { Label("Car", systemImage: "car.fill") }
             RulesView()
                 .tabItem { Label("Rules", systemImage: "list.bullet.rectangle") }
+            ScannerView()
+                .tabItem { Label("Scanner", systemImage: "stethoscope") }
             ActivityView()
                 .tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }
             SettingsView()

@@ -10,6 +10,7 @@ final class AppServices {
     let container: AppContainer
     let car: CarModel
     let rules: RulesModel
+    let obd = OBDService()
     private var prepared = false
 
     private init() {

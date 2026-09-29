@@ -26,6 +26,8 @@ final class OBDLink: NSObject {
     }
 
     private(set) var state: State = .idle
+    /// Called once the adapter can take commands.
+    @ObservationIgnored var onReady: (() -> Void)?
     private(set) var adapters: [Adapter] = []
     var showAllDevices = false
 
@@ -38,6 +40,57 @@ final class OBDLink: NSObject {
     @ObservationIgnored private var pending: CheckedContinuation<String, Error>?
     @ObservationIgnored private var timeout: Task<Void, Never>?
     @ObservationIgnored private var wantsScan = false
+    @ObservationIgnored private var pendingReconnect: UUID?
+
+    private static let rememberedKey = "obdAdapterId"
+    private static let rememberedNameKey = "obdAdapterName"
+
+    /// The adapter connected last time, reconnected to directly.
+    var rememberedName: String? { UserDefaults.standard.string(forKey: Self.rememberedNameKey) }
+    var hasRemembered: Bool { UserDefaults.standard.string(forKey: Self.rememberedKey) != nil }
+
+    func forgetAdapter() {
+        UserDefaults.standard.removeObject(forKey: Self.rememberedKey)
+        UserDefaults.standard.removeObject(forKey: Self.rememberedNameKey)
+    }
+
+    /// Reconnects to the remembered adapter; false when there isn't one.
+    @discardableResult
+    func reconnect() -> Bool {
+        guard let text = UserDefaults.standard.string(forKey: Self.rememberedKey) else { return false }
+        if text == "wifi" {
+            connectWiFi()
+            return true
+        }
+        guard let id = UUID(uuidString: text) else { return false }
+        pendingReconnect = id
+        state = .connecting(rememberedName ?? "OBD adapter")
+        if central == nil {
+            central = CBCentralManager(delegate: self, queue: .main)
+        } else {
+            reconnectIfPossible()
+        }
+        return true
+    }
+
+    private func reconnectIfPossible() {
+        guard let central, let id = pendingReconnect else { return }
+        switch central.state {
+        case .poweredOn:
+            pendingReconnect = nil
+            guard let p = central.retrievePeripherals(withIdentifiers: [id]).first else {
+                state = .failed("Adapter not found. Is it plugged in?")
+                return
+            }
+            peripherals[id] = p
+            peripheral = p
+            p.delegate = self
+            central.connect(p)
+        case .poweredOff: state = .bluetoothOff
+        case .unauthorized: state = .bluetoothDenied
+        default: break
+        }
+    }
 
     var isReady: Bool { if case .ready = state { return true } else { return false } }
 
@@ -100,6 +153,9 @@ final class OBDLink: NSObject {
                 switch s {
                 case .ready:
                     self.state = .ready("Wi-Fi adapter")
+                    UserDefaults.standard.set("wifi", forKey: Self.rememberedKey)
+                    UserDefaults.standard.set("Wi-Fi adapter", forKey: Self.rememberedNameKey)
+                    self.onReady?()
                     self.receiveWiFi(connection)
                 case .failed(let error), .waiting(let error):
                     self.state = .failed("Wi-Fi adapter: \(error.localizedDescription). Join the adapter's Wi-Fi network first.")
@@ -214,6 +270,9 @@ final class OBDLink: NSObject {
         writeCharacteristic = write
         p.setNotifyValue(true, for: notify)
         state = .ready(p.name ?? "OBD adapter")
+        UserDefaults.standard.set(p.identifier.uuidString, forKey: Self.rememberedKey)
+        UserDefaults.standard.set(p.name ?? "OBD adapter", forKey: Self.rememberedNameKey)
+        onReady?()
     }
 
     nonisolated private static func likelyOBD(name: String, advertisement: [String: Any]) -> Bool {
@@ -226,7 +285,10 @@ final class OBDLink: NSObject {
 
 extension OBDLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        MainActor.assumeIsolated { beginScanIfPossible() }
+        MainActor.assumeIsolated {
+            reconnectIfPossible()
+            beginScanIfPossible()
+        }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {

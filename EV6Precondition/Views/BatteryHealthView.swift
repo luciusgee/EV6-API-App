@@ -2,11 +2,10 @@ import Charts
 import PreconditionKit
 import SwiftUI
 
-/// Reads the battery straight from the car through an OBD adapter, and keeps the last report.
+/// The last battery report, kept on the phone.
 @MainActor
 @Observable
-final class OBDModel {
-    let link = OBDLink()
+final class BatteryReportStore {
     private(set) var report: BatteryReport?
     private(set) var problems: [String] = []
     private(set) var progress: BatteryScanner.Progress?
@@ -20,22 +19,20 @@ final class OBDModel {
 
     var scanning: Bool { progress != nil }
 
-    private func setProgress(_ p: BatteryScanner.Progress) {
-        progress = p
-    }
-
     func load() async {
         report = await store.load()
     }
 
-    /// `simulated` uses the fake car's adapter, for trying the screen without a car.
-    func scan(simulated: Bool) async {
+    private func setProgress(_ p: BatteryScanner.Progress) {
+        progress = p
+    }
+
+    func scan(_ elm: ELM327) async {
         guard !scanning else { return }
         error = nil
         problems = []
         progress = BatteryScanner.Progress(step: 0, of: 10, label: "Starting")
-        let transport: OBDTransport = simulated ? FakeOBDAdapter() : OBDLinkTransport(link: link)
-        let scanner = BatteryScanner(elm: ELM327(transport: transport))
+        let scanner = BatteryScanner(elm: elm)
         do {
             let (result, issues) = try await scanner.scan { p in await self.setProgress(p) }
             report = result
@@ -50,97 +47,63 @@ final class OBDModel {
 
 struct BatteryHealthView: View {
     @Environment(CarModel.self) private var car
-    @State private var obd = OBDModel()
+    @Environment(OBDService.self) private var obd
+    @State private var reports = BatteryReportStore()
     @State private var showingAdapters = false
-
-    private var simulated: Bool { car.settings.fakeMode }
 
     var body: some View {
         List {
-            if let soh = car.snapshot?.details?.batteryHealthPercent, obd.report?.sohPercent == nil {
+            if let soh = car.snapshot?.details?.batteryHealthPercent, reports.report?.sohPercent == nil {
                 Section {
                     LabeledContent("State of health (Kia Connect)", value: String(format: "%.1f%%", soh))
                 }
             }
 
             Section {
-                connectionRow
                 Button {
-                    Task { await obd.scan(simulated: simulated) }
+                    if let elm = obd.elm { Task { await reports.scan(elm) } }
                 } label: {
                     HStack {
                         Label("Read Battery", systemImage: "waveform.path.ecg")
                         Spacer()
-                        if obd.scanning { ProgressView() }
+                        if reports.scanning { ProgressView() }
                     }
                 }
-                .disabled(obd.scanning || !(simulated || obd.link.isReady))
-                if let progress = obd.progress {
+                .disabled(reports.scanning || obd.carState != .connected)
+                if let progress = reports.progress {
                     VStack(alignment: .leading, spacing: 6) {
                         ProgressView(value: Double(progress.step), total: Double(progress.of))
                         Text(progress.label).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if let error = obd.error {
+                if let error = reports.error {
                     Label(error.capitalizingFirst, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                         .font(.subheadline)
                 }
-            } header: {
-                Text("OBD adapter")
             } footer: {
-                Text(simulated
-                    ? "Fake car on: a simulated adapter answers."
-                    : "Plug a Bluetooth LE or Wi-Fi ELM327 adapter into the port under the dashboard, switch the car on, then read. Reading takes about 10 seconds and only listens: nothing is written to the car.")
+                Text("Plug a Bluetooth LE or Wi-Fi ELM327 adapter into the port under the dashboard, switch the car on, connect below, then read. It takes about 10 seconds and only reads: nothing is written to the car.")
             }
 
-            if let report = obd.report {
-                ReportSections(report: report, problems: obd.problems, miles: car.settings.useMiles)
+            if let report = reports.report {
+                ReportSections(report: report, problems: reports.problems, miles: car.settings.useMiles)
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Battery Health")
-        .task { await obd.load() }
+        .task { await reports.load() }
+        .safeAreaInset(edge: .bottom) {
+            ConnectionBar(showingAdapters: $showingAdapters)
+        }
         .sheet(isPresented: $showingAdapters) {
             AdapterPicker(link: obd.link)
-        }
-        .onDisappear { obd.link.stopScan() }
-    }
-
-    @ViewBuilder
-    private var connectionRow: some View {
-        if simulated {
-            LabeledContent("Adapter", value: "Simulated")
-        } else {
-            Button {
-                showingAdapters = true
-            } label: {
-                LabeledContent {
-                    Text(stateText).foregroundStyle(obd.link.isReady ? .green : .secondary)
-                } label: {
-                    Label("Adapter", systemImage: "cable.connector")
-                }
-            }
-            .foregroundStyle(.primary)
-        }
-    }
-
-    private var stateText: String {
-        switch obd.link.state {
-        case .idle: return "Not connected"
-        case .bluetoothOff: return "Bluetooth off"
-        case .bluetoothDenied: return "Bluetooth not allowed"
-        case .scanning: return "Searching…"
-        case .connecting(let name): return "Connecting to \(name)…"
-        case .ready(let name): return name
-        case .failed: return "Failed"
         }
     }
 }
 
 // MARK: - Adapter picker
 
-private struct AdapterPicker: View {
+struct AdapterPicker: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var link: OBDLink
 

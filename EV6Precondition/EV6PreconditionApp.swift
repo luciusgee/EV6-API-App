@@ -10,6 +10,7 @@ struct EV6PreconditionApp: App {
             RootView()
                 .environment(services.car)
                 .environment(services.rules)
+                .environment(services.obd)
                 .task {
                     await services.prepare()
                 }

@@ -64,8 +64,17 @@ struct CarView: View {
                     if model.busy == .refreshing {
                         ProgressView()
                     } else {
-                        Button {
-                            Task { await model.refresh() }
+                        Menu {
+                            Button {
+                                Task { await model.refresh() }
+                            } label: {
+                                Label("Refresh", systemImage: "arrow.clockwise")
+                            }
+                            Button {
+                                Task { await model.refresh(wake: true) }
+                            } label: {
+                                Label("Full refresh from the car", systemImage: "antenna.radiowaves.left.and.right")
+                            }
                         } label: {
                             Label("Refresh", systemImage: "arrow.clockwise")
                         }

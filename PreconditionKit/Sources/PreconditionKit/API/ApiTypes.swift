@@ -192,6 +192,8 @@ public enum CommandStatus: String, Codable, Equatable, Sendable {
 public protocol VehicleAPI: Sendable {
     /// Reads the car's cached state. Never wakes the car.
     func getVehicle(_ kind: RequestKind) async -> ApiResult<VehicleFetch>
+    /// Asks the car itself to report, then reads it. Wakes the car's modem, so it costs a little 12 V charge.
+    func wakeAndGetVehicle(_ kind: RequestKind) async -> ApiResult<VehicleFetch>
     func startClimate(targetC: Double, kind: RequestKind, options: ClimateOptions) async -> ApiResult<CommandReceipt>
     func stopClimate(_ kind: RequestKind) async -> ApiResult<CommandReceipt>
     func send(_ command: CarCommand, kind: RequestKind) async -> ApiResult<CommandReceipt>
@@ -204,6 +206,10 @@ public protocol VehicleAPI: Sendable {
 }
 
 extension VehicleAPI {
+    public func wakeAndGetVehicle(_ kind: RequestKind) async -> ApiResult<VehicleFetch> {
+        await getVehicle(kind)
+    }
+
     public func startClimate(targetC: Double, kind: RequestKind) async -> ApiResult<CommandReceipt> {
         await startClimate(targetC: targetC, kind: kind, options: ClimateOptions())
     }

@@ -92,4 +92,16 @@ final class OffPeakTests: XCTestCase {
         let after = await client.getVehicle(.manual).value
         XCTAssertEqual(after?.snapshot.details?.offPeak?.text, "00:00–07:00")
     }
+
+    func testAFullRefreshWakesTheCarFirstInOneBudgetSlot() async throws {
+        server.setDefault("/status", jsonResponse(#"{"retCode":"S","resCode":"0000","resMsg":{}}"#))
+        server.setDefault("/location/park", jsonResponse(#"{"retCode":"S","resCode":"0000","resMsg":{}}"#))
+        await expectSuccess(await client.wakeAndGetVehicle(.manual))
+        let calls = server.paths.filter { $0.contains("/vehicles/") }
+        XCTAssertEqual(calls.first { $0.hasSuffix("/status") || $0.hasSuffix("/status/latest") }.map { $0.hasSuffix("/status") }, true)
+        XCTAssertTrue(calls.contains { $0.hasSuffix("/status/latest") })
+        server.clearSeen()
+        await expectSuccess(await client.getVehicle(.manual))
+        XCTAssertFalse(server.paths.contains { $0.hasSuffix("/status") })
+    }
 }

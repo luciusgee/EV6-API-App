@@ -174,6 +174,9 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
             ]
             return ok(["vehicles": [vehicle]])
         }
+        if path.hasSuffix("/status") {
+            return ok(status(s, now: now.addingTimeInterval(120)))
+        }
         if path.hasSuffix("/status/latest") {
             return ok(status(s, now: now))
         }

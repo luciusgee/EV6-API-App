@@ -79,9 +79,10 @@ public final class PreconditionEngine: Sendable {
     }
 
     /// Dashboard refresh. A user action, so it draws on the manual budget.
-    public func refreshVehicle() async -> ApiResult<VehicleSnapshot> {
+    /// `wake` asks the car to report in first, for up-to-the-minute state.
+    public func refreshVehicle(wake: Bool = false) async -> ApiResult<VehicleSnapshot> {
         await mutex.withLock {
-            let result = await vehicles.fetch(.manual)
+            let result = await vehicles.fetch(.manual, wake: wake)
             if case .failure(let error, _) = result {
                 await log.append(LogEntry(
                     at: time.now(), kind: .manual, decision: "refresh failed", reason: error.message,

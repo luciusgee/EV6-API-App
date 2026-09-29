@@ -47,8 +47,21 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
     // MARK: - VehicleAPI
 
     public func getVehicle(_ kind: RequestKind) async -> ApiResult<VehicleFetch> {
+        await read(kind, wake: false)
+    }
+
+    /// `status` (or `ccs2/carstatus`) without `latest` makes the car report in; then read as usual.
+    public func wakeAndGetVehicle(_ kind: RequestKind) async -> ApiResult<VehicleFetch> {
+        await read(kind, wake: true)
+    }
+
+    private func read(_ kind: RequestKind, wake: Bool) async -> ApiResult<VehicleFetch> {
         await call(kind) { s, _ in
             let id = try Self.vehicleId(s)
+            if wake {
+                let path = s.ccs2 != 0 ? "ccs2/carstatus" : "status"
+                _ = try await self.get("\(self.config.spa)/vehicles/\(id)/\(path)", self.authHeaders(s))
+            }
             let path = s.ccs2 != 0 ? "ccs2/carstatus/latest" : "status/latest"
             let status = try await self.get("\(self.config.spa)/vehicles/\(id)/\(path)", self.authHeaders(s))
             // The position inside the status can be old; the parked position is current and doesn't wake the car either.

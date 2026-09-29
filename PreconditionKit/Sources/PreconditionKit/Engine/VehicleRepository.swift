@@ -61,8 +61,8 @@ public final class VehicleRepository: Sendable {
         await cache.save(s)
     }
 
-    public func fetch(_ kind: RequestKind) async -> ApiResult<VehicleSnapshot> {
-        switch await client.getVehicle(kind) {
+    public func fetch(_ kind: RequestKind, wake: Bool = false) async -> ApiResult<VehicleSnapshot> {
+        switch wake ? await client.wakeAndGetVehicle(kind) : await client.getVehicle(kind) {
         case .failure(let error, let meta):
             return .failure(error, meta)
         case .success(let fetch, let meta):

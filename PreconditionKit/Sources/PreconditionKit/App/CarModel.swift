@@ -91,10 +91,11 @@ public final class CarModel {
 
     // MARK: - Car actions
 
-    public func refresh() async {
+    /// `wake` asks the car itself to report, rather than reading what Kia last heard from it.
+    public func refresh(wake: Bool = false) async {
         guard busy == nil else { return }
         busy = .refreshing
-        let result = await container.engine.refreshVehicle()
+        let result = await container.engine.refreshVehicle(wake: wake)
         if let error = result.error { message = "Refresh failed: \(error.message)" }
         busy = nil
         await reloadState()

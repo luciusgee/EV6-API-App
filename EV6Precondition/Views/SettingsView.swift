@@ -16,7 +16,6 @@ struct SettingsView: View {
                 SafetySection()
                 PermissionsSection()
                 RateLimitSection()
-                DeveloperSection()
                 Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
                 } footer: {
@@ -277,7 +276,7 @@ private struct RateLimitSection: View {
         } header: {
             Text("Rate limit")
         } footer: {
-            Text("Kia allows roughly 200 requests a day per account, and one read here makes about two. The app counts its own reads and commands against this daily budget and always leaves the reserve for you.")
+            Text("Kia allows roughly 200 requests a day per account; the app keeps itself to this budget so it never gets near that. A read, a command, and each check that the car carried a command out all count. Automation stops before the reserve, so it's always there for you.")
         }
     }
 
@@ -286,67 +285,6 @@ private struct RateLimitSection: View {
             get: { model.settings[keyPath: keyPath] },
             set: { value in Task { await model.updateSettings { $0[keyPath: keyPath] = value } } }
         )
-    }
-}
-
-// MARK: - Developer
-
-private struct DeveloperSection: View {
-    @Environment(CarModel.self) private var model
-
-    var body: some View {
-        Section {
-            Toggle("Fake car", isOn: Binding(
-                get: { model.settings.fakeMode },
-                set: { on in Task { await model.updateSettings { $0.fakeMode = on } } }
-            ))
-            if model.settings.fakeMode {
-                Stepper(value: fake(\.socPercent), in: 0...100, step: 5) {
-                    LabeledContent("Charge", value: "\(model.fakeCar.socPercent)%")
-                }
-                Toggle("Plugged in", isOn: fake(\.pluggedIn))
-                Toggle("Charging", isOn: fake(\.charging)).disabled(!model.fakeCar.pluggedIn)
-                Toggle("Climate on", isOn: fake(\.climateOn))
-                Toggle("Locked", isOn: fake(\.locked))
-                Toggle("Low tyre", isOn: fake(\.lowTyre))
-                Toggle("Climate wakes the charger", isOn: fake(\.climateStartsCharging))
-                Stepper(value: Binding(
-                    get: { model.settings.fakeWeatherC },
-                    set: { value in Task { await model.updateSettings { $0.fakeWeatherC = value } } }
-                ), in: -30...45, step: 1) {
-                    LabeledContent("Weather", value: Describe.temp(model.settings.fakeWeatherC))
-                }
-                Picker("Error scenario", selection: fake(\.scenario)) {
-                    ForEach(FakeScenario.allCases, id: \.self) { scenario in
-                        Text(Self.name(scenario)).tag(scenario)
-                    }
-                }
-            }
-        } header: {
-            Text("Developer")
-        } footer: {
-            Text("The fake car and fake weather answer instead of Kia and Open-Meteo, so every screen, rule and error can be tried without a car. Pull down on the Car tab to read it.")
-        }
-    }
-
-    private func fake<T>(_ keyPath: WritableKeyPath<FakeCarState, T>) -> Binding<T> {
-        Binding(
-            get: { model.fakeCar[keyPath: keyPath] },
-            set: { value in model.updateFakeCar { $0[keyPath: keyPath] = value } }
-        )
-    }
-
-    private static func name(_ s: FakeScenario) -> String {
-        switch s {
-        case .none: return "None"
-        case .refreshTokenRejected: return "Refresh token rejected"
-        case .accessTokenRejected: return "Access token rejected"
-        case .rateLimited: return "Daily limit reached"
-        case .vehicleBusy: return "Car busy"
-        case .notSupported: return "Command not supported"
-        case .serverError: return "Server error"
-        case .partial: return "No position"
-        }
     }
 }
 

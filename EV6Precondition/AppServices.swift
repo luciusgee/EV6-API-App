@@ -53,6 +53,10 @@ final class AppServices {
         prepared = true
         notifier.register()
         await car.load()
+        // The fake car was a development aid; the app only talks to the real car now.
+        if car.settings.fakeMode {
+            await car.updateSettings { $0.fakeMode = false }
+        }
         await rules.load()
         // Near-car rules need a recent parked position for their fence.
         if await container.engine.refreshCarPositionIfDue() {

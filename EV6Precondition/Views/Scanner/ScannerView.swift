@@ -111,7 +111,7 @@ private struct ScannerHeader: View {
     }
 }
 
-/// Adapter and car status, with Connect / Demo, at the bottom of every scanner screen.
+/// Adapter and car status, with Connect, at the bottom of every scanner screen.
 struct ConnectionBar: View {
     @Environment(OBDService.self) private var obd
     @Binding var showingAdapters: Bool
@@ -159,12 +159,6 @@ struct ConnectionBar: View {
                             Button("Forget \(obd.link.rememberedName ?? "Adapter")", role: .destructive) { obd.link.forgetAdapter() }
                         }
                     }
-                    Button {
-                        Task { await obd.startDemo() }
-                    } label: {
-                        Text("Demo").frame(maxWidth: 90)
-                    }
-                    .buttonStyle(.bordered)
                 }
             }
             .controlSize(.large)
@@ -213,7 +207,7 @@ struct NotConnectedHint: View {
             } description: {
                 Text(obd.adapterConnected
                     ? "Switch the car on (ready, or press start without the brake), then tap Retry."
-                    : "Plug your adapter into the OBD port under the dashboard and tap Connect, or tap Demo to try it with a simulated EV6.")
+                    : "Plug your adapter into the OBD port under the dashboard and tap Connect.")
             }
         }
     }

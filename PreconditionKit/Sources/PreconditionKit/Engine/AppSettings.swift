@@ -9,7 +9,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var defaultTargetC: Double
     public var globalCooldownMinutes: Int
     public var automationPaused: Bool
-    /// Kia: requests per rolling 24 h.
+    /// Kia: requests per rolling 24 h. Kia allows about 200; the app stays well under.
+    public static let defaultBudgetLimit = 150
+    public static let defaultBudgetReserve = 15
     public var budgetLimit: Int
     public var budgetReserve: Int
     /// Developer: talk to the fake car instead of Kia.
@@ -33,8 +35,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         defaultTargetC: Double = 21,
         globalCooldownMinutes: Int = 15,
         automationPaused: Bool = false,
-        budgetLimit: Int = BudgetConfig.kia.limit,
-        budgetReserve: Int = BudgetConfig.kia.manualReserve,
+        budgetLimit: Int = AppSettings.defaultBudgetLimit,
+        budgetReserve: Int = AppSettings.defaultBudgetReserve,
         fakeMode: Bool = false,
         holidays: [CalendarDay] = [],
         fakeWeatherC: Double = 3,
@@ -67,6 +69,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
         automationPaused = try c.decodeIfPresent(Bool.self, forKey: .automationPaused) ?? d.automationPaused
         budgetLimit = try c.decodeIfPresent(Int.self, forKey: .budgetLimit) ?? d.budgetLimit
         budgetReserve = try c.decodeIfPresent(Int.self, forKey: .budgetReserve) ?? d.budgetReserve
+        // The first builds defaulted to 80/8; move untouched settings to the new default (commands are now
+        // confirmed with the car, which takes a few requests each).
+        if budgetLimit == BudgetConfig.kia.limit && budgetReserve == BudgetConfig.kia.manualReserve {
+            budgetLimit = d.budgetLimit
+            budgetReserve = d.budgetReserve
+        }
         fakeMode = try c.decodeIfPresent(Bool.self, forKey: .fakeMode) ?? d.fakeMode
         holidays = try c.decodeIfPresent([CalendarDay].self, forKey: .holidays) ?? d.holidays
         fakeWeatherC = try c.decodeIfPresent(Double.self, forKey: .fakeWeatherC) ?? d.fakeWeatherC

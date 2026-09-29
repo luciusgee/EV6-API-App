@@ -35,7 +35,7 @@ final class CarModelTests: XCTestCase {
         XCTAssertEqual(model.banners, [.setupNeeded])
         XCTAssertFalse(model.hasToken)
         XCTAssertNil(model.snapshot)
-        XCTAssertEqual(model.budget?.automationAvailable, 72)
+        XCTAssertEqual(model.budget?.automationAvailable, 135)
         XCTAssertTrue(live.seen.isEmpty)
     }
 
@@ -58,7 +58,7 @@ final class CarModelTests: XCTestCase {
         await model.refresh()
         XCTAssertNil(model.message)
         XCTAssertEqual(model.snapshot?.socPercent, 74)
-        XCTAssertEqual(model.budget?.remaining, 79)
+        XCTAssertEqual(model.budget?.remaining, 149)
         XCTAssertEqual(model.log.first?.decision, "first vehicle response")
     }
 

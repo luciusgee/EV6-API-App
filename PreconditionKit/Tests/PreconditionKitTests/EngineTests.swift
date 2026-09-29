@@ -251,4 +251,12 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(Describe.action(.startClimate(targetC: 21)), "climatise to 21.0 °C")
         XCTAssertEqual(Describe.action(.stopClimate), "stop climatisation")
     }
+
+    func testUntouchedOldBudgetMovesToTheNewDefault() throws {
+        let old = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"budgetLimit":80,"budgetReserve":8}"#.utf8))
+        XCTAssertEqual(old.budgetLimit, 150)
+        XCTAssertEqual(old.budgetReserve, 15)
+        let chosen = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"budgetLimit":100,"budgetReserve":8}"#.utf8))
+        XCTAssertEqual(chosen.budgetLimit, 100, "a limit the user picked stays")
+    }
 }

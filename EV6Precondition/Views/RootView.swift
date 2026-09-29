@@ -8,6 +8,8 @@ struct RootView: View {
     /// The newest What's new you've seen (0 before the guide existed).
     @AppStorage("guideSeenRelease") private var seenRelease = 0
     @State private var whatsNew = false
+    /// The launch animation, once per cold start.
+    @State private var splash = true
     @Environment(\.scenePhase) private var scenePhase
     @Environment(CarModel.self) private var car
 
@@ -28,6 +30,13 @@ struct RootView: View {
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                 .tag(AppTab.settings)
+        }
+        .overlay {
+            if splash {
+                LaunchSplash { splash = false }
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
         }
         .overlay(alignment: .bottom) {
             TourCard()
@@ -69,7 +78,8 @@ struct RootView: View {
             // After an update with something new (or the first time), offer the guide once.
             guard seenRelease < Guide.latest else { return }
             Guide.seenBefore = seenRelease
-            try? await Task.sleep(nanoseconds: 800_000_000)
+            // After the launch animation.
+            try? await Task.sleep(nanoseconds: 2_600_000_000)
             whatsNew = true
         }
         // An "ask first" question tapped open from its notification.

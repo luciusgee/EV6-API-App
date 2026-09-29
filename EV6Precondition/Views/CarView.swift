@@ -356,6 +356,13 @@ private struct HeroCard: View {
         return .green
     }
 
+    private var mood: CarMood {
+        if glow == .heating { return .heating }
+        if glow == .cooling { return .cooling }
+        if snapshot?.chargingState == .charging { return .charging }
+        return .idle
+    }
+
     private var glow: EV6Illustration.ClimateGlow? {
         guard snapshot?.climate == .running else { return nil }
         if let target = snapshot?.targetTempC, let outside = snapshot?.outsideTempC, outside > target { return .cooling }
@@ -384,6 +391,7 @@ private struct HeroCard: View {
                 climate: glow
             )
             .padding(.horizontal, 8)
+            .background { CarStage(mood: mood).padding(.horizontal, -16) }
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(soc.map { "\($0)" } ?? "–")
@@ -404,7 +412,8 @@ private struct HeroCard: View {
                 }
             }
 
-            BatteryBar(fraction: Double(soc ?? 0) / 100, tint: tint, limit: snapshot?.details?.chargeLimitAC)
+            EnergyBar(fraction: Double(soc ?? 0) / 100, tint: tint, limit: snapshot?.details?.chargeLimitAC,
+                      charging: snapshot?.chargingState == .charging)
 
             // One row when everything fits; otherwise the (long) charging chip gets its own row.
             ViewThatFits(in: .horizontal) {
@@ -424,6 +433,17 @@ private struct HeroCard: View {
         }
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        // A rim of the mood's colour while the car's busy doing something.
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(colors: [mood.colour.opacity(mood == .idle ? 0 : 0.7), mood.colour.opacity(0.05)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1.2
+                )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .animation(.easeInOut(duration: 0.6), value: mood)
         .animation(.easeInOut, value: soc)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
@@ -479,31 +499,6 @@ private struct RefreshingRow: View {
     }
 }
 
-private struct BatteryBar: View {
-    let fraction: Double
-    let tint: Color
-    /// The AC charge limit, marked on the bar.
-    let limit: Int?
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color(.systemFill))
-                Capsule()
-                    .fill(tint.gradient)
-                    .frame(width: max(0, min(1, fraction)) * geo.size.width)
-                if let limit, limit < 100 {
-                    Rectangle()
-                        .fill(Color.primary.opacity(0.5))
-                        .frame(width: 2)
-                        .offset(x: geo.size.width * Double(limit) / 100 - 1)
-                }
-            }
-        }
-        .frame(height: 10)
-    }
-}
-
 private struct Chip: View {
     let text: String
     let systemImage: String
@@ -548,7 +543,8 @@ private struct ControlTile: View {
                             Image(systemName: systemImage)
                                 .font(.system(size: 17, weight: .semibold))
                                 .foregroundStyle(active ? .white : tint)
-                                .symbolEffect(.pulse, isActive: active)
+                                .spinning(active && systemImage.hasPrefix("fan"))
+                                .symbolEffect(.pulse, isActive: active && !systemImage.hasPrefix("fan"))
                         }
                     }
                     .frame(width: 38, height: 38)
@@ -573,8 +569,10 @@ private struct ControlTile: View {
             )
             .opacity(isEnabled ? 1 : 0.5)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
         .sensoryFeedback(.impact(weight: .light), trigger: active)
+        .animation(.spring(duration: 0.4), value: active)
+        .animation(.easeInOut(duration: 0.2), value: busy)
         .accessibilityLabel("\(title), \(subtitle)")
     }
 }

@@ -9,6 +9,14 @@ struct ChargersView: View {
     @Environment(CarModel.self) private var car
     @State private var results: [MKMapItem] = []
     @State private var position: MapCameraPosition = .automatic
+    /// Starts framed around the car rather than zoomed in on it.
+    init(near: LatLon?) {
+        self.near = near
+        if let near {
+            _position = State(initialValue: .region(MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: near.lat, longitude: near.lon), latitudinalMeters: 8000, longitudinalMeters: 8000)))
+        }
+    }
     @State private var selected: MKMapItem?
     @State private var searching = false
     @State private var problem: String?
@@ -30,7 +38,7 @@ struct ChargersView: View {
                                 .foregroundStyle(.white)
                         }
                     }
-                    ForEach(results, id: \.self) { item in
+                    ForEach(results.prefix(25), id: \.self) { item in
                         Marker(item.name ?? "Charger", systemImage: "ev.charger", coordinate: item.placemark.coordinate)
                             .tint(.green)
                             .tag(item)
@@ -71,6 +79,7 @@ struct ChargersView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Chargers Nearby")
         .task { await search() }
+        .refreshable { await search() }
         .onChange(of: selected) { _, item in
             item?.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
         }
@@ -90,15 +99,17 @@ struct ChargersView: View {
         }
         searching = true
         defer { searching = false }
-        let request = MKLocalPointsOfInterestRequest(center: centre, radius: 8000)
-        request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.evCharger])
-        do {
-            let response = try await MKLocalSearch(request: request).start()
-            results = response.mapItems.sorted { (distance($0) ?? 0) < (distance($1) ?? 0) }
-            problem = results.isEmpty ? "No chargers found within 5 miles." : nil
-            position = .region(MKCoordinateRegion(center: centre, latitudinalMeters: 6000, longitudinalMeters: 6000))
-        } catch {
-            problem = "Apple Maps didn't answer. Try again in a moment."
+        // Frame the area first, so the map never sits zoomed right in on the car.
+        position = .region(MKCoordinateRegion(center: centre, latitudinalMeters: 8000, longitudinalMeters: 8000))
+        var found = await ChargerSearch.near(centre, radius: 8000)
+        if found.isEmpty {
+            found = await ChargerSearch.near(centre, radius: 25000)
+        }
+        results = found.sorted { (distance($0) ?? 0) < (distance($1) ?? 0) }
+        problem = results.isEmpty ? "No chargers found nearby. Pull down to try again." : nil
+        if !results.isEmpty {
+            // Fit the car and the nearest few.
+            position = .automatic
         }
     }
 }

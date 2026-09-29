@@ -35,8 +35,8 @@ public enum ChargerPower {
 
     public static func guess(name: String) -> Double {
         let n = name.lowercased()
-        if slow.contains(where: n.contains) && !n.contains("rapid") { return 22 }
-        if ultraRapid.contains(where: n.contains) || n.contains("hub") || n.contains("ultra") { return 150 }
+        if slow.contains(where: { n.contains($0) }) && !n.contains("rapid") { return 22 }
+        if ultraRapid.contains(where: { n.contains($0) }) || n.contains("hub") || n.contains("ultra") { return 150 }
         if n.contains("rapid") { return 50 }
         return 50
     }

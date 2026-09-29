@@ -2,6 +2,29 @@ import CoreLocation
 import MapKit
 import PreconditionKit
 
+/// Apple Maps' EV chargers around a point. The charger category search throws when it finds nothing
+/// (and sometimes when it shouldn't), so a plain "EV charging" search backs it up.
+enum ChargerSearch {
+    static func near(_ centre: CLLocationCoordinate2D, radius: CLLocationDistance) async -> [MKMapItem] {
+        let poi = MKLocalPointsOfInterestRequest(center: centre, radius: radius)
+        poi.pointOfInterestFilter = MKPointOfInterestFilter(including: [.evCharger])
+        if let items = try? await MKLocalSearch(request: poi).start().mapItems, !items.isEmpty {
+            return items
+        }
+        let text = MKLocalSearch.Request()
+        text.naturalLanguageQuery = "EV charging"
+        text.resultTypes = .pointOfInterest
+        text.region = MKCoordinateRegion(center: centre, latitudinalMeters: radius * 2, longitudinalMeters: radius * 2)
+        let items = (try? await MKLocalSearch(request: text).start().mapItems) ?? []
+        // The text search can wander outside the region; keep what's actually near.
+        let here = CLLocation(latitude: centre.latitude, longitude: centre.longitude)
+        return items.filter {
+            let c = $0.placemark.coordinate
+            return here.distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude)) <= radius * 1.5
+        }
+    }
+}
+
 /// Finds the driving route with Apple Maps and the EV chargers along it.
 enum RouteService {
     struct Found {
@@ -64,9 +87,7 @@ enum RouteService {
                 group.addTask {
                     // Apple Maps throttles bursts: spread the searches out a little.
                     try? await Task.sleep(for: .milliseconds(120 * (i % 8)))
-                    let request = MKLocalPointsOfInterestRequest(center: centre, radius: 4000)
-                    request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.evCharger])
-                    return (try? await MKLocalSearch(request: request).start())?.mapItems ?? []
+                    return await ChargerSearch.near(centre, radius: 4000)
                 }
             }
             for await found in group { items.append(contentsOf: found) }

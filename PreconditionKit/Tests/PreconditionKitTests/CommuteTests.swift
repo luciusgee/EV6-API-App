@@ -158,3 +158,17 @@ final class CommuteTests: XCTestCase {
         XCTAssertEqual(advice.pick?.route.name, "Quick")
     }
 }
+
+extension CommuteTests {
+    func testCommutesComeInFromALink() throws {
+        let list = [CommuteImport(name: "Home", routes: [
+            CommuteImport.Route(name: "M1 & A14", link: "https://maps.app.goo.gl/abc?g_st=ic"),
+            CommuteImport.Route(name: "A5", link: "https://maps.app.goo.gl/def?g_st=ic"),
+        ])]
+        let url = try XCTUnwrap(CommuteImport.link(list))
+        XCTAssertEqual(url.scheme, "ev6")
+        XCTAssertEqual(CommuteImport.parse(url), list)
+        XCTAssertNil(CommuteImport.parse(URL(string: "ev6://commutes?d=!!!")!))
+        XCTAssertNil(CommuteImport.parse(URL(string: "ev6://command/refresh")!))
+    }
+}

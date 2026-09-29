@@ -230,3 +230,43 @@ public enum CommuteAdvisor {
         return advise(results, toleranceMinutes: commute.toleranceMinutes, now: now)
     }
 }
+
+/// Commutes to add from a link: `ev6://commutes?d=<base64url JSON>`, where the JSON is
+/// `[{"name":"Home","routes":[{"name":"M1","link":"https://maps.app.goo.gl/…"}]}]`.
+/// Only names and links travel in it; the app reads each link to place the route.
+public struct CommuteImport: Codable, Equatable, Sendable {
+    public struct Route: Codable, Equatable, Sendable {
+        public var name: String
+        public var link: String
+        public init(name: String, link: String) {
+            self.name = name
+            self.link = link
+        }
+    }
+
+    public var name: String
+    public var routes: [Route]
+
+    public init(name: String, routes: [Route]) {
+        self.name = name
+        self.routes = routes
+    }
+
+    public static func parse(_ url: URL) -> [CommuteImport]? {
+        guard url.scheme == "ev6", url.host == "commutes",
+              let d = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "d" })?.value
+        else { return nil }
+        var b64 = d.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while b64.count % 4 != 0 { b64 += "=" }
+        guard let data = Data(base64Encoded: b64),
+              let list = try? JSONDecoder().decode([CommuteImport].self, from: data), !list.isEmpty else { return nil }
+        return list
+    }
+
+    public static func link(_ list: [CommuteImport]) -> URL? {
+        guard let data = try? JSONEncoder().encode(list) else { return nil }
+        let d = data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return URL(string: "ev6://commutes?d=\(d)")
+    }
+}

@@ -30,14 +30,36 @@ struct RoutePlannerView: View {
     private var miles: Bool { car.settings.useMiles }
     @State private var here: CLLocationCoordinate2D?
 
+    /// Where the trip starts: the car, you, or a place you pick.
+    enum Origin: Hashable { case car, me, place }
+    @State private var origin: Origin = .car
+    @State private var fromSearch = DestinationSearch()
+    @State private var fromPlace: MKMapItem?
+
     private var start: CLLocationCoordinate2D? {
-        if let p = car.snapshot?.parkingPosition { return CLLocationCoordinate2D(latitude: p.lat, longitude: p.lon) }
-        return here
+        switch origin {
+        case .car:
+            if let p = car.snapshot?.parkingPosition { return CLLocationCoordinate2D(latitude: p.lat, longitude: p.lon) }
+            return here
+        case .me:
+            return here
+        case .place:
+            return fromPlace?.placemark.coordinate
+        }
+    }
+
+    private var startName: String {
+        switch origin {
+        case .car: return car.snapshot?.parkingPosition != nil ? "EV6" : "You"
+        case .me: return "You"
+        case .place: return fromPlace?.name ?? "Start"
+        }
     }
     private var baseConsumption: Double { car.energy?.kWhPer100km ?? 18.5 }
 
     var body: some View {
         List {
+            originSection
             destinationSection
             if destination == nil {
                 savedTripsSection
@@ -57,6 +79,11 @@ struct RoutePlannerView: View {
         }
         .onChange(of: trip) { _, _ in replan() }
         .onChange(of: search.query) { _, _ in search.update() }
+        .onChange(of: fromSearch.query) { _, _ in fromSearch.update() }
+        .onChange(of: origin) { _, _ in
+            outsideC = nil
+            if destination != nil, origin != .place || fromPlace != nil { Task { await planRoute() } }
+        }
         .task(id: plan?.stops.map(\.id)) {
             if let plan { await food.load(plan.stops.map(\.charger)) }
         }
@@ -64,6 +91,50 @@ struct RoutePlannerView: View {
             TextField("Name", text: $tripName)
             Button("Save") { Task { await saveTrip() } }
             Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    // MARK: From
+
+    private var originSection: some View {
+        Section {
+            Picker("From", selection: $origin) {
+                Text("The car").tag(Origin.car)
+                Text("Me").tag(Origin.me)
+                Text("Somewhere else").tag(Origin.place)
+            }
+            .pickerStyle(.segmented)
+            if origin == .place {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Starting from?", text: $fromSearch.query)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                }
+                if fromPlace == nil || fromSearch.query != (fromPlace?.name ?? "") {
+                    ForEach(fromSearch.results, id: \.self) { result in
+                        Button {
+                            Task { await chooseStart(result) }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(result.title).foregroundStyle(.primary)
+                                if !result.subtitle.isEmpty { Text(result.subtitle).font(.caption).foregroundStyle(.secondary) }
+                            }
+                        }
+                    }
+                }
+                if let fromPlace {
+                    Label(fromPlace.name ?? "Start", systemImage: "circle.circle.fill").foregroundStyle(.blue)
+                }
+            }
+        } header: {
+            Text("From")
+        } footer: {
+            switch origin {
+            case .car: Text(car.snapshot?.parkingPosition != nil ? "Where your EV6 is parked." : "The car's position isn't known yet, so from where you are.")
+            case .me: Text("From where your iPhone is.")
+            case .place: Text("Handy for planning a trip that starts somewhere else, like the way back.")
+            }
         }
     }
 
@@ -105,8 +176,6 @@ struct RoutePlannerView: View {
             }
         } header: {
             Text("Destination")
-        } footer: {
-            Text(car.snapshot?.parkingPosition != nil ? "From where your EV6 is parked." : "From where you are.")
         }
     }
 
@@ -160,7 +229,7 @@ struct RoutePlannerView: View {
             Map(position: $camera) {
                 MapPolyline(found.route.polyline).stroke(.blue, lineWidth: 5)
                 if let start {
-                    Annotation("EV6", coordinate: start) {
+                    Annotation(startName, coordinate: start) {
                         Image(systemName: "car.fill").padding(5).background(.red, in: Circle()).foregroundStyle(.white)
                     }
                 }
@@ -479,15 +548,28 @@ struct RoutePlannerView: View {
         await planRoute()
     }
 
+    private func chooseStart(_ result: MKLocalSearchCompletion) async {
+        problem = nil
+        guard let item = try? await MKLocalSearch(request: MKLocalSearch.Request(completion: result)).start().mapItems.first else {
+            problem = "Couldn't find that place."
+            return
+        }
+        fromPlace = item
+        fromSearch.query = item.name ?? result.title
+        outsideC = nil
+        if destination != nil { await planRoute() }
+    }
+
     private func planRoute() async {
-        if car.snapshot?.parkingPosition == nil, here == nil {
+        let needsMe = origin == .me || (origin == .car && car.snapshot?.parkingPosition == nil)
+        if needsMe, here == nil {
             LocationAccess.shared.requestIfNeeded()
             if let fix = await LocationPhoneLocator().locate() {
                 here = CLLocationCoordinate2D(latitude: fix.lat, longitude: fix.lon)
             }
         }
         guard let destination, let start else {
-            problem = "Refresh the car or allow location so the trip has a start."
+            problem = origin == .place ? "Pick where the trip starts." : "Refresh the car or allow location so the trip has a start."
             return
         }
         planning = true

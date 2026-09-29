@@ -88,7 +88,7 @@ public enum Guide {
         ]),
         GuideSection(id: "trips", title: "Trips", symbol: "map.fill", steps: [
             GuideStep("trips.plan", "Plan a trip",
-                      "Car tab › Trips › Plan a trip. Pick where you're going and when you leave. It plans the charging stops, how long each takes, and what you'll arrive with. It can also set smart charging so you leave with enough.",
+                      "Car tab › Trips › Plan a trip. Start from the car, from you, or anywhere else, then pick where you're going and when you leave. It plans the charging stops, how long each takes, and what you'll arrive with. It can also set smart charging so you leave with enough.",
                       symbol: "map", tab: .car, screen: .planTrip),
             GuideStep("trips.food", "Charge and eat",
                       "Under each charging stop is a line showing which of your food places are a short walk away, and roughly when you'll get there. Tap it to see every charger you could use for that stop, with the food at each. Pick one and the trip is planned around it. Change your food list in Food I look for.",
@@ -151,7 +151,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
-        GuideRelease(number: 7, title: "A new look for the widget and Watch", stepIds: ["extras.glance"]),
+        GuideRelease(number: 7, title: "A new widget and Watch look, and trips from anywhere", stepIds: ["extras.glance", "trips.plan"]),
         GuideRelease(number: 6, title: "Plug-in checks", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 5, title: "Food on the way, and this guide", stepIds: ["trips.food", "trips.saved", "settings.guide"]),
         GuideRelease(number: 4, title: "Traffic ahead", stepIds: ["trips.traffic"]),

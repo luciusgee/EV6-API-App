@@ -4,6 +4,7 @@ import SwiftUI
 struct RootView: View {
     @State private var asks = AskCoordinator.shared
     @State private var tour = Tour.shared
+    @State private var inbox = CommuteInbox.shared
     /// The newest What's new you've seen (0 before the guide existed).
     @AppStorage("guideSeenRelease") private var seenRelease = 0
     @State private var whatsNew = false
@@ -27,6 +28,9 @@ struct RootView: View {
             TourCard()
                 .padding(.bottom, 58)
                 .animation(.spring(duration: 0.35), value: tour.current?.id)
+        }
+        .sheet(isPresented: Binding(get: { inbox.pending != nil }, set: { if !$0 { inbox.pending = nil } })) {
+            if let list = inbox.pending { CommuteImportView(list: list) }
         }
         .sheet(item: $tour.showing) { screen in
             GuideScreenSheet(screen: screen)

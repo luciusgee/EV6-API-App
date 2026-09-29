@@ -10,8 +10,6 @@ struct RootView: View {
                 .tabItem { Label("Rules", systemImage: "list.bullet.rectangle") }
             ScannerView()
                 .tabItem { Label("Scanner", systemImage: "stethoscope") }
-            ActivityView()
-                .tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }

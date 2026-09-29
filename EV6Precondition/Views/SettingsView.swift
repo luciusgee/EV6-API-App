@@ -17,6 +17,15 @@ struct SettingsView: View {
                 PermissionsSection()
                 RateLimitSection()
                 Section {
+                    NavigationLink {
+                        ActivityView()
+                    } label: {
+                        Label("Activity", systemImage: "clock.arrow.circlepath")
+                    }
+                } footer: {
+                    Text("Every command, rule decision and problem, newest first.")
+                }
+                Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
                 } footer: {
                     Text("No analytics and no backend. The app only talks to Kia Connect.")

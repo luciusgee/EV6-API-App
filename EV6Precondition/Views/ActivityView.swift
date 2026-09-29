@@ -1,7 +1,7 @@
 import PreconditionKit
 import SwiftUI
 
-/// The log (HANDOVER.md §6.4): what happened and why, newest first.
+/// The log (HANDOVER.md §6.4): what happened and why, newest first. Opened from Settings.
 struct ActivityView: View {
     @Environment(CarModel.self) private var model
     @State private var filter: Filter = .all
@@ -36,36 +36,35 @@ struct ActivityView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                if entries.isEmpty {
-                    Text(filter == .all ? "Nothing yet. Commands, rule decisions and problems appear here." : "Nothing here yet.")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(days, id: \.0) { group in
-                    Section(dayTitle(group.0)) {
-                        ForEach(group.1) { LogRow(entry: $0) }
-                    }
+        List {
+            if entries.isEmpty {
+                Text(filter == .all ? "Nothing yet. Commands, rule decisions and problems appear here." : "Nothing here yet.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(days, id: \.0) { group in
+                Section(dayTitle(group.0)) {
+                    ForEach(group.1) { LogRow(entry: $0) }
                 }
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Activity")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        Picker("Show", selection: $filter) {
-                            ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
-                        }
-                    } label: {
-                        Label("Filter", systemImage: filter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Activity")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Show", selection: $filter) {
+                        ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
                     }
+                } label: {
+                    Label("Filter", systemImage: filter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    ShareLink(item: model.logCSV(), preview: SharePreview("EV6 Precondition log")) {
-                        Label("Export", systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(model.log.isEmpty)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                ShareLink(item: model.logCSV(), preview: SharePreview("EV6 Precondition log")) {
+                    Label("Export", systemImage: "square.and.arrow.up")
                 }
+                .disabled(model.log.isEmpty)
             }
         }
     }

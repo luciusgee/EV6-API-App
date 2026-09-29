@@ -343,3 +343,17 @@ final class GeofenceTests: XCTestCase {
         XCTAssertNil(Geofences.event(for: "something", transition: .enter))
     }
 }
+
+extension RuleJSONTests {
+    func testRulesComeInFromALink() throws {
+        let rule = Rule(id: "morning-heat", name: "Morning warm-up", trigger: .schedule(days: [.monday], time: TimeOfDay(6, 45)),
+                        conditions: [.tempBelow(celsius: 10.5, source: .weatherAtCar)], action: .startClimate(targetC: 22), askFirst: true)
+        let text = RuleJSON.export(places: [], rules: [rule])
+        let d = Data(text.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let url = try XCTUnwrap(URL(string: "ev6://rules?d=\(d)"))
+        let back = try XCTUnwrap(RuleJSON.text(fromLink: url))
+        XCTAssertEqual(RuleJSON.import(back).rules, [rule])
+        XCTAssertNil(RuleJSON.text(fromLink: URL(string: "ev6://commutes?d=abc")!))
+    }
+}

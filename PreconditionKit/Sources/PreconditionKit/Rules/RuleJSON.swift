@@ -44,6 +44,17 @@ public enum RuleJSON {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// The backup text carried by `ev6://rules?d=<base64url>`, for setting rules up from a link.
+    public static func text(fromLink url: URL) -> String? {
+        guard url.scheme == "ev6", url.host == "rules",
+              let d = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "d" })?.value
+        else { return nil }
+        var b64 = d.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while b64.count % 4 != 0 { b64 += "=" }
+        guard let data = Data(base64Encoded: b64), let text = String(data: data, encoding: .utf8) else { return nil }
+        return text
+    }
+
     /// Decodes and validates each place and rule separately, so one bad entry doesn't hide the rest.
     /// - Parameter existingPlaceIds: places already on the phone; rules may refer to them too.
     public static func `import`(_ text: String, existingPlaceIds: Set<String> = []) -> ImportResult {

@@ -32,6 +32,19 @@ struct RootView: View {
                 .padding(.bottom, 58)
                 .animation(.spring(duration: 0.35), value: tour.current?.id)
         }
+        .alert("Add these rules?", isPresented: Binding(get: { inbox.rules != nil }, set: { if !$0 { inbox.rules = nil } })) {
+            Button("Add") {
+                if let text = inbox.rules {
+                    Task {
+                        await AppServices.shared.rules.importText(text)
+                        tour.tab = .rules
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(inbox.rules.map { RuleJSON.import($0).rules.map(\.name).joined(separator: ", ") } ?? "")
+        }
         .sheet(isPresented: Binding(get: { inbox.pending != nil }, set: { if !$0 { inbox.pending = nil } })) {
             if let list = inbox.pending { CommuteImportView(list: list) }
         }

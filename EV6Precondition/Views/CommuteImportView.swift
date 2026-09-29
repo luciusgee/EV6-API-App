@@ -7,6 +7,8 @@ import SwiftUI
 final class CommuteInbox {
     static let shared = CommuteInbox()
     var pending: [CommuteImport]?
+    /// Rules to add from an ev6://rules link, as backup text.
+    var rules: String?
 }
 
 /// Asks before adding commutes from a link, then reads each route's link and saves them.

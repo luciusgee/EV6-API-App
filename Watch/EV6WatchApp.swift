@@ -131,20 +131,14 @@ struct WatchCarView: View {
 
     @ViewBuilder private var header: some View {
         if let g = link.glance {
-            VStack(spacing: 2) {
-                Image("WatchCar").resizable().scaledToFit()
-                HStack(alignment: .firstTextBaseline, spacing: 2) {
-                    Text(g.socPercent.map(String.init) ?? "–")
-                        .font(.system(size: 40, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                    Text("%").font(.title3.weight(.semibold)).foregroundStyle(.secondary)
-                    if g.charging { Image(systemName: "bolt.fill").foregroundStyle(.green) }
+            VStack(spacing: 6) {
+                ChargeRing(glance: g)
+                if let plan = g.plan {
+                    Label(plan, systemImage: g.charging ? "bolt.fill" : (g.pluggedIn ? "clock.fill" : "powerplug"))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(g.pluggedIn ? Color.green : .secondary)
+                        .multilineTextAlignment(.center)
                 }
-                Text(g.rangeText ?? "–").font(.headline).foregroundStyle(.secondary)
-                Gauge(value: Double(g.socPercent ?? 0), in: 0...100) { EmptyView() }
-                    .gaugeStyle(.linearCapacity)
-                    .tint((g.socPercent ?? 0) < 20 ? .orange : .green)
-                Text(g.summary).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 (Text("Updated ") + Text(g.carReportedAt ?? g.fetchedAt, style: .relative) + Text(" ago"))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -152,7 +146,7 @@ struct WatchCarView: View {
         } else {
             VStack(spacing: 6) {
                 Image("WatchCar").resizable().scaledToFit()
-                Text("Open EV6 on your iPhone and sign in to Kia.")
+                Text("Open My EV6 on your iPhone and sign in to Kia.")
                     .font(.footnote)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
@@ -163,10 +157,24 @@ struct WatchCarView: View {
     private var controls: some View {
         let g = link.glance
         return VStack(spacing: 8) {
-            if g?.climateOn == true {
-                action(.climateStop, "Stop Climate", "fan.slash", .orange)
-            } else {
-                action(.climateStart, "Start Climate", "fan.fill", .orange)
+            Button {
+                link.send(g?.climateOn == true ? .climateStop : .climateStart)
+            } label: {
+                buttonLabel(g?.climateOn == true ? "Stop Climate" : "Precondition",
+                            g?.climateOn == true ? "fan.slash.fill" : "fan.fill",
+                            busy: link.sending == .climateStart || link.sending == .climateStop)
+                    .font(.headline)
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .tint(.orange)
+            .disabled(link.sending != nil)
+            if let next = g?.next {
+                Text("Next: \(next)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
             HStack(spacing: 8) {
                 action(.lock, "Lock", "lock.fill", .blue)
@@ -208,5 +216,45 @@ struct WatchCarView: View {
             Text(title).lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The charge as a ring round the face, with the car and the numbers inside.
+struct ChargeRing: View {
+    let glance: CarGlance
+
+    private var fraction: Double { Double(glance.socPercent ?? 0) / 100 }
+    private var tint: Color { (glance.socPercent ?? 0) < 20 ? .orange : .green }
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(tint.opacity(0.18), lineWidth: 7)
+            Circle()
+                .trim(from: 0, to: fraction)
+                .stroke(AngularGradient(colors: [tint.opacity(0.6), tint], center: .center, startAngle: .zero, endAngle: .degrees(360 * fraction)),
+                        style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            VStack(spacing: 0) {
+                Text(glance.climateOn ? "Climate on" : "Climate off")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(glance.climateOn ? Color.orange : .secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 1) {
+                    Text(glance.socPercent.map(String.init) ?? "–")
+                        .font(.system(size: 34, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                    Text("%").font(.headline).foregroundStyle(.secondary)
+                    if glance.charging { Image(systemName: "bolt.fill").font(.caption).foregroundStyle(.green) }
+                }
+                Text([glance.rangeText, glance.pluggedIn ? "plugged in" : nil].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Image("WatchCar").resizable().scaledToFit().frame(maxHeight: 34).padding(.top, 2)
+            }
+            .padding(14)
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .padding(.horizontal, 2)
     }
 }

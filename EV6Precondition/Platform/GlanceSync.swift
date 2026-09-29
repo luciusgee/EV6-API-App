@@ -76,7 +76,9 @@ final class GlanceSync: NSObject {
             carReportedAt: s.carCapturedAt,
             fetchedAt: s.fetchedAt,
             status: car.confirming.map { "Waiting for the car: \($0)…" } ?? car.message,
-            busy: car.busy != nil || car.confirming != nil
+            busy: car.busy != nil || car.confirming != nil,
+            plan: GlanceText.chargePlan(s, smart: AppServices.shared.charging.plan, now: Date()),
+            next: GlanceText.nextRule(AppServices.shared.rules.rules, now: Date(), clock: LocalClock())
         )
     }
 

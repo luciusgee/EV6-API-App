@@ -22,11 +22,16 @@ struct CarGlance: Codable, Equatable, Sendable {
     var status: String?
     /// A command or refresh in progress.
     var busy: Bool = false
+    /// What charging will do, e.g. "Charges 23:00–06:00 to 80%".
+    var plan: String? = nil
+    /// The next scheduled rule, e.g. "Weekday warm-up · tomorrow 07:30".
+    var next: String? = nil
 
     static let preview = CarGlance(
         socPercent: 62, rangeText: "151 mi", charging: false, pluggedIn: false, locked: true,
         climateOn: false, targetText: "21.0 °C", chargeLimit: 80, minutesToFull: nil,
-        carReportedAt: Date(), fetchedAt: Date(), status: nil
+        carReportedAt: Date(), fetchedAt: Date(), status: nil,
+        plan: "Charges 23:00–06:00 to 80%", next: "Weekday warm-up · tomorrow 07:30"
     )
 
     /// "Locked · Climate off" style summary.

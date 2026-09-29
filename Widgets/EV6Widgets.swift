@@ -102,37 +102,66 @@ struct StatusWidgetView: View {
     }
 
     private func medium(_ g: CarGlance) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Image("KiaLogo").renderingMode(.template).resizable().scaledToFit().frame(height: 9)
-                    Text("EV6").font(.caption.weight(.heavy)).tracking(1.5)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Image("KiaLogo").renderingMode(.template).resizable().scaledToFit().frame(height: 9)
+                        Text("EV6").font(.caption.weight(.heavy)).tracking(1.5)
+                        StatusIcons(glance: g)
+                    }
+                    Percent(glance: g, size: 34)
+                    Text([g.rangeText, g.pluggedIn ? (g.charging ? "charging" : "plugged in") : "not plugged in"]
+                        .compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Percent(glance: g, size: 36)
-                Text(g.rangeText ?? "–").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-                ChargeBar(glance: g).padding(.vertical, 4)
-                Text(g.summary).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                Updated(glance: g)
+                Image("WidgetCar").resizable().scaledToFit().frame(maxHeight: 62)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            VStack(spacing: 8) {
-                Image("WidgetCar").resizable().scaledToFit()
-                HStack(spacing: 8) {
-                    if g.climateOn {
-                        ActionButton(action: .climateStop, symbol: "fan.slash", tint: .orange)
+            ChargeBar(glance: g).padding(.vertical, 6)
+            if let plan = g.plan {
+                Label(plan, systemImage: g.charging ? "bolt.fill" : (g.pluggedIn ? "clock.fill" : "powerplug"))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(g.pluggedIn ? Color.green : .secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 2)
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    if let next = g.next {
+                        Text("Next: \(next)").lineLimit(1)
                     } else {
-                        ActionButton(action: .climateStart, symbol: "fan", tint: .orange)
+                        Updated(glance: g)
                     }
-                    ActionButton(action: .lock, symbol: "lock.fill", tint: .blue)
-                    ActionButton(action: .refresh, symbol: "arrow.clockwise", tint: .gray)
                 }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                ClimatePill(glance: g)
             }
-            .frame(maxWidth: .infinity)
         }
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
         .widgetURL(URL(string: "ev6://open"))
+    }
+}
+
+/// The one big button: start climate, or stop it while it runs.
+struct ClimatePill: View {
+    let glance: CarGlance
+
+    var body: some View {
+        Button(intent: CarCommandIntent(glance.climateOn ? .climateStop : .climateStart)) {
+            Label(glance.climateOn ? "Stop" : "Climate", systemImage: glance.climateOn ? "fan.slash.fill" : "fan.fill")
+                .font(.caption.weight(.bold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(Color.orange.opacity(glance.climateOn ? 0.3 : 1), in: Capsule())
+                .foregroundStyle(glance.climateOn ? Color.orange : .black)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -267,7 +296,7 @@ struct LockScreenView: View {
                 .widgetAccentable()
                 if let g {
                     Text(g.rangeText.map { "\($0) range" } ?? "–")
-                    Text(g.summary).lineLimit(1)
+                    Text(g.plan ?? g.summary).lineLimit(1)
                 } else {
                     Text("Open EV6 to sign in")
                 }

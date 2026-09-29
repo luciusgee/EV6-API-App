@@ -129,6 +129,9 @@ public enum Guide {
                       symbol: "stethoscope", tab: .scanner),
         ]),
         GuideSection(id: "everywhere", title: "Beyond the app", symbol: "apps.iphone", steps: [
+            GuideStep("extras.glance", "Widget and Watch at a glance",
+                      "The Home Screen widget and the Watch show what charging will do (\"Charges 23:00–06:00 to 80%\"), your next rule, and one big Climate button. On the Watch the charge is a ring round the face.",
+                      symbol: "applewatch", tab: .car),
             GuideStep("extras.widgets", "Widgets, Watch and Siri",
                       "Home and Lock Screen widgets with buttons, Control Center controls, the Apple Watch app and complications, and Siri and Shortcuts actions: start climate, lock, check the car, charge limit, check my commute.",
                       symbol: "apps.iphone", tab: .car),
@@ -148,6 +151,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
+        GuideRelease(number: 7, title: "A new look for the widget and Watch", stepIds: ["extras.glance"]),
         GuideRelease(number: 6, title: "Plug-in checks", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 5, title: "Food on the way, and this guide", stepIds: ["trips.food", "trips.saved", "settings.guide"]),
         GuideRelease(number: 4, title: "Traffic ahead", stepIds: ["trips.traffic"]),

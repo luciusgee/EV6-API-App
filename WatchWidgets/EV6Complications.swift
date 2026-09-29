@@ -71,7 +71,7 @@ struct ComplicationView: View {
                 }
                 .widgetAccentable()
                 Text(glance?.rangeText.map { "\($0) range" } ?? "–")
-                Text(glance?.summary ?? "Open EV6 on your iPhone").lineLimit(1)
+                Text(glance?.plan ?? glance?.summary ?? "Open My EV6 on your iPhone").lineLimit(1)
             }
             .font(.caption)
             .frame(maxWidth: .infinity, alignment: .leading)

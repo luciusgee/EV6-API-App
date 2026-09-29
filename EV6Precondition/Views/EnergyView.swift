@@ -60,7 +60,7 @@ struct EnergyView: View {
                     ContentUnavailableView {
                         Label("No energy data yet", systemImage: "chart.bar.xaxis")
                     } description: {
-                        Text("The car keeps 30 days of driving history: distance, and what went on driving, climate and electronics. Loading it uses one request.")
+                        Text("The last 30 days, from the car. Loading uses one request.")
                     } actions: {
                         Button("Load Energy Data") { Task { await model.refreshEnergy() } }
                             .buttonStyle(.borderedProminent)

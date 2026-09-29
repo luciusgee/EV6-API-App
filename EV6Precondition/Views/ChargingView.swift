@@ -104,7 +104,7 @@ private struct SmartChargeSection: View {
                     }
                 }
             )) {
-                Label("Smart charging", systemImage: "sparkles")
+                Label("Smart charging", systemImage: "bolt.badge.clock")
             }
             if smart.enabled {
                 RoundStepper("Charge to", value: Binding(
@@ -137,8 +137,8 @@ private struct SmartChargeSection: View {
             Text("Smart charging")
         } footer: {
             Text(smart.enabled
-                 ? "Plug in when you get home. The app holds charging until the cheapest unbroken window before you need the car, starts it then, and the car's charge limit stops it. iOS can't wake apps at an exact time, so you'll also get a notification with a Start Charging button when the window opens."
-                 : "Charge on the cheapest prices before you need the car: best with Octopus Agile, Go or Intelligent Octopus Go.")
+                 ? "Plug in as normal. Charging waits for the cheapest slot and stops at your target. You'll get a notification when it starts, with a button in case the app can't start it itself."
+                 : "Charge at the cheapest time before you need the car.")
         }
     }
 
@@ -210,7 +210,7 @@ private struct PricesSection: View {
             Text("Prices ahead")
         } footer: {
             if case .agile = charging.settings.tariff {
-                Text("Octopus publishes tomorrow's Agile prices at about 4 pm. Green is the planned charge; pull down to update.")
+                Text("Tomorrow's prices arrive around 4 pm. Green is when the car will charge.")
             }
         }
     }
@@ -236,7 +236,7 @@ private struct CostsSummarySection: View {
                 LabeledContent(month.month.formatted(.dateTime.month(.wide)), value: DisplayText.money(pence: month.totals.costPence))
                 LabeledContent("Energy", value: String(format: "%.0f kWh in %d charge%@", month.totals.paidKWh, month.totals.sessions, month.totals.sessions == 1 ? "" : "s"))
             } else {
-                Text("Charges show up here as the app sees your EV6's charge go up.").foregroundStyle(.secondary)
+                Text("Charges appear here once the app sees the battery go up.").foregroundStyle(.secondary)
             }
             if let perMile = charging.perMile {
                 LabeledContent("Per mile", value: String(format: "%.1fp", car.settings.useMiles ? perMile.electric : perMile.electric / 1.609344))
@@ -403,7 +403,7 @@ private struct TariffSection: View {
         } header: {
             Text("Home tariff")
         } footer: {
-            Text("Used to cost charges at home and to plan smart charging. Agile prices come straight from Octopus for your postcode's region; no Octopus account needed.")
+            Text("For Agile, prices come from Octopus for your area. No account needed.")
         }
         .onAppear { postcode = charging.settings.postcode ?? "" }
     }
@@ -465,7 +465,7 @@ private struct CostSettingsSection: View {
         } header: {
             Text("Comparisons")
         } footer: {
-            Text("Home charges add about 10% for charging losses. Public charges use the price above unless you add them by hand.")
+            Text("Home charges include about 10% lost in charging.")
         }
     }
 }

@@ -19,7 +19,7 @@ struct AlertsSettingsView: View {
                     }
                 }
             } footer: {
-                Text("Each is sent once, then again only after it has cleared.")
+                Text("You're told once, and again only if it happens again.")
             }
             Section {
                 RoundStepper("Low charge below", value: charging.binding(\.alerts.lowChargePercent), in: 5...50, step: 5) { "\($0)%" }
@@ -37,7 +37,7 @@ struct AlertsSettingsView: View {
                     ), in: 1...12, step: 1) { "\($0) h" }
                 }
             } footer: {
-                Text("iOS decides exactly when background checks run, usually less often than asked. Each uses one Kia request from the automation budget; your own taps keep their reserve.")
+                Text("Uses one Kia request each time. iOS decides exactly when, often less often than this.")
             }
         }
         .navigationTitle("Alerts")

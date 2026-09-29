@@ -109,7 +109,7 @@ struct BatteryHealthView: View {
                         .font(.subheadline)
                 }
             } footer: {
-                Text("Plug a Bluetooth LE or Wi-Fi ELM327 adapter into the port under the dashboard, switch the car on, connect below, then read. It takes about 10 seconds and only reads: nothing is written to the car.")
+                Text("Plug your OBD adapter in under the dashboard, switch the car on, connect below and tap Read. Takes about 10 seconds and changes nothing on the car.")
             }
 
             if let report = reports.report {
@@ -163,7 +163,7 @@ private struct HealthHistorySection: View {
         } header: {
             Text("History")
         } footer: {
-            Text("Every read is kept. SOH changes slowly: read every month or so to see the trend. A cell spread that keeps growing past about 50 mV is worth a dealer check.")
+            Text("Read it once a month or so to see the trend. If the cell spread keeps climbing past about 50 mV, get it checked.")
         }
     }
 }

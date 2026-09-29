@@ -57,7 +57,7 @@ private struct MyCarSection: View {
         } header: {
             Text("My EV6")
         } footer: {
-            Text("2022 EV6 GT-Line AWD · Runway Red · 77.4 kWh · 325 bhp. Drag the car to turn it round; double-tap to put it back.")
+            Text("2022 EV6 GT-Line AWD · Runway Red · 77.4 kWh · 325 bhp")
         }
     }
 }
@@ -113,7 +113,7 @@ private struct KiaConnectSection: View {
         } header: {
             Text("Kia account")
         } footer: {
-            Text("The same email and password as the Kia app (Europe). The password is encrypted with Kia's key on this iPhone and only ever sent to Kia; it's kept in the iOS Keychain so the app can sign back in by itself if Kia ends the session. Kia has no public API, so this can stop working whenever Kia changes theirs.")
+            Text("Your Kia app login. The password stays in the iPhone Keychain and only goes to Kia.")
         }
     }
 }
@@ -142,7 +142,7 @@ private struct SafetySection: View {
         } header: {
             Text("Safety")
         } footer: {
-            Text("Climate never starts below the minimum charge unless the car is plugged in. This applies to manual starts too.")
+            Text("Climate won't start below this unless the car is plugged in.")
         }
     }
 
@@ -161,12 +161,11 @@ private struct RateLimitSection: View {
 
     var body: some View {
         Section {
-            RoundStepper("Requests per 24 hours", value: binding(\.budgetLimit), in: 10...200, step: 10) { "\($0)" }
-            RoundStepper("Kept for you", value: binding(\.budgetReserve), in: 0...(model.settings.budgetLimit / 2), step: 1) { "\($0)" }
+            RoundStepper("Kia requests per day", value: binding(\.budgetLimit), in: 10...200, step: 10) { "\($0)" }
         } header: {
             Text("Rate limit")
         } footer: {
-            Text("Kia allows roughly 200 requests a day per account; the app keeps itself to this budget so it never gets near that. A read, a command, and each check that the car carried a command out all count. Automation stops before the reserve, so it's always there for you.")
+            Text("Kia allows about 200 a day. Refreshing, sending a command and confirming it each count. Automations stop \(model.settings.budgetReserve) short, so the buttons in the app always work.")
         }
     }
 

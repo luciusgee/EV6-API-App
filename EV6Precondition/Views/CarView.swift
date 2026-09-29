@@ -76,7 +76,7 @@ struct CarView: View {
             .confirmationDialog("Unlock the car?", isPresented: $confirmUnlock, titleVisibility: .visible) {
                 Button("Unlock") { Task { await model.send(.unlock) } }
             } message: {
-                Text("The doors unlock remotely. The car locks itself again if no door is opened.")
+                Text("It locks itself again if no door is opened.")
             }
             .sheet(isPresented: $editingLimits) {
                 ChargeLimitSheet(ac: details?.chargeLimitAC ?? 80, dc: details?.chargeLimitDC ?? 80)
@@ -194,7 +194,7 @@ struct CarView: View {
         } header: {
             Text("Climate")
         } footer: {
-            Text("Keep charger off: when the car is plugged in but not charging (done, or waiting for off-peak), the app stops the charger before starting climate, so preconditioning never starts a peak-rate charge. A charge that's already running is left alone.")
+            Text("Keep charger off: if the car's plugged in but not charging, climate won't kick off a charge at peak rates.")
         }
     }
 
@@ -329,7 +329,7 @@ struct CarView: View {
                 .padding(.vertical, 2)
             }
         } header: {
-            Text("Kia requests, last 24 h")
+            Text("Kia requests")
         } footer: {
             if let budget = model.budget {
                 Text(DisplayText.budget(budget))

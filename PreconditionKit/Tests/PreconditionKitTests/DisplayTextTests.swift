@@ -7,11 +7,11 @@ final class DisplayTextTests: XCTestCase {
 
     func testBudgetLine() {
         var b = RateBudget.compute(RateBudgetState(), .kia, t0)
-        XCTAssertEqual(DisplayText.budget(b, timeZone: utc), "80 left of 80 · 72 for automation · 8 kept for you")
+        XCTAssertEqual(DisplayText.budget(b, timeZone: utc), "None used in the last 24 hours.")
         b = RateBudget.compute(RateBudgetState(sent: [SentRequest(id: 1, at: t0.addingTimeInterval(-600), kind: .manual)]), .kia, t0)
-        XCTAssertEqual(DisplayText.budget(b, timeZone: utc), "79 left of 80 · 71 for automation · 8 kept for you · resets 14:50")
+        XCTAssertEqual(DisplayText.budget(b, timeZone: utc), "Requests free up 24 hours after use. Next one at 14:50.")
         b = RateBudget.compute(RateBudgetState(exhaustedUntil: t0.addingTimeInterval(3600)), .kia, t0)
-        XCTAssertEqual(DisplayText.budget(b, timeZone: utc), "Kia's request limit reached · try again at 16:00")
+        XCTAssertEqual(DisplayText.budget(b, timeZone: utc), "Kia's limit reached. Try again at 16:00.")
     }
 
     func testAge() {

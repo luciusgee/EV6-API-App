@@ -51,14 +51,14 @@ struct RulesView: View {
                             }
                         }
                     } header: {
-                        Label("Suggested for you", systemImage: "sparkles")
+                        Text("Suggestions")
                     }
                 }
                 if model.rules.isEmpty {
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("No rules yet").font(.headline)
-                            Text("Tap ✨ and describe what you want, like “weekdays at 7:30 heat to 22 if it's below 5”, or tap + for a template.")
+                            Text("Type what you want, like “weekdays at 7:30 heat to 22 if it's below 5”, or tap + for a template.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
@@ -124,7 +124,7 @@ struct RulesView: View {
                     Button {
                         composing = true
                     } label: {
-                        Label("Describe a rule", systemImage: "sparkles")
+                        Label("Type a rule", systemImage: "text.cursor")
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {

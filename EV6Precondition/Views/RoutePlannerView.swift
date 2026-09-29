@@ -114,7 +114,7 @@ struct RoutePlannerView: View {
         parts.append(car.energy?.kWhPer100km != nil ? "from your last 30 days" : "(typical EV6 AWD)")
         if model.speedFactor > 1.01 { parts.append(String(format: "+%.0f%% for motorway speed", (model.speedFactor - 1) * 100)) }
         if model.temperatureFactor > 1.01, let t = outsideC { parts.append(String(format: "+%.0f%% for %.0f °C", (model.temperatureFactor - 1) * 100, t)) }
-        return parts.joined(separator: ", ") + ", plus 5% margin."
+        return parts.joined(separator: ", ") + "."
     }
 
     private var consumptionModel: ConsumptionModel {
@@ -196,7 +196,7 @@ struct RoutePlannerView: View {
         } header: {
             Text("Route")
         } footer: {
-            Text("Charger speeds are guessed from the operator's name (Ionity, Gridserve, InstaVolt, Osprey and similar count as 150 kW+). Check live availability in the network's app. To warm the battery for faster charging, set the charger as the destination in the car's own navigation.")
+            Text("Charger speeds are estimated from the network. Check availability before you go. Set the charger in the car's sat nav so the battery warms up for faster charging.")
         }
 
         Section {

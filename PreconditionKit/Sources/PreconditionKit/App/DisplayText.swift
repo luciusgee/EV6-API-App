@@ -2,18 +2,13 @@ import Foundation
 
 /// Short texts the screens show, kept here so they're tested.
 public enum DisplayText {
-    /// The dashboard's budget line: "80 left of 80 · 72 for automation · 8 kept for you · resets 17:10".
+    /// The line under the dashboard's request count: "Next one frees up at 17:10".
     public static func budget(_ b: BudgetSnapshot, timeZone: TimeZone = .current) -> String {
         if let until = b.exhaustedUntil {
-            return "Kia's request limit reached · try again at \(clock(until, timeZone))"
+            return "Kia's limit reached. Try again at \(clock(until, timeZone))."
         }
-        var parts = [
-            "\(b.remaining) left of \(b.limit)",
-            "\(b.automationAvailable) for automation",
-            "\(b.manualReserve) kept for you",
-        ]
-        if let reset = b.resetAt { parts.append("resets \(clock(reset, timeZone))") }
-        return parts.joined(separator: " · ")
+        if let reset = b.resetAt { return "Requests free up 24 hours after use. Next one at \(clock(reset, timeZone))." }
+        return "None used in the last 24 hours."
     }
 
     /// "just now", "5 min ago", "3 h ago", "2 days ago".

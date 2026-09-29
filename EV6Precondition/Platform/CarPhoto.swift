@@ -135,14 +135,15 @@ final class CarPhoto {
     }
 }
 
-/// Kia's studio renders of the 2022 EV6 in Runway Red: 72 frames, 5° apart, turning the car a full
-/// circle. Frame 1 is side-on with the nose to the left; dragging right brings the nose round.
+/// Kia's studio renders of the 2022 EV6 GT-Line in Runway Red (Kia Canada's configurator): 36 frames,
+/// 10° apart, turning the car a full circle. Frame 1 is the front three-quarter with the nose to the
+/// left; dragging right brings the nose round towards you.
 struct CarSpin: View {
-    static let frames = 72
+    static let frames = 36
     /// Front three-quarter, like the photo in the Kia app.
-    static let front = 64
+    static let front = 1
     /// Rear three-quarter.
-    static let rear = 10
+    static let rear = 27
 
     var rest = CarSpin.front
     var interactive = true
@@ -160,7 +161,7 @@ struct CarSpin: View {
             // Alongside the page's scrolling: only sideways movement turns the car.
             .simultaneousGesture(drag, including: interactive ? .all : .subviews)
             .onTapGesture(count: 2) { if interactive { Task { await settle() } } }
-            .sensoryFeedback(.selection, trigger: shown) { _, _ in frame != nil && shown % 9 == 0 }
+            .sensoryFeedback(.selection, trigger: shown) { _, _ in frame != nil && shown % 3 == 0 }
     }
 
     private var drag: some Gesture {
@@ -168,8 +169,8 @@ struct CarSpin: View {
             .onChanged { value in
                 let start = dragStart ?? shown
                 dragStart = start
-                // About 7 points of drag per 5° step.
-                frame = Self.wrap(start - Int((value.translation.width / 7).rounded()))
+                // About 12 points of drag per 10° step.
+                frame = Self.wrap(start + Int((value.translation.width / 12).rounded()))
             }
             .onEnded { _ in dragStart = nil }
     }
@@ -182,7 +183,7 @@ struct CarSpin: View {
         while current != rest {
             current = Self.wrap(current + step)
             frame = current
-            try? await Task.sleep(for: .milliseconds(12))
+            try? await Task.sleep(for: .milliseconds(20))
         }
         frame = nil
     }

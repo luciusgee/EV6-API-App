@@ -98,6 +98,11 @@ struct RulesView: View {
                             Label("Places", systemImage: "mappin.and.ellipse")
                         }
                     }
+                    NavigationLink {
+                        TimeAtPlacesView()
+                    } label: {
+                        Label("Time at places", systemImage: "clock.badge.checkmark")
+                    }
                 } footer: {
                     if model.places.isEmpty {
                         Text("Add Home and Work to start climate when you leave or arrive.")

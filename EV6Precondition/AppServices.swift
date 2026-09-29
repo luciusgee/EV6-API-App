@@ -11,6 +11,7 @@ final class AppServices {
     let car: CarModel
     let rules: RulesModel
     let charging: ChargingModel
+    let presence: PresenceModel
     let obd = OBDService()
     private var prepared = false
 
@@ -33,6 +34,7 @@ final class AppServices {
         self.container = container
         self.car = car
         self.rules = RulesModel(container: container)
+        self.presence = PresenceModel(directory: support.appendingPathComponent("EV6Precondition", isDirectory: true))
         self.charging = ChargingModel(directory: support.appendingPathComponent("EV6Precondition", isDirectory: true), transport: URLSessionTransport())
         notifier.onStop = {
             await car.stop()
@@ -51,6 +53,16 @@ final class AppServices {
         rules.onChange = { rules, places in
             GeofenceMonitor.shared.sync(rules: rules, places: places, carPosition: car.snapshot?.parkingPosition)
         }
+        let presence = self.presence
+        GeofenceMonitor.shared.onPresence = { placeId, arrived, left, source in
+            await presence.load()
+            if let left {
+                await presence.left(placeId, at: left, arrivedAt: arrived, source: source)
+            } else if let arrived {
+                await presence.arrived(placeId, at: arrived, source: source)
+            }
+        }
+        presence.onTrackedChange = { GeofenceMonitor.shared.track($0) }
         // Now, not later: the Watch can wake the app in the background with a command.
         GlanceSync.shared.start(car: car)
     }
@@ -62,6 +74,8 @@ final class AppServices {
         notifier.register()
         await car.load()
         await charging.load()
+        await presence.load()
+        GeofenceMonitor.shared.track(presence.tracked)
         // The fake car was a development aid; the app only talks to the real car now.
         if car.settings.fakeMode {
             await car.updateSettings { $0.fakeMode = false }

@@ -15,6 +15,9 @@ struct HealthPoint: Codable, Equatable, Identifiable {
 @MainActor
 @Observable
 final class BatteryReportStore {
+    /// One store, so the Car tab's and the Scanner's Battery health screens share a read in progress.
+    static let shared = BatteryReportStore()
+
     private(set) var report: BatteryReport?
     private(set) var history: [HealthPoint] = []
     private let historyStore: JSONFileStore<[HealthPoint]>
@@ -75,7 +78,7 @@ final class BatteryReportStore {
 struct BatteryHealthView: View {
     @Environment(CarModel.self) private var car
     @Environment(OBDService.self) private var obd
-    @State private var reports = BatteryReportStore()
+    @State private var reports = BatteryReportStore.shared
     @State private var showingAdapters = false
 
     var body: some View {
@@ -91,7 +94,7 @@ struct BatteryHealthView: View {
                     if let elm = obd.elm { Task { await reports.scan(elm, odometerKm: car.snapshot?.details?.odometerKm) } }
                 } label: {
                     HStack {
-                        Label("Read Battery", systemImage: "waveform.path.ecg")
+                        Label("Read battery", systemImage: "waveform.path.ecg")
                         Spacer()
                         if reports.scanning { ProgressView() }
                     }
@@ -121,7 +124,7 @@ struct BatteryHealthView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Battery Health")
+        .navigationTitle("Battery health")
         .task { await reports.load() }
         .safeAreaInset(edge: .bottom) {
             ConnectionBar(showingAdapters: $showingAdapters)
@@ -210,9 +213,9 @@ struct AdapterPicker: View {
                     } else if link.state == .bluetoothOff {
                         Text("Turn Bluetooth on in Control Center.")
                     } else if link.state == .bluetoothDenied {
-                        Text("Allow Bluetooth for EV6 Precondition in iOS Settings.")
+                        Text("Allow Bluetooth for EV6 in iOS Settings.")
                     } else {
-                        Text("Adapters don't pair in iOS Settings; they connect here. Classic-Bluetooth adapters can't be used with an iPhone.")
+                        Text("Connect adapters here, not in iOS Settings. It needs a Bluetooth LE or Wi-Fi adapter.")
                     }
                 }
 
@@ -222,7 +225,7 @@ struct AdapterPicker: View {
                     Text("Join the adapter's Wi-Fi network in iOS Settings first (it's usually called WiFi_OBDII or similar). Uses 192.168.0.10, port 35000.")
                 }
             }
-            .navigationTitle("OBD Adapter")
+            .navigationTitle("OBD adapter")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

@@ -17,8 +17,11 @@ struct ChargingView: View {
             CostSettingsSection()
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Charging")
-        .refreshable { await charging.refreshPrices() }
+        .navigationTitle("Charging & costs")
+        .refreshable {
+            await car.refresh()
+            await charging.refreshPrices()
+        }
         .task {
             charging.replan(soc: car.snapshot?.socPercent)
             if charging.pricesStale { await charging.refreshPrices() }
@@ -239,8 +242,10 @@ private struct CostsSummarySection: View {
                 Text("Charges appear here once the app sees the battery go up.").foregroundStyle(.secondary)
             }
             if let perMile = charging.perMile {
-                LabeledContent("Per mile", value: String(format: "%.1fp", car.settings.useMiles ? perMile.electric : perMile.electric / 1.609344))
-                LabeledContent("Petrol equivalent", value: String(format: "%.1fp", perMile.petrol))
+                let unit = car.settings.useMiles ? "mile" : "km"
+                let scale = car.settings.useMiles ? 1 : 1 / 1.609344
+                LabeledContent("Cost per \(unit)", value: String(format: "%.1fp", perMile.electric * scale))
+                LabeledContent("Petrol, per \(unit)", value: String(format: "%.1fp", perMile.petrol * scale))
             }
             NavigationLink {
                 ChargeHistoryView()
@@ -288,7 +293,7 @@ struct ChargeHistoryView: View {
             Button {
                 adding = true
             } label: {
-                Label("Add a Public Charge", systemImage: "plus")
+                Label("Add a public charge", systemImage: "plus")
             }
         }
         .sheet(isPresented: $adding) { AddChargeSheet() }
@@ -339,7 +344,7 @@ private struct AddChargeSheet: View {
                 }
                 TextField("Where (optional)", text: $note)
             }
-            .navigationTitle("Public Charge")
+            .navigationTitle("Public charge")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -390,12 +395,16 @@ private struct TariffSection: View {
                 DatePicker("Cheap from", selection: Binding(get: { from.date }, set: { set(.offPeak(peakPence: peak, offPeakPence: off, from: ClockTime(date: $0), to: to)) }), displayedComponents: .hourAndMinute)
                 DatePicker("Until", selection: Binding(get: { to.date }, set: { set(.offPeak(peakPence: peak, offPeakPence: off, from: from, to: ClockTime(date: $0))) }), displayedComponents: .hourAndMinute)
             case .agile(let region, let fallback):
-                LabeledContent("Region", value: region)
+                if region == "?" {
+                    Text("Enter your postcode to get Agile prices for your area.").foregroundStyle(.orange)
+                } else {
+                    LabeledContent("Region", value: region)
+                }
                 HStack {
                     TextField("Postcode", text: $postcode)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
-                    Button("Change") { Task { await charging.useAgile(postcode: postcode) } }
+                    Button(region == "?" ? "Look up" : "Change") { Task { await charging.useAgile(postcode: postcode) } }
                         .disabled(postcode.count < 5)
                 }
                 PenceField(title: "If no price yet", value: fallback) { v in set(.agile(region: region, fallbackPence: v)) }
@@ -420,8 +429,7 @@ private struct TariffSection: View {
             if postcode.count >= 5 {
                 Task { await charging.useAgile(postcode: postcode) }
             } else {
-                set(.agile(region: "C", fallbackPence: 24.5))
-                charging.problem = "Enter your postcode and tap Change to get your region's Agile prices."
+                set(.agile(region: "?", fallbackPence: 24.5))
             }
         }
     }
@@ -432,6 +440,7 @@ private struct PenceField: View {
     let value: Double
     let onCommit: (Double) -> Void
     @State private var text = ""
+    @FocusState private var focused: Bool
 
     var body: some View {
         LabeledContent(title) {
@@ -439,8 +448,9 @@ private struct PenceField: View {
                 TextField("p", text: $text)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
+                    .focused($focused)
                     .onSubmit(commit)
-                    .onChange(of: text) { _, _ in commit() }
+                    .onChange(of: focused) { _, isFocused in if !isFocused { commit() } }
                 Text("p/kWh").foregroundStyle(.secondary)
             }
         }

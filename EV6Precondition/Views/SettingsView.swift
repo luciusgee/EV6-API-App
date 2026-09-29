@@ -3,7 +3,7 @@ import PreconditionKit
 import SwiftUI
 import UIKit
 
-/// Settings (HANDOVER.md §6.5): Kia Connect credentials, safety, rate limit, developer.
+/// Settings: the car, the Kia account, safety, automation and requests, alerts and the log.
 struct SettingsView: View {
     @Environment(CarModel.self) private var model
 
@@ -13,8 +13,7 @@ struct SettingsView: View {
                 MyCarSection()
                 KiaConnectSection()
                 SafetySection()
-                PermissionsSection()
-                RateLimitSection()
+                AutomationSection()
                 Section {
                     NavigationLink {
                         AlertsSettingsView()
@@ -24,15 +23,14 @@ struct SettingsView: View {
                     NavigationLink {
                         ActivityView()
                     } label: {
-                        Label("Activity", systemImage: "clock.arrow.circlepath")
+                        Label("Activity log", systemImage: "list.bullet.clipboard")
                     }
-                } footer: {
-                    Text("Alerts for charging, locks, windows and the 12 V battery; and the log of every command and rule decision.")
                 }
+                PermissionsSection()
                 Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
                 } footer: {
-                    Text("No analytics and no backend. The app only talks to Kia Connect.")
+                    Text("No analytics and no server. The app only talks to Kia.")
                 }
             }
             .navigationTitle("Settings")
@@ -138,7 +136,6 @@ private struct SafetySection: View {
     var body: some View {
         Section {
             RoundStepper("Minimum charge", value: binding(\.minSocPercent), in: 0...100, step: 5) { "\($0)%" }
-            RoundStepper("Default temperature", value: binding(\.defaultTargetC), in: AppSettings.minTargetC...AppSettings.maxTargetC, step: 0.5, tint: .orange) { Describe.temp($0) }
         } header: {
             Text("Safety")
         } footer: {
@@ -154,26 +151,51 @@ private struct SafetySection: View {
     }
 }
 
-// MARK: - Rate limit
+// MARK: - Automation and requests
 
-private struct RateLimitSection: View {
+private struct AutomationSection: View {
     @Environment(CarModel.self) private var model
+    @Environment(RulesModel.self) private var rules
 
     var body: some View {
         Section {
-            RoundStepper("Kia requests per day", value: binding(\.budgetLimit), in: 10...200, step: 10) { "\($0)" }
+            Toggle(isOn: Binding(
+                get: { !model.settings.automationPaused },
+                set: { on in Task { await model.updateSettings { $0.automationPaused = !on } } }
+            )) {
+                Label("Rules and smart charging", systemImage: "gearshape.2")
+            }
+            if let next = rules.nextCheck {
+                LabeledContent("Next scheduled check") {
+                    Text(next.at, format: .dateTime.weekday(.abbreviated).hour().minute())
+                }
+            }
+            if let last = model.automation.lastCommand {
+                LabeledContent("Last command") {
+                    Text("\(last.description.capitalizingFirst), \(DisplayText.age(of: last.at, now: model.now))")
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+            if let budget = model.budget {
+                VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Kia requests left", value: "\(budget.remaining) of \(budget.limit)")
+                    ProgressView(value: Double(budget.remaining), total: Double(max(budget.limit, 1)))
+                        .tint(budget.exhaustedUntil == nil ? Color.accentColor : .red)
+                    Text(DisplayText.budget(budget)).font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
+            }
+            RoundStepper("Requests per day", value: Binding(
+                get: { model.settings.budgetLimit },
+                set: { v in Task { await model.updateSettings { $0.budgetLimit = v } } }
+            ), in: 10...200, step: 10) { "\($0)" }
         } header: {
-            Text("Rate limit")
+            Text("Automation")
         } footer: {
-            Text("Kia allows about 200 a day. Refreshing, sending a command and confirming it each count. Automations stop \(model.settings.budgetReserve) short, so the buttons in the app always work.")
+            Text(model.settings.automationPaused
+                 ? "Paused. Rules still log what they would do, but send nothing."
+                 : "Kia allows about 200 requests a day. Automations stop \(model.settings.budgetReserve) short, so the app's buttons always work.")
         }
-    }
-
-    private func binding(_ keyPath: WritableKeyPath<AppSettings, Int>) -> Binding<Int> {
-        Binding(
-            get: { model.settings[keyPath: keyPath] },
-            set: { value in Task { await model.updateSettings { $0[keyPath: keyPath] = value } } }
-        )
     }
 }
 

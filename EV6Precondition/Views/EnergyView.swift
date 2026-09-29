@@ -70,7 +70,7 @@ struct EnergyView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Energy")
+        .navigationTitle("Energy use")
         .refreshable { await model.refreshEnergy() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

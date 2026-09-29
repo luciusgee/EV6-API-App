@@ -52,9 +52,9 @@ struct CarView: View {
                 }
 
                 climateSection
-                vehicleSection
-                automationSection
-                requestsSection
+                chargingSection
+                tripsSection
+                statusSection
             }
             .listStyle(.insetGrouped)
             .navigationTitle("My EV6")
@@ -174,7 +174,13 @@ struct CarView: View {
         Section {
             RoundStepper(
                 "Temperature",
-                value: Binding(get: { shownTarget }, set: { target = $0 }),
+                value: Binding(
+                    get: { shownTarget },
+                    set: { v in
+                        target = v
+                        Task { await model.updateSettings { $0.defaultTargetC = v } }
+                    }
+                ),
                 in: AppSettings.minTargetC...AppSettings.maxTargetC,
                 step: 0.5,
                 tint: shownTarget >= 20 ? .orange : .cyan
@@ -189,12 +195,12 @@ struct CarView: View {
                 Label("Heated wheel & mirrors", systemImage: "steeringwheel")
             }
             Toggle(isOn: setting(\.holdChargerOnClimate)) {
-                Label("Keep charger off", systemImage: "powerplug")
+                Label("Don't start charging", systemImage: "powerplug")
             }
         } header: {
             Text("Climate")
         } footer: {
-            Text("Keep charger off: if the car's plugged in but not charging, climate won't kick off a charge at peak rates.")
+            Text("If the car's plugged in but not charging, starting climate won't set off a charge at peak rates.")
         }
     }
 
@@ -205,29 +211,18 @@ struct CarView: View {
         )
     }
 
-    // MARK: Vehicle
+    // MARK: Charging
 
-    private var vehicleSection: some View {
+    private var chargingSection: some View {
         Section {
             NavigationLink {
                 ChargingView()
             } label: {
                 LabeledContent {
-                    Text(chargingModel.plan.map { "\($0.start.formatted(date: .omitted, time: .shortened))" }
-                        ?? chargingModel.monthly.first.map { DisplayText.money(pence: $0.totals.costPence) } ?? "")
+                    Text(chargingSummary)
                 } label: {
                     Label("Charging & costs", systemImage: "bolt.batteryblock")
                 }
-            }
-            NavigationLink {
-                RoutePlannerView()
-            } label: {
-                Label("Plan a trip", systemImage: "point.topleft.down.to.point.bottomright.curvepath.fill")
-            }
-            NavigationLink {
-                ChargersView(near: snapshot?.parkingPosition)
-            } label: {
-                Label("Chargers nearby", systemImage: "ev.charger")
             }
             NavigationLink {
                 EnergyView()
@@ -235,23 +230,64 @@ struct CarView: View {
                 LabeledContent {
                     Text(DisplayText.efficiency(kWhPer100km: model.energy?.kWhPer100km, miles: model.settings.useMiles) ?? "")
                 } label: {
-                    Label("Energy", systemImage: "chart.bar.xaxis")
+                    Label("Energy use", systemImage: "chart.bar.xaxis")
                 }
             }
+            NavigationLink {
+                ChargersView(near: snapshot?.parkingPosition)
+            } label: {
+                Label("Chargers nearby", systemImage: "ev.charger")
+            }
+        } header: {
+            Text("Charging")
+        }
+    }
+
+    /// "Smart charge 01:30" while a plan is set, else this month's spend.
+    private var chargingSummary: String {
+        if let plan = chargingModel.plan {
+            return "Smart charge \(plan.start.formatted(date: .omitted, time: .shortened))"
+        }
+        return chargingModel.monthly.first.map { "\(DisplayText.money(pence: $0.totals.costPence)) this month" } ?? ""
+    }
+
+    // MARK: Trips
+
+    private var tripsSection: some View {
+        Section {
+            NavigationLink {
+                RoutePlannerView()
+            } label: {
+                Label("Plan a trip", systemImage: "map")
+            }
+            NavigationLink {
+                TimeAtPlacesView()
+            } label: {
+                Label("Time at places", systemImage: "clock.badge.checkmark")
+            }
+        } header: {
+            Text("Trips")
+        }
+    }
+
+    // MARK: Status
+
+    private var statusSection: some View {
+        Section {
             NavigationLink {
                 BatteryHealthView()
             } label: {
                 LabeledContent {
                     Text(details?.batteryHealthPercent.map { String(format: "%.0f%%", $0) } ?? "")
                 } label: {
-                    Label("Battery health", systemImage: "battery.100percent.bolt")
+                    Label("Battery health", systemImage: "heart.text.square")
                 }
             }
             if let odometer = details?.odometerKm {
                 LabeledContent {
                     Text(DisplayText.distance(km: odometer, miles: model.settings.useMiles))
                 } label: {
-                    Label("Odometer", systemImage: "road.lanes")
+                    Label("Odometer", systemImage: "gauge.with.needle")
                 }
             }
             if let aux = details?.auxBatteryPercent {
@@ -275,7 +311,7 @@ struct CarView: View {
                 }
             }
         } header: {
-            Text("Vehicle")
+            Text("Status")
         }
     }
 
@@ -284,57 +320,6 @@ struct CarView: View {
         if d.trunkOpen == true { open += 1 }
         if d.hoodOpen == true { open += 1 }
         return open == 0 ? "All closed" : "\(open) open"
-    }
-
-    // MARK: Automation
-
-    private var automationSection: some View {
-        Section {
-            Toggle(isOn: Binding(
-                get: { !model.settings.automationPaused },
-                set: { on in Task { await model.updateSettings { $0.automationPaused = !on } } }
-            )) {
-                Label("Automation", systemImage: "wand.and.stars")
-            }
-            if let next = rules.nextCheck {
-                LabeledContent("Next scheduled check") {
-                    Text(next.at, format: .dateTime.weekday(.abbreviated).hour().minute())
-                }
-            }
-            if let last = model.automation.lastCommand {
-                LabeledContent("Last command") {
-                    Text("\(last.description.capitalizingFirst), \(DisplayText.age(of: last.at, now: model.now))")
-                        .multilineTextAlignment(.trailing)
-                }
-            }
-        } header: {
-            Text("Automation")
-        } footer: {
-            if model.settings.automationPaused {
-                Text("Paused: rules keep logging what they would do, but never send commands.")
-            }
-        }
-    }
-
-    // MARK: Requests
-
-    private var requestsSection: some View {
-        Section {
-            if let budget = model.budget {
-                VStack(alignment: .leading, spacing: 8) {
-                    LabeledContent("Requests left", value: "\(budget.remaining) of \(budget.limit)")
-                    ProgressView(value: Double(budget.remaining), total: Double(max(budget.limit, 1)))
-                        .tint(budget.exhaustedUntil == nil ? Color.accentColor : .red)
-                }
-                .padding(.vertical, 2)
-            }
-        } header: {
-            Text("Kia requests")
-        } footer: {
-            if let budget = model.budget {
-                Text(DisplayText.budget(budget))
-            }
-        }
     }
 }
 
@@ -543,7 +528,7 @@ private struct ChargeLimitSheet: View {
                     limitRow("AC (home, public AC)", value: $ac, systemImage: "powerplug")
                     limitRow("DC (rapid chargers)", value: $dc, systemImage: "bolt.car")
                 } footer: {
-                    Text("Where charging stops. 80% is kinder to the battery day to day; 100% before a long trip. The car accepts steps of 10%.")
+                    Text("80% is kinder to the battery day to day. Use 100% before a long trip.")
                 }
             }
             .navigationTitle("Charge limit")
@@ -576,6 +561,8 @@ private struct ChargeLimitSheet: View {
                 in: 50...100,
                 step: 10
             )
+            .accessibilityLabel(title)
+            .accessibilityValue("\(value.wrappedValue)%")
         }
         .padding(.vertical, 4)
     }
@@ -595,7 +582,7 @@ private struct BannerRow: View {
                 Image(systemName: icon).foregroundStyle(tint)
             }
             if case .paused = banner {
-                Button("Resume Automation") {
+                Button("Resume automation") {
                     Task { await model.resumeAutomation() }
                 }
                 .font(.subheadline.weight(.semibold))

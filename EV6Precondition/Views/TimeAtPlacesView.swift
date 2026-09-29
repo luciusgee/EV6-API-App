@@ -52,7 +52,7 @@ struct TimeAtPlacesView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Time at Places")
+        .navigationTitle("Time at places")
         .task { await presence.refreshCarTrips() }
         .refreshable { await presence.refreshCarTrips() }
         .toolbar {
@@ -67,7 +67,7 @@ struct TimeAtPlacesView: View {
                         let start = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
                         editing = Visit(placeId: trackedPlaces[0].id, arrived: start, left: start.addingTimeInterval(8 * 3600), source: .manual)
                     } label: {
-                        Label("Add Time", systemImage: "plus")
+                        Label("Add time", systemImage: "plus")
                     }
                 }
             }
@@ -108,8 +108,8 @@ struct TimeAtPlacesView: View {
             Text("Track time at")
         } footer: {
             Text(presence.log.mode == .car
-                 ? "From the car's trip log: it arrived when a drive ended and left when the next began, placed by where it was parked. Each day of trips is one Kia request. It stays on your phone."
-                 : "From your iPhone's location, even with the app closed. Needs location set to Always. It stays on your phone.")
+                 ? "From the car's trip log and where it was parked. Each day of trips is one Kia request."
+                 : "From your iPhone's location, even with the app closed. Needs location set to Always.")
         }
     }
 

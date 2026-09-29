@@ -5,7 +5,7 @@ import PreconditionKit
 /// exact background alarms, so this is how schedule rules run on time.
 struct RunScheduledRulesIntent: AppIntent {
     static var title: LocalizedStringResource = "Run scheduled rules"
-    static var description = IntentDescription("Runs the EV6 Precondition schedule rules that are due now. Add it to a Shortcuts Time of Day automation set to run immediately.")
+    static var description = IntentDescription("Runs the EV6 schedule rules that are due now. Add it to a Shortcuts Time of Day automation set to run immediately.")
     static var openAppWhenRun: Bool = false
 
     @MainActor
@@ -29,7 +29,7 @@ struct RunScheduledRulesIntent: AppIntent {
 }
 
 struct StartClimateIntent: AppIntent {
-    static var title: LocalizedStringResource = "Precondition now"
+    static var title: LocalizedStringResource = "Start climate"
     static var description = IntentDescription("Starts the EV6's climate. If the car is plugged in but not charging, the charger is stopped first (when Keep charger off is on). The minimum-charge guard still applies.")
     static var openAppWhenRun: Bool = false
 
@@ -146,8 +146,8 @@ struct EV6Shortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
             intent: StartClimateIntent(),
-            phrases: ["Precondition my car with \(.applicationName)", "Warm up the car with \(.applicationName)"],
-            shortTitle: "Precondition now",
+            phrases: ["Start climate with \(.applicationName)", "Warm up the car with \(.applicationName)", "Precondition my car with \(.applicationName)"],
+            shortTitle: "Start climate",
             systemImageName: "thermometer.sun"
         )
         AppShortcut(

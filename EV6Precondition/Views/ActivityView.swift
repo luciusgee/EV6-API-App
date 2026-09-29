@@ -48,7 +48,7 @@ struct ActivityView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Activity")
+        .navigationTitle("Activity log")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -61,7 +61,7 @@ struct ActivityView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                ShareLink(item: model.logCSV(), preview: SharePreview("EV6 Precondition log")) {
+                ShareLink(item: model.logCSV(), preview: SharePreview("EV6 activity log")) {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
                 .disabled(model.log.isEmpty)

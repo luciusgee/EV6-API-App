@@ -46,7 +46,7 @@ struct PlacesView: View {
                 Button {
                     editing = model.newPlace(at: car.snapshot?.parkingPosition ?? LatLon(lat: 51.5072, lon: -0.1276))
                 } label: {
-                    Label("Add Place", systemImage: "plus")
+                    Label("Add place", systemImage: "plus")
                 }
             } footer: {
                 Text("Rules can start climate when you leave or arrive at a place. iOS watches the boundaries, even with the app closed, using hardly any battery.")
@@ -130,6 +130,8 @@ struct PlaceEditorView: View {
                             in: Double(Place.minRadiusM)...Double(Place.maxRadiusM),
                             step: 50
                         )
+                        .accessibilityLabel("Radius")
+                        .accessibilityValue(Describe.distance(place.radiusM))
                     }
                     if let parked = car.snapshot?.parkingPosition {
                         Button {
@@ -141,10 +143,10 @@ struct PlaceEditorView: View {
                     Button {
                         Task { await useMyLocation() }
                     } label: {
-                        Label("Use My Location", systemImage: "location.fill")
+                        Label("Use my location", systemImage: "location.fill")
                     }
                 } footer: {
-                    Text("150–300 m suits a house; a bigger circle suits a large site. iOS notices a crossing within a minute or two, usually a little way past the edge.")
+                    Text("150–300 m suits a house. Use a bigger circle for a large site.")
                 }
                 if !isNew {
                     Section {
@@ -164,7 +166,7 @@ struct PlaceEditorView: View {
                     }
                 }
             }
-            .navigationTitle(isNew ? "New Place" : place.name)
+            .navigationTitle(isNew ? "New place" : place.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

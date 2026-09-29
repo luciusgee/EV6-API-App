@@ -10,11 +10,11 @@ struct PreconditionControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.luciusgee.ev6precondition.control.precondition") {
             ControlWidgetButton(action: CarCommandIntent(.climateStart)) {
-                Label("Precondition", systemImage: "fan.fill")
+                Label("Start Climate", systemImage: "fan.fill")
             }
         }
-        .displayName("Precondition EV6")
-        .description("Starts the car's climate (stopping an idle charger first, if you've set that).")
+        .displayName("Start EV6 Climate")
+        .description("Starts the car's climate.")
     }
 }
 

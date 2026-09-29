@@ -52,7 +52,7 @@ struct LiveDataView: View {
                 }
             }
         }
-        .navigationTitle("Live Data")
+        .navigationTitle("Live data")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -204,7 +204,7 @@ struct AllSensorsView: View {
             }
         }
         .searchable(text: $search, prompt: "Search sensors")
-        .navigationTitle("All Sensors")
+        .navigationTitle("All sensors")
         .liveSensors(EV6Sensors.all.map(\.id), screen: "sensors")
     }
 }

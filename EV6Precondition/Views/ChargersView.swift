@@ -21,9 +21,11 @@ struct ChargersView: View {
     @State private var searching = false
     @State private var problem: String?
 
+    @State private var here: CLLocationCoordinate2D?
+
     private var centre: CLLocationCoordinate2D? {
         if let near { return CLLocationCoordinate2D(latitude: near.lat, longitude: near.lon) }
-        return CLLocationManager().location?.coordinate
+        return here
     }
 
     var body: some View {
@@ -77,7 +79,7 @@ struct ChargersView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Chargers Nearby")
+        .navigationTitle("Chargers nearby")
         .task { await search() }
         .refreshable { await search() }
         .onChange(of: selected) { _, item in
@@ -93,8 +95,14 @@ struct ChargersView: View {
     }
 
     private func search() async {
+        if near == nil, here == nil {
+            LocationAccess.shared.requestIfNeeded()
+            if let fix = await LocationPhoneLocator().locate() {
+                here = CLLocationCoordinate2D(latitude: fix.lat, longitude: fix.lon)
+            }
+        }
         guard let centre else {
-            problem = "Refresh the car or allow location to find chargers nearby."
+            problem = "Refresh the car, or allow location in Settings, to find chargers."
             return
         }
         searching = true

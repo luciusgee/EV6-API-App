@@ -20,9 +20,11 @@ struct RoutePlannerView: View {
     @State private var camera: MapCameraPosition = .automatic
 
     private var miles: Bool { car.settings.useMiles }
+    @State private var here: CLLocationCoordinate2D?
+
     private var start: CLLocationCoordinate2D? {
         if let p = car.snapshot?.parkingPosition { return CLLocationCoordinate2D(latitude: p.lat, longitude: p.lon) }
-        return CLLocationManager().location?.coordinate
+        return here
     }
     private var baseConsumption: Double { car.energy?.kWhPer100km ?? 18.5 }
 
@@ -37,7 +39,7 @@ struct RoutePlannerView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Plan a Trip")
+        .navigationTitle("Plan a trip")
         .onAppear {
             if let soc = car.snapshot?.socPercent, plan == nil { trip.startPercent = Double(max(soc, 10)) }
             trip.usableKWh = charging.settings.usableKWh
@@ -58,6 +60,7 @@ struct RoutePlannerView: View {
                     .submitLabel(.search)
                 if !search.query.isEmpty {
                     Button { search.query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                        .accessibilityLabel("Clear")
                         .buttonStyle(.borderless)
                 }
             }
@@ -74,6 +77,9 @@ struct RoutePlannerView: View {
                         }
                     }
                 }
+            }
+            if destination == nil, search.query.count >= 3, search.results.isEmpty {
+                Text("No places found.").foregroundStyle(.secondary)
             }
             if let destination {
                 Label(destination.name ?? "Destination", systemImage: "mappin.circle.fill").foregroundStyle(.red)
@@ -196,19 +202,19 @@ struct RoutePlannerView: View {
         } header: {
             Text("Route")
         } footer: {
-            Text("Charger speeds are estimated from the network. Check availability before you go. Set the charger in the car's sat nav so the battery warms up for faster charging.")
+            Text("Charger speeds are estimated. Set each charger in the car's sat nav so the battery warms up for faster charging.")
         }
 
         Section {
             if let url = RouteService.googleMapsURL(from: start ?? found.route.polyline.coordinate, to: destination?.placemark.coordinate ?? found.route.polyline.coordinate, stops: plan.stops) {
                 Link(destination: url) {
-                    Label("Open the Whole Route in Google Maps", systemImage: "map")
+                    Label("Open the route in Google Maps", systemImage: "map")
                 }
             }
             Button {
                 if let first = plan.stops.first { directions(to: first.charger) } else { destination?.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving]) }
             } label: {
-                Label(plan.stops.isEmpty ? "Navigate in Apple Maps" : "Navigate to the First Stop in Apple Maps", systemImage: "location.fill")
+                Label(plan.stops.isEmpty ? "Directions in Apple Maps" : "Directions to the first stop", systemImage: "location.fill")
             }
             chargeForTripRow(plan)
         }
@@ -270,6 +276,12 @@ struct RoutePlannerView: View {
     }
 
     private func planRoute() async {
+        if car.snapshot?.parkingPosition == nil, here == nil {
+            LocationAccess.shared.requestIfNeeded()
+            if let fix = await LocationPhoneLocator().locate() {
+                here = CLLocationCoordinate2D(latitude: fix.lat, longitude: fix.lon)
+            }
+        }
         guard let destination, let start else {
             problem = "Refresh the car or allow location so the trip has a start."
             return

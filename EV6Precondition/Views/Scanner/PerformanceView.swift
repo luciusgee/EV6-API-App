@@ -63,19 +63,8 @@ struct PerformanceView: View {
                     Button("Cancel", role: .cancel) { obd.timer = nil }
                         .frame(maxWidth: .infinity)
                 }
-                if obd.demo, obd.timer != nil {
-                    Button("Simulate a Launch") {
-                        obd.demoCar.car.drive = .parked
-                        Task {
-                            try? await Task.sleep(for: .seconds(1))
-                            obd.demoCar.car.drive = .launch(since: Date())
-                            try? await Task.sleep(for: .seconds(25))
-                            obd.demoCar.car.drive = .parked
-                        }
-                    }
-                }
             } footer: {
-                Text("Only on a closed road or track, and never on a public road. The timer starts the moment the car moves (or passes the start speed) and uses the car's own speed readings, interpolated between them.")
+                Text("Closed roads and tracks only. Timing starts as soon as the car moves.")
             }
 
             if !runs.isEmpty {
@@ -199,7 +188,6 @@ struct TripView: View {
                     Button {
                         obd.trip = TripComputer(started: Date())
                         obd.want(["speed", "power"], for: "trip")
-                        if obd.demo { obd.demoCar.car.drive = .cruising(since: Date()) }
                     } label: {
                         Label("Start Trip", systemImage: "play.fill").frame(maxWidth: .infinity)
                     }
@@ -208,7 +196,6 @@ struct TripView: View {
                 } else {
                     Button(role: .destructive) {
                         obd.release("trip")
-                        if obd.demo { obd.demoCar.car.drive = .parked }
                         obd.trip = nil
                     } label: {
                         Label("End Trip", systemImage: "stop.fill").frame(maxWidth: .infinity)
@@ -238,7 +225,7 @@ struct TripView: View {
                 }
             }
         }
-        .navigationTitle("Trip Computer")
+        .navigationTitle("Trip computer")
     }
 
     private func stat(_ name: String, _ value: String) -> some View {
@@ -265,7 +252,7 @@ struct RecordingsView: View {
                     for o in offsets { obd.deleteRecording(obd.recordings[o]) }
                 }
             } footer: {
-                Text("CSV files: open them in Numbers or Excel, or share them. They're also in the Files app, under On My iPhone › EV6 Precondition.")
+                Text("CSV files: open them in Numbers or Excel, or share them. They're also in the Files app under On My iPhone › EV6.")
             }
         }
         .navigationTitle("Recordings")

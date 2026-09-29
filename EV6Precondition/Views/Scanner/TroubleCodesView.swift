@@ -75,7 +75,7 @@ struct TroubleCodesView: View {
                 }
             }
         }
-        .navigationTitle("Trouble Codes")
+        .navigationTitle("Trouble codes")
         .toolbar {
             if total > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -289,7 +289,7 @@ struct ModulesView: View {
                 } header: {
                     Text("Standard OBD-II PIDs supported")
                 } footer: {
-                    Text("EVs support only a few of the standard petrol-car values; the EV6's real data is in its own module identifiers, which All Sensors reads.")
+                    Text("EVs only report a few standard values. The EV6's real data is in All sensors.")
                 }
             }
         }

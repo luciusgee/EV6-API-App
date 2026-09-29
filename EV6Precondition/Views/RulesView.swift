@@ -98,11 +98,7 @@ struct RulesView: View {
                             Label("Places", systemImage: "mappin.and.ellipse")
                         }
                     }
-                    NavigationLink {
-                        TimeAtPlacesView()
-                    } label: {
-                        Label("Time at places", systemImage: "clock.badge.checkmark")
-                    }
+
                 } footer: {
                     if model.places.isEmpty {
                         Text("Add Home and Work to start climate when you leave or arrive.")
@@ -218,8 +214,8 @@ private struct SuggestionRow: View {
 
     private var buttonTitle: String {
         switch suggestion.fix {
-        case .addRule?: return "Review Rule"
-        case .holdCharger?: return "Turn On"
+        case .addRule?: return "Review rule"
+        case .holdCharger?: return "Turn on"
         case nil: return "OK"
         }
     }
@@ -248,7 +244,7 @@ private struct RuleRow: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: open)
 
-            Toggle("Enabled", isOn: Binding(
+            Toggle(rule.name, isOn: Binding(
                 get: { rule.enabled },
                 set: { on in Task { await model.setEnabled(rule.id, on) } }
             ))
@@ -279,9 +275,9 @@ private struct ScheduleHelpView: View {
                     Text("For each time below, add one automation in the Shortcuts app:")
                     Label("Shortcuts › Automation › + (New Automation)", systemImage: "1.circle")
                     Label("Time of Day: set the time; choose Run Immediately", systemImage: "2.circle")
-                    Label("Add the action “Run scheduled rules” (EV6 Precondition)", systemImage: "3.circle")
+                    Label("Add the action “Run scheduled rules” (EV6)", systemImage: "3.circle")
                 } footer: {
-                    Text("The app checks the rule's days and conditions itself, so a daily automation is fine. Each rule runs at most once a day, even if the automation runs twice.")
+                    Text("A daily automation is fine: the app checks each rule's days and conditions, and runs a rule once a day at most.")
                 }
                 Section("Times to add") {
                     if times.isEmpty {

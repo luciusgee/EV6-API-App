@@ -109,6 +109,8 @@ private enum TriggerKind: String, CaseIterable, Identifiable {
 }
 
 private struct TriggerSection: View {
+    @Environment(CarModel.self) private var car
+    private var miles: Bool { car.settings.useMiles }
     @Binding var trigger: Trigger
     let places: [Place]
 
@@ -152,7 +154,7 @@ private struct TriggerSection: View {
                 PlacePicker(selection: place, places: places)
             case .approaching(let id, let km):
                 PlacePicker(selection: place, places: places)
-                RoundStepper("Within", value: Binding(get: { km }, set: { trigger = .approaching(placeId: id, km: $0) }), in: 0.5...100, step: 0.5) { _ in String(format: "%.1f km", km) }
+                RoundStepper("Within", value: Binding(get: { km }, set: { trigger = .approaching(placeId: id, km: $0) }), in: 0.5...100, step: 0.5) { _ in DisplayText.distance(km: km, miles: miles) }
             case .schedule(let days, let time):
                 DaysPicker(days: Binding(get: { days }, set: { trigger = .schedule(days: $0, time: time) }))
                 TimePicker(title: "Time", time: Binding(get: { time }, set: { trigger = .schedule(days: days, time: $0) }))
@@ -163,7 +165,7 @@ private struct TriggerSection: View {
             Text("Trigger")
         } footer: {
             if case .schedule = trigger {
-                Text("Schedule rules run from a Shortcuts automation; see “Set up schedule automations” in the rules list.")
+                Text("Schedule rules run from a Shortcuts automation. See “Set up schedule automations” in Rules.")
             }
         }
     }
@@ -216,7 +218,7 @@ private struct ConditionsSection: View {
         } header: {
             Text("Only if all of these")
         } footer: {
-            Text("Swipe a condition to remove it. Unknown inputs stop the rule unless it proceeds on unknowns. Guards (minimum charge, not already running, cooldowns, request budget) always apply.")
+            Text("Swipe a condition to remove it. The minimum charge and request limit always apply.")
         }
     }
 }

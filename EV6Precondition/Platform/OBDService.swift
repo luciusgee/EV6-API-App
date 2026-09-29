@@ -16,9 +16,6 @@ final class OBDService {
     }
 
     let link = OBDLink()
-    /// The simulated EV6 behind Demo mode.
-    let demoCar = FakeOBDAdapter()
-    private(set) var demo = false
     private(set) var carState: CarState = .disconnected
     private(set) var adapterVersion: String?
     private(set) var elm: ELM327?
@@ -45,10 +42,9 @@ final class OBDService {
         }
     }
 
-    var adapterConnected: Bool { demo || link.isReady }
+    var adapterConnected: Bool { link.isReady }
 
     var adapterText: String {
-        if demo { return "Demo EV6" }
         switch link.state {
         case .idle: return "Disconnected"
         case .bluetoothOff: return "Bluetooth off"
@@ -74,7 +70,7 @@ final class OBDService {
     /// Starts the ELM327 session once the adapter is up, and checks the car answers.
     func adapterReady() async {
         guard adapterConnected else { return }
-        let transport: OBDTransport = demo ? demoCar : OBDLinkTransport(link: link)
+        let transport: OBDTransport = OBDLinkTransport(link: link)
         let elm = ELM327(transport: transport)
         self.elm = elm
         carState = .connecting
@@ -100,17 +96,8 @@ final class OBDService {
         restartIfNeeded()
     }
 
-    func startDemo() async {
-        stopLive()
-        link.disconnect()
-        demo = true
-        demoCar.car.asleep = false
-        await adapterReady()
-    }
-
     func disconnect() {
         stopLive()
-        demo = false
         link.disconnect()
         elm = nil
         carState = .disconnected
@@ -118,7 +105,6 @@ final class OBDService {
 
     /// The remembered adapter, else nothing (the caller shows the picker).
     func connect() -> Bool {
-        demo = false
         return link.reconnect()
     }
 

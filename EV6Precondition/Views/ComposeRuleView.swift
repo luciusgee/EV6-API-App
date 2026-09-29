@@ -32,7 +32,7 @@ struct ComposeRuleView: View {
                         Task { await understand() }
                     } label: {
                         HStack {
-                            Label("Create Rule", systemImage: "checkmark")
+                            Label("Create rule", systemImage: "checkmark")
                             Spacer()
                             if thinking { ProgressView() }
                         }
@@ -59,13 +59,13 @@ struct ComposeRuleView: View {
                             Text(rule.name)
                         }
                         Section {
-                            Button("Save Rule") {
+                            Button("Save rule") {
                                 Task {
                                     if await model.save(rule).isEmpty { dismiss() } else { openEditor(rule) }
                                 }
                             }
                             .disabled(!model.problems(rule).isEmpty)
-                            Button("Edit Before Saving") { openEditor(rule) }
+                            Button("Edit before saving") { openEditor(rule) }
                         } footer: {
                             if !model.problems(rule).isEmpty {
                                 Text(model.problems(rule).joined(separator: " "))
@@ -88,7 +88,7 @@ struct ComposeRuleView: View {
                     }
                 }
             }
-            .navigationTitle("Describe a Rule")
+            .navigationTitle("Type a rule")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -82,7 +82,7 @@ public final class ChargingModel {
     /// Fetches Agile prices from an hour ago to tomorrow night. Does nothing for other tariffs.
     public func refreshPrices() async {
         await ensureLoaded()
-        guard case .agile(let region, _) = settings.tariff else { return }
+        guard case .agile(let region, _) = settings.tariff, region != "?" else { return }
         loadingPrices = true
         defer { loadingPrices = false }
         do {

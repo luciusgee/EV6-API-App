@@ -16,13 +16,13 @@ struct ScannerView: View {
 
     private let tools = [
         Tool(id: "dashboard", title: "Dashboard", systemImage: "gauge.open.with.lines.needle.33percent", tint: .blue),
-        Tool(id: "live", title: "Live Data", systemImage: "waveform.path.ecg", tint: .green),
-        Tool(id: "sensors", title: "All Sensors", systemImage: "list.bullet.rectangle", tint: .indigo),
-        Tool(id: "codes", title: "Trouble Codes", systemImage: "exclamationmark.triangle", tint: .orange),
-        Tool(id: "battery", title: "Battery Health", systemImage: "battery.100percent.bolt", tint: .mint),
+        Tool(id: "live", title: "Live data", systemImage: "waveform.path.ecg", tint: .green),
+        Tool(id: "sensors", title: "All sensors", systemImage: "list.bullet.rectangle", tint: .indigo),
+        Tool(id: "codes", title: "Trouble codes", systemImage: "exclamationmark.triangle", tint: .orange),
+        Tool(id: "battery", title: "Battery health", systemImage: "battery.100percent.bolt", tint: .mint),
         Tool(id: "modules", title: "Modules & VIN", systemImage: "cpu", tint: .gray),
         Tool(id: "performance", title: "Performance", systemImage: "stopwatch", tint: .red),
-        Tool(id: "trip", title: "Trip Computer", systemImage: "road.lanes", tint: .teal),
+        Tool(id: "trip", title: "Trip computer", systemImage: "road.lanes", tint: .teal),
         Tool(id: "recordings", title: "Recordings", systemImage: "record.circle", tint: .pink),
     ]
 
@@ -133,7 +133,7 @@ private struct ScannerHeader: View {
                 }
                 HStack(spacing: 6) {
                     Circle().fill(connected ? Color.green : Color.secondary).frame(width: 7, height: 7)
-                    Text(connected ? (obd.demo ? "Demo car connected" : "Connected to your EV6") : "Diagnostics & live data")
+                    Text(connected ? "Connected to your EV6" : "Diagnostics & live data")
                         .font(.caption)
                         .opacity(0.85)
                 }

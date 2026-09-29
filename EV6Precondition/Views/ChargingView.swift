@@ -107,12 +107,10 @@ private struct SmartChargeSection: View {
                 Label("Smart charging", systemImage: "sparkles")
             }
             if smart.enabled {
-                Stepper(value: Binding(
+                RoundStepper("Charge to", value: Binding(
                     get: { smart.targetPercent },
                     set: { v in Task { await charging.update { $0.smart.targetPercent = v }; charging.replan(soc: car.snapshot?.socPercent) } }
-                ), in: 50...100, step: 10) {
-                    LabeledContent("Charge to", value: "\(smart.targetPercent)%")
-                }
+                ), in: 50...100, step: 10, tint: .green) { "\($0)%" }
                 DatePicker("Ready by", selection: Binding(
                     get: { smart.readyBy.date },
                     set: { d in Task { await charging.update { $0.smart.readyBy = ClockTime(date: d) }; charging.replan(soc: car.snapshot?.socPercent) } }
@@ -333,7 +331,7 @@ private struct AddChargeSheet: View {
         NavigationStack {
             Form {
                 DatePicker("When", selection: $when)
-                Stepper("Added \(percent)%", value: $percent, in: 1...100)
+                RoundStepper("Added", value: $percent, in: 1...100, step: 1) { "\($0)%" }
                 LabeledContent("Cost (£)") {
                     TextField("£", value: $pounds, format: .number.precision(.fractionLength(2)))
                         .keyboardType(.decimalPad)
@@ -462,12 +460,8 @@ private struct CostSettingsSection: View {
             PenceField(title: "Public charging", value: charging.settings.publicPencePerKWh) { v in
                 Task { await charging.update { $0.publicPencePerKWh = v } }
             }
-            Stepper(value: charging.binding(\.petrolMPG), in: 20...80, step: 1) {
-                LabeledContent("Petrol car", value: String(format: "%.0f mpg", charging.settings.petrolMPG))
-            }
-            Stepper(value: charging.binding(\.petrolPencePerLitre), in: 100...220, step: 1) {
-                LabeledContent("Petrol", value: String(format: "%.0fp/litre", charging.settings.petrolPencePerLitre))
-            }
+            RoundStepper("Petrol car", value: charging.binding(\.petrolMPG), in: 20...80, step: 1) { String(format: "%.0f mpg", $0) }
+            RoundStepper("Petrol", value: charging.binding(\.petrolPencePerLitre), in: 100...220, step: 1) { String(format: "%.0fp/litre", $0) }
         } header: {
             Text("Comparisons")
         } footer: {

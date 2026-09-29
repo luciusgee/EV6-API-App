@@ -22,12 +22,8 @@ struct AlertsSettingsView: View {
                 Text("Each is sent once, then again only after it has cleared.")
             }
             Section {
-                Stepper(value: charging.binding(\.alerts.lowChargePercent), in: 5...50, step: 5) {
-                    LabeledContent("Low charge below", value: "\(alerts.lowChargePercent)%")
-                }
-                Stepper(value: charging.binding(\.alerts.lowAuxPercent), in: 40...90, step: 5) {
-                    LabeledContent("12 V battery below", value: "\(alerts.lowAuxPercent)%")
-                }
+                RoundStepper("Low charge below", value: charging.binding(\.alerts.lowChargePercent), in: 5...50, step: 5) { "\($0)%" }
+                RoundStepper("12 V battery below", value: charging.binding(\.alerts.lowAuxPercent), in: 40...90, step: 5) { "\($0)%" }
             }
             Section {
                 Toggle("Check in the background", isOn: Binding(
@@ -35,12 +31,10 @@ struct AlertsSettingsView: View {
                     set: { on in Task { await charging.update { $0.alerts.backgroundChecks = on }; ChargingCoordinator.shared.scheduleBackgroundRefresh() } }
                 ))
                 if alerts.backgroundChecks {
-                    Stepper(value: Binding(
+                    RoundStepper("About every", value: Binding(
                         get: { alerts.backgroundEveryHours },
                         set: { v in Task { await charging.update { $0.alerts.backgroundEveryHours = v }; ChargingCoordinator.shared.scheduleBackgroundRefresh() } }
-                    ), in: 1...12) {
-                        LabeledContent("About every", value: "\(alerts.backgroundEveryHours) h")
-                    }
+                    ), in: 1...12, step: 1) { "\($0) h" }
                 }
             } footer: {
                 Text("iOS decides exactly when background checks run, usually less often than asked. Each uses one Kia request from the automation budget; your own taps keep their reserve.")

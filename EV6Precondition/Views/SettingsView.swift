@@ -137,12 +137,8 @@ private struct SafetySection: View {
 
     var body: some View {
         Section {
-            Stepper(value: binding(\.minSocPercent), in: 0...100, step: 5) {
-                LabeledContent("Minimum charge", value: "\(model.settings.minSocPercent)%")
-            }
-            Stepper(value: binding(\.defaultTargetC), in: AppSettings.minTargetC...AppSettings.maxTargetC, step: 0.5) {
-                LabeledContent("Default temperature", value: Describe.temp(model.settings.defaultTargetC))
-            }
+            RoundStepper("Minimum charge", value: binding(\.minSocPercent), in: 0...100, step: 5) { "\($0)%" }
+            RoundStepper("Default temperature", value: binding(\.defaultTargetC), in: AppSettings.minTargetC...AppSettings.maxTargetC, step: 0.5, tint: .orange) { Describe.temp($0) }
         } header: {
             Text("Safety")
         } footer: {
@@ -165,12 +161,8 @@ private struct RateLimitSection: View {
 
     var body: some View {
         Section {
-            Stepper(value: binding(\.budgetLimit), in: 10...200, step: 10) {
-                LabeledContent("Requests per 24 hours", value: "\(model.settings.budgetLimit)")
-            }
-            Stepper(value: binding(\.budgetReserve), in: 0...(model.settings.budgetLimit / 2)) {
-                LabeledContent("Kept for you", value: "\(model.settings.budgetReserve)")
-            }
+            RoundStepper("Requests per 24 hours", value: binding(\.budgetLimit), in: 10...200, step: 10) { "\($0)" }
+            RoundStepper("Kept for you", value: binding(\.budgetReserve), in: 0...(model.settings.budgetLimit / 2), step: 1) { "\($0)" }
         } header: {
             Text("Rate limit")
         } footer: {

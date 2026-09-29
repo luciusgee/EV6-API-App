@@ -5,7 +5,7 @@ import SwiftUI
 struct CarView: View {
     @Environment(CarModel.self) private var model
     @Environment(RulesModel.self) private var rules
-    @Environment(ChargingModel.self) private var charging
+    @Environment(ChargingModel.self) private var chargingModel
     @AppStorage(CarPaint.storageKey) private var paint: CarPaint = .runwayRed
     @State private var target: Double?
     @State private var confirmUnlock = false
@@ -172,13 +172,13 @@ struct CarView: View {
 
     private var climateSection: some View {
         Section {
-            Stepper(
+            RoundStepper(
+                "Temperature",
                 value: Binding(get: { shownTarget }, set: { target = $0 }),
                 in: AppSettings.minTargetC...AppSettings.maxTargetC,
-                step: 0.5
-            ) {
-                LabeledContent("Temperature", value: Describe.temp(shownTarget))
-            }
+                step: 0.5,
+                tint: shownTarget >= 20 ? .orange : .cyan
+            ) { Describe.temp($0) }
             if let outside = snapshot?.outsideTempC {
                 LabeledContent("Outside", value: Describe.temp(outside))
             }
@@ -213,8 +213,8 @@ struct CarView: View {
                 ChargingView()
             } label: {
                 LabeledContent {
-                    Text(charging.plan.map { "\($0.start.formatted(date: .omitted, time: .shortened))" }
-                        ?? charging.monthly.first.map { DisplayText.money(pence: $0.totals.costPence) } ?? "")
+                    Text(chargingModel.plan.map { "\($0.start.formatted(date: .omitted, time: .shortened))" }
+                        ?? chargingModel.monthly.first.map { DisplayText.money(pence: $0.totals.costPence) } ?? "")
                 } label: {
                     Label("Charging & costs", systemImage: "bolt.batteryblock")
                 }

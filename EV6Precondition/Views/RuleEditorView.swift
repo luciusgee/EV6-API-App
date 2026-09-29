@@ -27,12 +27,8 @@ struct RuleEditorView: View {
                 ConditionsSection(conditions: $draft.conditions, places: model.places)
                 ActionSection(action: $draft.action)
                 Section("Advanced") {
-                    Stepper(value: $draft.priority, in: -10...10) {
-                        LabeledContent("Priority", value: "\(draft.priority)")
-                    }
-                    Stepper(value: $draft.cooldownMinutes, in: 0...720, step: 15) {
-                        LabeledContent("Cooldown", value: "\(draft.cooldownMinutes) min")
-                    }
+                    RoundStepper("Priority", value: $draft.priority, in: -10...10, step: 1) { _ in "\(draft.priority)" }
+                    RoundStepper("Cooldown", value: $draft.cooldownMinutes, in: 0...720, step: 15) { _ in "\(draft.cooldownMinutes) min" }
                     Toggle("Proceed when a condition is unknown", isOn: $draft.proceedIfUnknown)
                 }
                 if !problems.isEmpty {
@@ -156,16 +152,12 @@ private struct TriggerSection: View {
                 PlacePicker(selection: place, places: places)
             case .approaching(let id, let km):
                 PlacePicker(selection: place, places: places)
-                Stepper(value: Binding(get: { km }, set: { trigger = .approaching(placeId: id, km: $0) }), in: 0.5...100, step: 0.5) {
-                    LabeledContent("Within", value: String(format: "%.1f km", km))
-                }
+                RoundStepper("Within", value: Binding(get: { km }, set: { trigger = .approaching(placeId: id, km: $0) }), in: 0.5...100, step: 0.5) { _ in String(format: "%.1f km", km) }
             case .schedule(let days, let time):
                 DaysPicker(days: Binding(get: { days }, set: { trigger = .schedule(days: $0, time: time) }))
                 TimePicker(title: "Time", time: Binding(get: { time }, set: { trigger = .schedule(days: days, time: $0) }))
             case .nearCar(let m):
-                Stepper(value: Binding(get: { m }, set: { trigger = .nearCar(meters: $0) }), in: RuleValidator.minCarRadiusM...RuleValidator.maxCarRadiusM, step: 50) {
-                    LabeledContent("Within", value: Describe.distance(m))
-                }
+                RoundStepper("Within", value: Binding(get: { m }, set: { trigger = .nearCar(meters: $0) }), in: RuleValidator.minCarRadiusM...RuleValidator.maxCarRadiusM, step: 50) { _ in Describe.distance(m) }
             }
         } header: {
             Text("Trigger")
@@ -261,9 +253,7 @@ private struct ConditionRow: View {
             TempStepper(title: "or above", value: Binding(get: { high }, set: { condition = .tempOutside(low: low, high: $0, source: s) }))
             SourcePicker(source: Binding(get: { s }, set: { condition = .tempOutside(low: low, high: high, source: $0) }))
         case .socAtLeast(let p):
-            Stepper(value: Binding(get: { p }, set: { condition = .socAtLeast(percent: $0) }), in: 0...100, step: 5) {
-                LabeledContent("At least", value: "\(p)%")
-            }
+            RoundStepper("At least", value: Binding(get: { p }, set: { condition = .socAtLeast(percent: $0) }), in: 0...100, step: 5) { _ in "\(p)%" }
         case .pluggedIn(let expected):
             Toggle("Plugged in", isOn: Binding(get: { expected }, set: { condition = .pluggedIn(expected: $0) }))
         case .carAtPlace:
@@ -275,9 +265,7 @@ private struct ConditionRow: View {
                 places: places
             )
         case .phoneNearCar(let m):
-            Stepper(value: Binding(get: { m }, set: { condition = .phoneNearCar(meters: $0) }), in: RuleValidator.minPhoneDistanceM...RuleValidator.maxPhoneDistanceM, step: 50) {
-                LabeledContent("Within", value: Describe.distance(m))
-            }
+            RoundStepper("Within", value: Binding(get: { m }, set: { condition = .phoneNearCar(meters: $0) }), in: RuleValidator.minPhoneDistanceM...RuleValidator.maxPhoneDistanceM, step: 50) { _ in Describe.distance(m) }
         }
     }
 }
@@ -287,9 +275,7 @@ private struct TempStepper: View {
     @Binding var value: Double
 
     var body: some View {
-        Stepper(value: $value, in: -40...50, step: 0.5) {
-            LabeledContent(title, value: Describe.temp(value))
-        }
+        RoundStepper(title, value: $value, in: -40...50, step: 0.5) { _ in Describe.temp(value) }
     }
 }
 
@@ -355,9 +341,7 @@ private struct ActionSection: View {
             }
             .pickerStyle(.segmented)
             if case .startClimate(let target) = action {
-                Stepper(value: Binding(get: { target }, set: { action = .startClimate(targetC: $0) }), in: RuleValidator.minTargetC...RuleValidator.maxTargetC, step: 0.5) {
-                    LabeledContent("Target", value: Describe.temp(target))
-                }
+                RoundStepper("Target", value: Binding(get: { target }, set: { action = .startClimate(targetC: $0) }), in: RuleValidator.minTargetC...RuleValidator.maxTargetC, step: 0.5) { _ in Describe.temp(target) }
             }
         }
     }

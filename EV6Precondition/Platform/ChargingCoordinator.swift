@@ -9,6 +9,9 @@ import PreconditionKit
 final class ChargingCoordinator {
     static let shared = ChargingCoordinator()
     static let refreshTaskID = "com.luciusgee.ev6precondition.refresh"
+    /// How soon to ask iOS for the next background check while charging. iOS decides when it
+    /// really runs, often later.
+    static let chargingCheckEvery: TimeInterval = 15 * 60
 
     private var lastProcessed: Date?
     private var lastAction: Date?
@@ -37,6 +40,10 @@ final class ChargingCoordinator {
         if let start = charging.plan?.start, start > Date() {
             earliest = min(earliest, start.addingTimeInterval(60))
         }
+        // While charging, check often so the Live Activity and widgets keep up.
+        if alerts.backgroundChecks, AppServices.shared.car.snapshot?.chargingState == .charging {
+            earliest = min(earliest, Date().addingTimeInterval(Self.chargingCheckEvery))
+        }
         if alerts.backgroundChecks, let snapshot = AppServices.shared.car.snapshot, snapshot.pluggedIn == true,
            snapshot.chargingState != .charging, let window = snapshot.details?.offPeak {
             // Just after the off-peak window should have started, to catch a charger that never did.
@@ -58,8 +65,11 @@ final class ChargingCoordinator {
         await AskCoordinator.shared.rebook()
         // Time at places by car: today's trips, one request at most.
         await services.presence.refreshCarTrips(days: 2, maxRequests: 1, kind: .automation)
-        // An automation request: it leaves the reserve for the owner's own taps.
-        _ = await services.container.vehicles.fetch(.automation)
+        // An automation request: it leaves the reserve for the owner's own taps. While the car is
+        // charging, ask the car itself: its main battery is feeding the 12 V, so waking it costs nothing,
+        // and Kia's saved copy barely changes during a charge.
+        let charging = services.car.snapshot?.chargingState == .charging
+        _ = await services.container.vehicles.fetch(.automation, wake: charging)
         await services.car.load()
         if let snapshot = services.car.snapshot { await handle(snapshot) }
     }

@@ -44,7 +44,9 @@ enum LiveActivities {
             socPercent: s.socPercent,
             rangeText: range(car),
             title: limit.map { "Charging to \($0)%" } ?? "Charging",
-            detail: s.chargePowerKw.map { String(format: "%.1f kW", $0) },
+            // When the car said so: this updates when the app next reads the car.
+            detail: [s.chargePowerKw.map { String(format: "%.1f kW", $0) }, reported.formatted(date: .omitted, time: .shortened)]
+                .compactMap { $0 }.joined(separator: " · "),
             startedAt: reported,
             endsAt: s.minutesToFullyCharged.map { reported.addingTimeInterval(Double($0) * 60) }
         )

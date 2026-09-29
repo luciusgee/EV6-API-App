@@ -8,6 +8,8 @@ struct RootView: View {
     /// The newest What's new you've seen (0 before the guide existed).
     @AppStorage("guideSeenRelease") private var seenRelease = 0
     @State private var whatsNew = false
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(CarModel.self) private var car
 
     var body: some View {
         TabView(selection: $tour.tab) {
@@ -55,6 +57,13 @@ struct RootView: View {
             WhatsNewSheet(firstTime: Guide.seenBefore == 0) { seenRelease = Guide.latest }
                 .interactiveDismissDisabled(false)
                 .onDisappear { seenRelease = Guide.latest }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Opened mid-charge: get fresh figures from the car (no 12 V cost while it's charging),
+            // at most every 10 minutes.
+            guard phase == .active, let s = car.snapshot, s.chargingState == .charging,
+                  Date().timeIntervalSince(s.fetchedAt) > 10 * 60 else { return }
+            Task { await car.refresh(wake: true) }
         }
         .task {
             // After an update with something new (or the first time), offer the guide once.

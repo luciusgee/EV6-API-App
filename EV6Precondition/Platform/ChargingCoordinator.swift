@@ -47,6 +47,8 @@ final class ChargingCoordinator {
         await services.prepare()
         scheduleBackgroundRefresh()
         if services.charging.pricesStale { await services.charging.refreshPrices() }
+        // Fresh forecasts for the week's "ask first" questions.
+        await AskCoordinator.shared.rebook()
         // Time at places by car: today's trips, one request at most.
         await services.presence.refreshCarTrips(days: 2, maxRequests: 1, kind: .automation)
         // An automation request: it leaves the reserve for the owner's own taps.

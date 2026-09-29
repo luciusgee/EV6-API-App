@@ -39,6 +39,9 @@ final class AppServices {
         notifier.onStop = {
             await car.stop()
         }
+        notifier.onAsk = { ruleId, answer in
+            await AskCoordinator.shared.answer(ruleId, answer)
+        }
         notifier.onStartCharging = {
             await ChargingCoordinator.shared.startChargingFromReminder()
         }
@@ -52,6 +55,7 @@ final class AppServices {
         }
         rules.onChange = { rules, places in
             GeofenceMonitor.shared.sync(rules: rules, places: places, carPosition: car.snapshot?.parkingPosition)
+            Task { await AskCoordinator.shared.rebook() }
         }
         let presence = self.presence
         let engine2 = container.engine
@@ -82,6 +86,7 @@ final class AppServices {
         }
         charging.replan(soc: car.snapshot?.socPercent)
         ChargingCoordinator.shared.scheduleBackgroundRefresh()
+        Task { await AskCoordinator.shared.rebook() }
         if charging.pricesStale {
             Task { await charging.refreshPrices() }
         }

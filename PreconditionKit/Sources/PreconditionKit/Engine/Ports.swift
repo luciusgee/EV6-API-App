@@ -246,6 +246,12 @@ public protocol Notifier: Sendable {
     /// A climate command was accepted. `canStop` adds a Stop action.
     func commandSent(title: String, text: String, canStop: Bool) async
     func problem(title: String, text: String, openSettings: Bool) async
+    /// An "ask first" rule is due: ask whether to go ahead, with Start / In 15 min / Not today.
+    func ask(ruleId: String, title: String, text: String) async
+}
+
+extension Notifier {
+    public func ask(ruleId: String, title: String, text: String) async {}
 }
 
 public struct NoopNotifier: Notifier {

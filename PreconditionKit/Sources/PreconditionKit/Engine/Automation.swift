@@ -176,8 +176,24 @@ extension PreconditionEngine {
             if let e = inputs.vehicleError { return await failure(e, rule: nil, attempt: attempt, label: label) }
             return .skipped(evaluation.globalSkip ?? evaluation.verdicts.last?.reason ?? "no rule passed")
         }
+        if winner.askFirst {
+            return await ask(winner, label: label, temperature: evaluation.winnerVerdict?.temperature)
+        }
         let vehicle = await plugState(await inputs.vehicleIfFree())
         return await execute(winner, label: label, temperature: evaluation.winnerVerdict?.temperature, attempt: attempt, vehicle: vehicle)
+    }
+
+    /// Asks instead of acting. The rule's cooldown starts now, so it asks once, not at every trigger.
+    private func ask(_ rule: Rule, label: String, temperature: TempReading?) async -> EngineOutcome {
+        let now = time.now()
+        let ruleId = rule.id
+        await state.update { $0.lastFiredByRule[ruleId] = now }
+        await log.append(LogEntry(
+            at: now, kind: .info, decision: "asked", reason: "asked before \(Describe.action(rule.action))", trigger: label,
+            ruleId: rule.id, ruleName: rule.name
+        ))
+        await notifier.ask(ruleId: rule.id, title: AskPlanner.title(rule), text: AskPlanner.text(rule, outsideC: temperature?.celsius))
+        return .skipped("asked first")
     }
 
     private func execute(_ rule: Rule, label: String, temperature: TempReading?, attempt: Attempt, vehicle: VehicleSnapshot?) async -> EngineOutcome {

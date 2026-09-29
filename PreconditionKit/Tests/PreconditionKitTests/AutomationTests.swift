@@ -5,7 +5,9 @@ import XCTest
 actor TextNotifier: Notifier {
     private(set) var sent: [String] = []
     private(set) var problems: [String] = []
+    private(set) var asks: [String] = []
     func commandSent(title: String, text: String, canStop: Bool) { sent.append(text) }
+    func ask(ruleId: String, title: String, text: String) { asks.append("\(ruleId): \(title) \(text)") }
     func problem(title: String, text: String, openSettings: Bool) { problems.append("\(title): \(text)") }
 }
 
@@ -103,6 +105,24 @@ final class AutomationTests: XCTestCase {
         XCTAssertEqual(s.lastFiredByRule["leave"], time.now())
         XCTAssertEqual(s.lastAutomatedCommandAt, time.now())
         XCTAssertEqual(s.lastCommand?.automated, true)
+    }
+
+    func testAnAskFirstRuleAsksInsteadOfStartingAndOnlyOnce() async {
+        var rule = Templates.leavingWork(officeId: "office", id: "leave")
+        rule.askFirst = true
+        await rules.set(rules: [rule])
+        let outcome = await trigger()
+        XCTAssertEqual(skipReason(outcome), "asked first")
+        XCTAssertFalse(fake.state.climateOn, "nothing sent")
+        let asks = await notifier.asks
+        XCTAssertEqual(asks, ["leave: Leaving work: start climate to 21.0 °C? It's about 3.0 °C out. Hold for Start, In 15 min or Not today."])
+        let sentTexts = await notifier.sent
+        XCTAssertTrue(sentTexts.isEmpty)
+        // Its cooldown has started: leaving again straight away doesn't ask twice.
+        time.advance(20 * 60)
+        _ = await trigger()
+        let again = await notifier.asks
+        XCTAssertEqual(again.count, 1)
     }
 
     func testAutomationHoldsTheChargerWhenPluggedInAndIdle() async {

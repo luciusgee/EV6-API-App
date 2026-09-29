@@ -365,6 +365,8 @@ public struct Rule: Hashable, Identifiable, Sendable {
     public var cooldownMinutes: Int
     /// A condition whose input is unknown counts as passed instead of failed. Guards never do.
     public var proceedIfUnknown: Bool
+    /// Ask with a notification (Start / In 15 min / Not today) instead of sending the command.
+    public var askFirst: Bool
 
     public init(
         id: String,
@@ -375,7 +377,8 @@ public struct Rule: Hashable, Identifiable, Sendable {
         conditions: [Condition] = [],
         action: RuleAction,
         cooldownMinutes: Int = Rule.defaultCooldownMinutes,
-        proceedIfUnknown: Bool = false
+        proceedIfUnknown: Bool = false,
+        askFirst: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -386,11 +389,12 @@ public struct Rule: Hashable, Identifiable, Sendable {
         self.action = action
         self.cooldownMinutes = cooldownMinutes
         self.proceedIfUnknown = proceedIfUnknown
+        self.askFirst = askFirst
     }
 }
 
 extension Rule: Codable {
-    private enum CodingKeys: String, CodingKey { case id, name, enabled, priority, trigger, conditions, action, cooldownMinutes, proceedIfUnknown }
+    private enum CodingKeys: String, CodingKey { case id, name, enabled, priority, trigger, conditions, action, cooldownMinutes, proceedIfUnknown, askFirst }
 
     /// Missing keys take their defaults; unknown keys are ignored.
     public init(from decoder: Decoder) throws {
@@ -404,7 +408,8 @@ extension Rule: Codable {
             conditions: try c.decodeIfPresent([Condition].self, forKey: .conditions) ?? [],
             action: try c.decode(RuleAction.self, forKey: .action),
             cooldownMinutes: try c.decodeIfPresent(Int.self, forKey: .cooldownMinutes) ?? Rule.defaultCooldownMinutes,
-            proceedIfUnknown: try c.decodeIfPresent(Bool.self, forKey: .proceedIfUnknown) ?? false
+            proceedIfUnknown: try c.decodeIfPresent(Bool.self, forKey: .proceedIfUnknown) ?? false,
+            askFirst: try c.decodeIfPresent(Bool.self, forKey: .askFirst) ?? false
         )
     }
 
@@ -419,6 +424,7 @@ extension Rule: Codable {
         try c.encode(action, forKey: .action)
         try c.encode(cooldownMinutes, forKey: .cooldownMinutes)
         try c.encode(proceedIfUnknown, forKey: .proceedIfUnknown)
+        if askFirst { try c.encode(askFirst, forKey: .askFirst) }
     }
 }
 

@@ -18,7 +18,8 @@ extension PreconditionEngine {
         var dueTimes: [TimeOfDay] = []
         var keys: [String] = []
         let st = await state.load()
-        for rule in allRules where rule.enabled {
+        // "Ask first" schedule rules ask from notifications booked in advance, not from here.
+        for rule in allRules where rule.enabled && !rule.askFirst {
             guard case .schedule(let days, let t) = rule.trigger else { continue }
             let at = clock.date(t, sameDayAs: now)
             guard at >= now.addingTimeInterval(-Self.scheduleLate), at <= now.addingTimeInterval(Self.scheduleEarly),

@@ -26,6 +26,13 @@ struct RuleEditorView: View {
                 TriggerSection(trigger: $draft.trigger, places: model.places)
                 ConditionsSection(conditions: $draft.conditions, places: model.places)
                 ActionSection(action: $draft.action)
+                Section {
+                    Toggle("Ask me first", isOn: $draft.askFirst)
+                } footer: {
+                    Text(draft.askFirst
+                         ? "You'll get a notification with Start climate, In 15 min and Not today. Hold it to see the buttons."
+                         : "Runs by itself when the rule's conditions are met.")
+                }
                 Section("Advanced") {
                     RoundStepper("Priority", value: $draft.priority, in: -10...10, step: 1) { _ in "\(draft.priority)" }
                     RoundStepper("Cooldown", value: $draft.cooldownMinutes, in: 0...720, step: 15) { _ in "\(draft.cooldownMinutes) min" }
@@ -165,7 +172,7 @@ private struct TriggerSection: View {
             Text("Trigger")
         } footer: {
             if case .schedule = trigger {
-                Text("Schedule rules run from a Shortcuts automation. See “Set up schedule automations” in Rules.")
+                Text("With Ask me first on, nothing else is needed. Otherwise schedule rules run from a Shortcuts automation (see Rules).")
             }
         }
     }

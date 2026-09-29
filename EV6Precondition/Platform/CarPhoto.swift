@@ -64,7 +64,9 @@ final class CarPhoto {
         }
     }
 
-    /// iOS 17 subject lifting: everything that isn't the car becomes transparent, cropped to the car.
+    /// iOS 17 subject lifting, cleaned up: Vision's mask is soft where it's unsure (wet ground, the
+    /// shadow under the car), so the edge is tightened to a short ramp between 40 % and 60 % confidence,
+    /// softened by half a pixel against jaggies, and the result cropped to the car.
     nonisolated static func liftSubject(_ image: UIImage) -> UIImage? {
         guard let cg = image.cgImage else { return nil }
         let request = VNGenerateForegroundInstanceMaskRequest()
@@ -72,14 +74,64 @@ final class CarPhoto {
         do {
             try handler.perform([request])
             guard let result = request.results?.first, !result.allInstances.isEmpty else { return nil }
-            // The largest subject is the car.
-            let buffer = try result.generateMaskedImage(ofInstances: result.allInstances, from: handler, croppedToInstancesExtent: true)
-            let ci = CIImage(cvPixelBuffer: buffer)
-            guard let out = CIContext().createCGImage(ci, from: ci.extent) else { return nil }
-            return UIImage(cgImage: out)
+            let maskBuffer = try result.generateScaledMaskForImage(forInstances: result.allInstances, from: handler)
+            let source = CIImage(cgImage: cg)
+            let rawMask = CIImage(cvPixelBuffer: maskBuffer)
+            // 5·m − 2: 0 at 40 %, 1 at 60 %, whatever channel the mask arrived in.
+            let ramp = CIVector(x: 5, y: 0, z: 0, w: 0)
+            guard let tightened = CIFilter(name: "CIColorMatrix", parameters: [
+                kCIInputImageKey: rawMask,
+                "inputRVector": ramp, "inputGVector": ramp, "inputBVector": ramp,
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+                "inputBiasVector": CIVector(x: -2, y: -2, z: -2, w: 0),
+            ])?.outputImage,
+                let clamped = CIFilter(name: "CIColorClamp", parameters: [
+                    kCIInputImageKey: tightened,
+                    "inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 1),
+                    "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1),
+                ])?.outputImage,
+                let softened = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputImageKey: clamped, kCIInputRadiusKey: 0.5])?.outputImage?.cropped(to: source.extent),
+                let blended = CIFilter(name: "CIBlendWithMask", parameters: [
+                    kCIInputImageKey: source,
+                    kCIInputBackgroundImageKey: CIImage.empty(),
+                    kCIInputMaskImageKey: softened,
+                ])?.outputImage
+            else { return nil }
+            let context = CIContext()
+            guard let full = context.createCGImage(blended, from: source.extent) else { return nil }
+            let box = opaqueBounds(full) ?? CGRect(origin: .zero, size: CGSize(width: full.width, height: full.height))
+            guard let cropped = full.cropping(to: box.insetBy(dx: -4, dy: -4).intersection(CGRect(x: 0, y: 0, width: full.width, height: full.height))) else { return nil }
+            return UIImage(cgImage: cropped)
         } catch {
             return nil
         }
+    }
+
+    /// The smallest rectangle holding every pixel at least half opaque (top-left origin, like CGImage cropping).
+    nonisolated private static func opaqueBounds(_ image: CGImage) -> CGRect? {
+        let w = image.width, h = image.height
+        var alpha = [UInt8](repeating: 0, count: w * h)
+        // Row 0 of the bitmap is the top of the image, matching CGImage cropping.
+        let drawn = alpha.withUnsafeMutableBytes { buffer -> Bool in
+            guard let ctx = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
+            else { return false }
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drawn else { return nil }
+        var minX = w, minY = h, maxX = -1, maxY = -1
+        for y in 0..<h {
+            let row = y * w
+            for x in 0..<w where alpha[row + x] >= 128 {
+                if x < minX { minX = x }
+                if x > maxX { maxX = x }
+                if y < minY { minY = y }
+                if y > maxY { maxY = y }
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
     }
 }
 
@@ -95,7 +147,7 @@ final class CarCutouts {
 
     private static func file(_ name: String) -> URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("EV6Precondition/cutout-\(name).png")
+            .appendingPathComponent("EV6Precondition/cutout-v2-\(name).png")
     }
 
     /// The cut-out, or nil until it's ready (or if the phone can't cut it out).

@@ -17,17 +17,54 @@ public final class FakeOBDAdapter: OBDTransport, @unchecked Sendable {
         public var asleep = false
         /// Answer with headers off ("0: …" lines) like some clones do.
         public var headersOff = false
+        public var drive: Drive = .parked
+        public var odometerKm = 18_234
+        public var cabinC = 19.5
+        public var outsideC = 8.0
+        /// Stored trouble codes by module; cleared by UDS 0x14.
+        public var codes: [UInt16: [TroubleCode]] = [
+            0x770: [TroubleCode(code: "U3003", failureType: 0x16, status: 0x08, ecuHeader: 0x770, raw: [0xF0, 0x03, 0x16])],
+            0x7D1: [TroubleCode(code: "C1611", failureType: 0x00, status: 0x09, ecuHeader: 0x7D1, raw: [0x56, 0x11, 0x00])],
+        ]
+        /// Modules that answer.
+        public var modules: Set<UInt16> = [0x7E4, 0x7E2, 0x7E3, 0x7E5, 0x7A0, 0x770, 0x7B3, 0x7C6, 0x7D1, 0x7D2, 0x7D4, 0x7D0, 0x7C4, 0x780]
 
         public init() {}
+    }
+
+    public enum Drive: Sendable, Equatable {
+        case parked
+        /// Gentle town driving around 50 km/h.
+        case cruising(since: Date)
+        /// Flat out from a standstill: 0–60 mph in about 5 s, like a 325 bhp AWD EV6.
+        case launch(since: Date)
     }
 
     private let state: Locked<(car: Car, header: UInt16, headers: Bool)>
     /// Every command received, for tests.
     public var commands: [String] { log.current }
     private let log = Locked<[String]>([])
+    private let now: @Sendable () -> Date
 
-    public init(car: Car = Car()) {
+    public init(car: Car = Car(), now: @escaping @Sendable () -> Date = { Date() }) {
         state = Locked((car, 0x7DF, true))
+        self.now = now
+    }
+
+    /// Speed (km/h) and battery power (kW) for the drive simulation.
+    public func motion() -> (kmh: Double, kW: Double, pedal: Double) {
+        switch car.drive {
+        case .parked:
+            return (0, 0.4, 0)
+        case .cruising(let since):
+            let t = now().timeIntervalSince(since)
+            let v = 48 + 10 * sin(t / 9)
+            return (v, 9 + 12 * cos(t / 9), 22)
+        case .launch(let since):
+            let t = max(0, now().timeIntervalSince(since))
+            let v = 230 * (1 - exp(-t / 9.2))
+            return (v, t < 12 ? 239 * min(1, 0.4 + t) : 60, 100)
+        }
     }
 
     public var car: Car {
@@ -49,12 +86,59 @@ public final class FakeOBDAdapter: OBDTransport, @unchecked Sendable {
 
         let s = state.current
         if s.car.asleep { return "NO DATA\r\r>" }
-        guard cmd.hasPrefix("22"), let did = UInt16(cmd.dropFirst(2), radix: 16) else { return "?\r\r>" }
-        guard let payload = payload(header: s.header, did: did, car: s.car) else {
-            return frames([0x7F, 0x22, 0x31], header: s.header + 8, headersOn: s.headers && !s.car.headersOff)
+        guard let bytes = try? ISOTP.bytes(cmd), let service = bytes.first else { return "?\r\r>" }
+        let headersOn = s.headers && !s.car.headersOff
+        if s.header == OBDRequest.broadcast {
+            guard let answer = standard(bytes, car: s.car) else { return "NO DATA\r\r>" }
+            return frames(answer, header: 0x7E8, headersOn: headersOn)
         }
-        let message = [0x62, UInt8(did >> 8), UInt8(did & 0xFF)] + payload
-        return frames(message, header: s.header + 8, headersOn: s.headers && !s.car.headersOff)
+        guard s.car.modules.contains(s.header) else { return "NO DATA\r\r>" }
+        let reply = s.header + 8
+        switch service {
+        case 0x3E:
+            return frames([0x7E, 0x00], header: reply, headersOn: headersOn)
+        case 0x19:
+            let codes = s.car.codes[s.header] ?? []
+            if bytes.count >= 2, bytes[1] == 0x04 {
+                return frames([0x59, 0x04] + Array(bytes.dropFirst(2).prefix(3)) + [0x08, 0x01, 0x03, 0x10, 0x02, 0x7A, 0x33, 0x44, 0x1C], header: reply, headersOn: headersOn)
+            }
+            return frames([0x59, 0x02, 0xFF] + codes.flatMap { $0.raw + [$0.status] }, header: reply, headersOn: headersOn)
+        case 0x14:
+            state.withLock { $0.car.codes[$0.header] = nil }
+            // Clearing takes a moment: "response pending" first, like a real module.
+            return (ISOTP.frames([0x7F, 0x14, 0x78], header: reply) + ISOTP.frames([0x54], header: reply)).joined(separator: "\r") + "\r\r>"
+        case 0x22 where bytes.count == 3:
+            let did = UInt16(bytes[1]) << 8 | UInt16(bytes[2])
+            guard let payload = payload(header: s.header, did: did, car: s.car) else {
+                return frames([0x7F, 0x22, 0x31], header: reply, headersOn: headersOn)
+            }
+            return frames([0x62, bytes[1], bytes[2]] + payload, header: reply, headersOn: headersOn)
+        default:
+            return frames([0x7F, service, 0x11], header: reply, headersOn: headersOn)
+        }
+    }
+
+    /// OBD-II modes 01, 03, 04, 07 and 09, answered by the VCU (7E8).
+    private func standard(_ bytes: [UInt8], car: Car) -> [UInt8]? {
+        let m = motion()
+        switch (bytes[0], bytes.count > 1 ? bytes[1] : nil) {
+        // Supported: 0x0D, 0x1F (next block 0x20), 0x21, 0x31 (next 0x40), 0x42, 0x46, 0x5B.
+        case (0x01, 0x00?): return [0x41, 0x00, 0x00, 0x08, 0x00, 0x03]
+        case (0x01, 0x20?): return [0x41, 0x20, 0x80, 0x00, 0x80, 0x01]
+        case (0x01, 0x40?): return [0x41, 0x40, 0x44, 0x00, 0x00, 0x20]
+        case (0x01, 0x0D?): return [0x41, 0x0D, UInt8(min(m.kmh, 255))]
+        case (0x01, 0x1F?): return [0x41, 0x1F, 0x02, 0x58]
+        case (0x01, 0x21?): return [0x41, 0x21, 0x00, 0x00]
+        case (0x01, 0x31?): return [0x41, 0x31, 0x04, 0xD2]
+        case (0x01, 0x42?): return [0x41, 0x42, 0x38, 0xA4] // 14.5 V
+        case (0x01, 0x46?): return [0x41, 0x46, UInt8(car.outsideC + 40)]
+        case (0x01, 0x5B?): return [0x41, 0x5B, UInt8(car.socPercent * 255 / 100)]
+        case (0x03, _): return [0x43, 0x00]
+        case (0x07, _): return [0x47, 0x00]
+        case (0x04, _): return [0x44]
+        case (0x09, 0x02?): return [0x49, 0x02, 0x01] + Array("KNAC381AFN5012345".utf8)
+        default: return nil
+        }
     }
 
     private func frames(_ message: [UInt8], header: UInt16, headersOn: Bool) -> String {
@@ -94,6 +178,14 @@ public final class FakeOBDAdapter: OBDTransport, @unchecked Sendable {
 
     private func payload(header: UInt16, did: UInt16, car: Car) -> [UInt8]? {
         switch (header, did) {
+        case (_, 0xF190):
+            return Array("KNAC381AFN5012345".utf8)
+        case (_, 0xF187):
+            return Array(String(format: "%05X-CV%03d", header, header % 1000).utf8)
+        case (_, 0xF189):
+            return Array("CV1 EU 1.0\(header % 7)".utf8)
+        case (_, 0xF18C):
+            return Array(String(format: "S%08X", Int(header) * 7919).utf8)
         case (EGMP.bms, 0x0101):
             var d = [UInt8](repeating: 0, count: 59)
             d[4] = UInt8(min(max(car.socPercent * 2, 0), 200))
@@ -116,6 +208,15 @@ public final class FakeOBDAdapter: OBDTransport, @unchecked Sendable {
             put32(&d, 38, 36_512) // kWh × 10
             put32(&d, 42, 33_208)
             put32(&d, 46, 1_734_000) // seconds
+            let m = motion()
+            if m.kW > 1 {
+                let amps = m.kW * 1000 / car.packVolts
+                put16(&d, 10, Int((amps * 10).rounded()) & 0xFFFF)
+            }
+            // 10.65:1 reduction, about 2.3 m per wheel turn.
+            let rpm = Int(m.kmh * 77)
+            put16(&d, 53, rpm & 0xFFFF)
+            put16(&d, 55, rpm & 0xFFFF)
             return d
         case (EGMP.bms, 0x0105):
             var d = [UInt8](repeating: 0, count: 45)
@@ -132,6 +233,30 @@ public final class FakeOBDAdapter: OBDTransport, @unchecked Sendable {
             put32(&d, 0, Int(present))
             for (i, v) in slice.enumerated() { d[4 + i] = UInt8((v / 0.02).rounded()) }
             return d
+        case (EV6Sensors.hvac, 0x0100):
+            var d = [UInt8](repeating: 0, count: 32)
+            d[5] = UInt8(((car.cabinC + 40) * 2).rounded())
+            d[6] = UInt8(((car.outsideC + 40) * 2).rounded())
+            d[29] = UInt8(min(motion().kmh, 255))
+            return d
+        case (EV6Sensors.vcu, 0xE004):
+            var d = [UInt8](repeating: 0, count: 20)
+            let m = motion()
+            d[9] = UInt8(m.pedal * 2)
+            d[14] = car.drive == .parked ? 0 : 5
+            return d
+        case (EV6Sensors.cluster, 0xB002):
+            var d = [UInt8](repeating: 0, count: 14)
+            d[6] = UInt8((car.odometerKm >> 16) & 0xFF)
+            d[7] = UInt8((car.odometerKm >> 8) & 0xFF)
+            d[8] = UInt8(car.odometerKm & 0xFF)
+            return d
+        case (EV6Sensors.igpm, 0xBC03):
+            var d = [UInt8](repeating: 0, count: 8)
+            d[5] = car.drive == .parked ? 0x02 : 0x62
+            return d
+        case (EV6Sensors.igpm, 0xBC04):
+            return [UInt8](repeating: 0, count: 8)
         case (EGMP.bcm, 0xC00B):
             var d = [UInt8](repeating: 0, count: 24)
             for (i, psi) in car.tyrePsi.prefix(4).enumerated() {

@@ -18,6 +18,12 @@ final class MutableTime: TimeSource, @unchecked Sendable {
         return current
     }
 
+    func set(_ date: Date) {
+        lock.lock()
+        current = date
+        lock.unlock()
+    }
+
     func advance(_ seconds: TimeInterval) {
         lock.lock()
         current = current.addingTimeInterval(seconds)

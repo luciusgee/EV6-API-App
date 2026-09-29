@@ -29,28 +29,47 @@ public enum OBDError: Error, Equatable, Sendable, CustomStringConvertible {
     }
 }
 
-/// One UDS "read data by identifier" (0x22) request to an ECU.
+/// One diagnostic request to an ECU: UDS "read data by identifier" (0x22), an OBD-II mode (0x01, 0x03,
+/// 0x09…), trouble codes (0x19, 0x14) or tester present (0x3E).
 public struct OBDRequest: Hashable, Sendable {
-    /// 11-bit request CAN id, e.g. 0x7E4 for the battery management system.
+    /// 11-bit request CAN id, e.g. 0x7E4 for the battery management system; 0x7DF asks every ECU.
     public var header: UInt16
-    public var did: UInt16
+    public var service: UInt8
+    public var parameter: [UInt8]
+    /// How many parameter bytes the ECU repeats after its positive-response byte.
+    public var echo: Int
 
-    public init(header: UInt16, did: UInt16) {
+    public init(header: UInt16, service: UInt8, parameter: [UInt8] = [], echo: Int? = nil) {
         self.header = header
-        self.did = did
+        self.service = service
+        self.parameter = parameter
+        self.echo = echo ?? parameter.count
     }
 
-    /// The ECU answers on the request id + 8.
-    public var responseHeader: UInt16 { header + 8 }
-    public var command: String { String(format: "22%04X", did) }
+    /// UDS read data by identifier.
+    public init(header: UInt16, did: UInt16) {
+        self.init(header: header, service: 0x22, parameter: [UInt8(did >> 8), UInt8(did & 0xFF)])
+    }
+
+    public static let broadcast: UInt16 = 0x7DF
+
+    /// The data identifier of a 0x22 request.
+    public var did: UInt16 { parameter.count == 2 ? UInt16(parameter[0]) << 8 | UInt16(parameter[1]) : 0 }
+
+    /// The ECU answers on the request id + 8; nil for a broadcast (the first ECU to answer wins).
+    public var responseHeader: UInt16? { header == Self.broadcast ? nil : header + 8 }
+    public var command: String { ([service] + parameter).map { String(format: "%02X", $0) }.joined() }
 }
 
-/// Talks ELM327: sets the adapter up for 500 kbit/s 11-bit CAN (the E-GMP diagnostic bus), then reads
-/// data identifiers and hands back the payload after the positive-response bytes.
+/// Talks ELM327: sets the adapter up for 500 kbit/s 11-bit CAN (the E-GMP diagnostic bus), then sends
+/// requests one at a time, whichever screen asks.
 public actor ELM327 {
     private let transport: OBDTransport
     private var currentHeader: UInt16?
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
     public private(set) var adapterVersion: String?
+    public private(set) var initialised = false
 
     public init(transport: OBDTransport) {
         self.transport = transport
@@ -58,20 +77,43 @@ public actor ELM327 {
 
     public static let setup = ["ATZ", "ATE0", "ATL0", "ATS1", "ATH1", "ATSP6", "ATAT1", "ATCAF1"]
 
+    private func acquire() async {
+        if !busy {
+            busy = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    private func release() {
+        if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
+    }
+
     public func initialise() async throws {
+        await acquire()
+        defer { release() }
         currentHeader = nil
+        initialised = false
         for command in Self.setup {
             let reply = try await transport.exchange(command)
             if command == "ATZ" {
-                adapterVersion = Self.lines(reply).first { $0.uppercased().contains("ELM") }
+                adapterVersion = Self.lines(reply).first { $0.uppercased().contains("ELM") || $0.uppercased().contains("V") }
             } else if Self.lines(reply).contains("?") {
                 throw OBDError.unexpected("\(command) → ?")
             }
         }
+        initialised = true
     }
 
-    /// Reads one identifier. The returned bytes start after `62 DID DID`.
-    public func read(_ request: OBDRequest) async throws -> [UInt8] {
+    /// Sets the adapter up once; later calls do nothing.
+    public func initialiseIfNeeded() async throws {
+        if !initialised { try await initialise() }
+    }
+
+    /// The whole answer, starting with the response byte (0x62, 0x7F…).
+    public func send(_ request: OBDRequest) async throws -> [UInt8] {
+        await acquire()
+        defer { release() }
         if currentHeader != request.header {
             let reply = try await transport.exchange(String(format: "ATSH%03X", request.header))
             guard Self.lines(reply).contains(where: { $0.uppercased() == "OK" }) else {
@@ -80,15 +122,25 @@ public actor ELM327 {
             currentHeader = request.header
         }
         let reply = try await transport.exchange(request.command)
-        let message = try ISOTP.message(from: reply, responseHeader: request.responseHeader)
+        return try ISOTP.message(from: reply, responseHeader: request.responseHeader)
+    }
+
+    /// The data after the positive-response byte and the echoed parameter.
+    public func read(_ request: OBDRequest) async throws -> [UInt8] {
+        let message = try await send(request)
         guard let first = message.first else { throw OBDError.noData }
         if first == 0x7F {
             throw OBDError.rejected(message.count > 2 ? message[2] : 0)
         }
-        guard first == 0x62, message.count >= 3,
-              UInt16(message[1]) << 8 | UInt16(message[2]) == request.did
+        guard first == request.service &+ 0x40, message.count >= 1 + request.echo,
+              Array(message[1..<(1 + request.echo)]) == Array(request.parameter.prefix(request.echo))
         else { throw OBDError.unexpected(ISOTP.hex(Array(message.prefix(8)))) }
-        return Array(message.dropFirst(3))
+        return Array(message.dropFirst(1 + request.echo))
+    }
+
+    /// Whether an ECU answers at all (UDS tester present).
+    public func ping(_ header: UInt16) async -> Bool {
+        (try? await read(OBDRequest(header: header, service: 0x3E, parameter: [0x00]))) != nil
     }
 
     static func lines(_ text: String) -> [String] {
@@ -101,8 +153,8 @@ public actor ELM327 {
 /// Reassembles an ISO 15765-2 (ISO-TP) message from what the ELM327 prints, with headers on
 /// ("7EC 10 3E 62 01 01 …") or off ("03E" then "0: 62 01 01 …"), with or without spaces.
 public enum ISOTP {
-    public static func message(from reply: String, responseHeader: UInt16) throws -> [UInt8] {
-        let lines = ELM327.lines(reply).filter { !$0.uppercased().hasPrefix("SEARCHING") }
+    public static func message(from reply: String, responseHeader: UInt16?) throws -> [UInt8] {
+        let lines = ELM327.lines(reply).filter { !$0.uppercased().hasPrefix("SEARCHING") && !$0.uppercased().hasPrefix("BUS INIT") }
         guard !lines.isEmpty else { throw OBDError.timeout }
         for line in lines {
             let upper = line.uppercased()
@@ -115,6 +167,11 @@ public enum ISOTP {
             return try indexed(lines)
         }
         return try framed(lines, responseHeader: responseHeader)
+    }
+
+    /// "Request received, response pending": the real answer follows.
+    static func isPending(_ message: [UInt8]) -> Bool {
+        message.count >= 3 && message[0] == 0x7F && message[2] == 0x78
     }
 
     /// Headers off: an optional length line, then "0: …", "1: …".
@@ -135,9 +192,10 @@ public enum ISOTP {
         return Array(data.prefix(length))
     }
 
-    /// Headers on: each line is one CAN frame, "7EC" then the PCI byte and data.
-    private static func framed(_ lines: [String], responseHeader: UInt16) throws -> [UInt8] {
-        let wanted = String(format: "%03X", responseHeader)
+    /// Headers on: each line is one CAN frame, "7EC" then the PCI byte and data. Returns the first
+    /// complete message from the wanted ECU (or the first ECU to answer), skipping "response pending".
+    private static func framed(_ lines: [String], responseHeader: UInt16?) throws -> [UInt8] {
+        var wanted = responseHeader.map { String(format: "%03X", $0) }
         var frames: [[UInt8]] = []
         var sawHeaders = false
         for line in lines {
@@ -145,7 +203,9 @@ public enum ISOTP {
             if compact.count > 3, compact.count % 2 == 1 {
                 // An odd number of hex digits: an 11-bit id, then bytes.
                 sawHeaders = true
-                guard compact.hasPrefix(wanted) else { continue } // another ECU
+                let id = String(compact.prefix(3))
+                if wanted == nil { wanted = id }
+                guard id == wanted else { continue } // another ECU
                 frames.append(try bytes(String(compact.dropFirst(3))))
             } else {
                 frames.append(try bytes(compact))
@@ -156,27 +216,45 @@ public enum ISOTP {
             // Plain response without PCI (CAF on, headers off, single frame).
             return first
         }
-        switch pci >> 4 {
-        case 0:
-            let n = Int(pci & 0x0F)
-            guard first.count > n else { throw OBDError.unexpected("short single frame") }
-            return Array(first[1...n])
-        case 1:
-            guard first.count >= 2 else { throw OBDError.unexpected("short first frame") }
-            let length = Int(pci & 0x0F) << 8 | Int(first[1])
-            var data = Array(first.dropFirst(2))
-            var expected: UInt8 = 1
-            for frame in frames.dropFirst() {
-                guard let p = frame.first, p >> 4 == 2 else { continue }
+
+        var messages: [[UInt8]] = []
+        var building: [UInt8]?
+        var length = 0
+        var expected: UInt8 = 1
+        for frame in frames {
+            guard let p = frame.first else { continue }
+            switch p >> 4 {
+            case 0:
+                let n = Int(p & 0x0F)
+                guard frame.count > n, n > 0 else { throw OBDError.unexpected("short single frame") }
+                messages.append(Array(frame[1...n]))
+            case 1:
+                guard frame.count >= 2 else { throw OBDError.unexpected("short first frame") }
+                length = Int(p & 0x0F) << 8 | Int(frame[1])
+                building = Array(frame.dropFirst(2))
+                expected = 1
+            case 2:
+                guard var data = building else { continue }
                 if p & 0x0F != expected { throw OBDError.unexpected("frame \(p & 0x0F) out of order") }
                 expected = (expected + 1) & 0x0F
                 data += frame.dropFirst()
+                if data.count >= length {
+                    messages.append(Array(data.prefix(length)))
+                    building = nil
+                } else {
+                    building = data
+                }
+            default:
+                throw OBDError.unexpected(hex(Array(frame.prefix(8))))
             }
-            guard data.count >= length else { throw OBDError.unexpected("short message: \(data.count) of \(length) bytes") }
-            return Array(data.prefix(length))
-        default:
-            throw OBDError.unexpected(hex(Array(first.prefix(8))))
         }
+        if let data = building {
+            throw OBDError.unexpected("short message: \(data.count) of \(length) bytes")
+        }
+        guard let message = messages.first(where: { !isPending($0) }) else {
+            throw messages.isEmpty ? OBDError.noData : OBDError.timeout
+        }
+        return message
     }
 
     static func bytes(_ text: String) throws -> [UInt8] {

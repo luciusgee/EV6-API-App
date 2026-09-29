@@ -191,7 +191,7 @@ public struct BatteryScanner: Sendable {
         }
 
         await next("Connecting to the adapter")
-        try await elm.initialise()
+        try await elm.initialiseIfNeeded()
 
         await next("Reading the battery")
         do {

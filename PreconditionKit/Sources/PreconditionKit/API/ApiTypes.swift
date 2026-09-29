@@ -8,23 +8,59 @@ public enum RequestKind: String, Codable, Sendable {
 
 /// What the user entered in Settings. Stored in the Keychain; never logged or exported.
 public struct Credentials: Codable, Equatable, Sendable, CustomStringConvertible {
-    /// The Kia Connect refresh token (48 characters, `[A-Z0-9]`).
+    /// A Kia Connect refresh token (48 characters, `[A-Z0-9]`), for those who have one. Empty when signing
+    /// in with email and password.
     public var refreshToken: String
     /// Optional: picks the car when the account has several. Empty = first EV.
     public var vin: String
     /// Kia Connect PIN. Only CCS2 cars need it, for climate commands.
     public var pin: String?
+    /// The Kia account email and password (the Kia app's own sign-in).
+    public var email: String?
+    public var password: String?
 
-    public init(refreshToken: String, vin: String = "", pin: String? = nil) {
+    public init(refreshToken: String = "", vin: String = "", pin: String? = nil, email: String? = nil, password: String? = nil) {
         self.refreshToken = refreshToken
         self.vin = vin
         self.pin = pin
+        self.email = email
+        self.password = password
     }
 
-    /// Never prints the token or PIN, so credentials can't leak into a log by accident.
-    public var description: String {
-        "Credentials(refreshToken: \(refreshToken.isEmpty ? "none" : "set"), vin: \(vin.isEmpty ? "none" : maskVin(vin)), pin: \(pin == nil ? "none" : "set"))"
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        refreshToken = try c.decodeIfPresent(String.self, forKey: .refreshToken) ?? ""
+        vin = try c.decodeIfPresent(String.self, forKey: .vin) ?? ""
+        pin = try c.decodeIfPresent(String.self, forKey: .pin)
+        email = try c.decodeIfPresent(String.self, forKey: .email)
+        password = try c.decodeIfPresent(String.self, forKey: .password)
     }
+
+    /// Email and password, when both are set; they win over a refresh token.
+    public var account: (email: String, password: String)? {
+        guard let e = email?.trimmingCharacters(in: .whitespaces), !e.isEmpty, let p = password, !p.isEmpty else { return nil }
+        return (e, p)
+    }
+
+    public var isConfigured: Bool { account != nil || !refreshToken.isEmpty }
+
+    /// Identifies the login, so a different account or token starts a new session.
+    public var loginFingerprint: String {
+        if let account { return KiaSession.fingerprint("account:" + account.email.lowercased()) }
+        return KiaSession.fingerprint(refreshToken)
+    }
+
+    /// Never prints the token, password or PIN, so credentials can't leak into a log by accident.
+    public var description: String {
+        let login = account != nil ? "account: \(maskEmail(email ?? ""))" : "refreshToken: \(refreshToken.isEmpty ? "none" : "set")"
+        return "Credentials(\(login), vin: \(vin.isEmpty ? "none" : maskVin(vin)), pin: \(pin == nil ? "none" : "set"))"
+    }
+}
+
+/// "l***@aol.com".
+public func maskEmail(_ email: String) -> String {
+    guard let at = email.firstIndex(of: "@"), at > email.startIndex else { return "***" }
+    return String(email[email.startIndex]) + "***" + String(email[at...])
 }
 
 public protocol CredentialsProvider: Sendable {

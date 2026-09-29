@@ -8,12 +8,15 @@ public struct HTTPRequest: Sendable, CustomStringConvertible {
     public var url: URL
     public var headers: [String: String]
     public var body: Data?
+    /// False to get a 3xx back as the response instead of following it (the Kia login reads the redirect).
+    public var followRedirects: Bool
 
-    public init(method: String, url: URL, headers: [String: String] = [:], body: Data? = nil) {
+    public init(method: String, url: URL, headers: [String: String] = [:], body: Data? = nil, followRedirects: Bool = true) {
         self.method = method
         self.url = url
         self.headers = headers
         self.body = body
+        self.followRedirects = followRedirects
     }
 
     /// Case-insensitive header lookup.
@@ -30,15 +33,27 @@ public struct HTTPRequest: Sendable, CustomStringConvertible {
 public struct HTTPResponse: Sendable {
     public var status: Int
     public var body: Data
+    public var headers: [String: String]
+    /// Cookies the response set, name → value.
+    public var cookies: [String: String]
 
-    public init(status: Int, body: Data) {
+    public init(status: Int, body: Data, headers: [String: String] = [:], cookies: [String: String] = [:]) {
         self.status = status
         self.body = body
+        self.headers = headers
+        self.cookies = cookies
     }
 
-    public init(status: Int, text: String) {
-        self.init(status: status, body: Data(text.utf8))
+    public init(status: Int, text: String, headers: [String: String] = [:], cookies: [String: String] = [:]) {
+        self.init(status: status, body: Data(text.utf8), headers: headers, cookies: cookies)
     }
+
+    /// Case-insensitive header lookup.
+    public func header(_ name: String) -> String? {
+        headers.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
+    }
+
+    public var text: String { String(decoding: body, as: UTF8.self) }
 }
 
 /// The only way out to the network. The app uses `URLSessionTransport`; tests and fake-car mode swap in
@@ -50,19 +65,24 @@ public protocol HTTPTransport: Sendable {
 
 public struct URLSessionTransport: HTTPTransport, @unchecked Sendable {
     private let session: URLSession
+    private let policy: RedirectPolicy
 
-    public init(session: URLSession = URLSessionTransport.makeSession()) {
-        self.session = session
+    public init() {
+        let policy = RedirectPolicy()
+        self.policy = policy
+        self.session = Self.makeSession(delegate: policy)
     }
 
-    /// Short timeouts: background wakes on iOS only get a few seconds (HANDOVER.md §8).
-    public static func makeSession() -> URLSession {
+    /// Short timeouts: background wakes on iOS only get a few seconds (HANDOVER.md §8). No cookie store:
+    /// the one flow that needs cookies (the Kia login) carries them itself.
+    static func makeSession(delegate: URLSessionDelegate) -> URLSession {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 60
         config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
         config.urlCache = nil
-        return URLSession(configuration: config)
+        return URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -70,16 +90,48 @@ public struct URLSessionTransport: HTTPTransport, @unchecked Sendable {
         r.httpMethod = request.method
         for (name, value) in request.headers { r.setValue(value, forHTTPHeaderField: name) }
         r.httpBody = request.body
+        let policy = self.policy
         return try await withCheckedThrowingContinuation { continuation in
-            session.dataTask(with: r) { data, response, error in
+            let task = session.dataTask(with: r) { data, response, error in
                 if let error {
                     continuation.resume(throwing: error)
                     return
                 }
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                continuation.resume(returning: HTTPResponse(status: status, body: data ?? Data()))
-            }.resume()
+                let http = response as? HTTPURLResponse
+                var headers: [String: String] = [:]
+                for (k, v) in http?.allHeaderFields ?? [:] {
+                    if let k = k as? String, let v = v as? String { headers[k] = v }
+                }
+                var cookies: [String: String] = [:]
+                if let url = http?.url ?? request.url as URL? {
+                    for c in HTTPCookie.cookies(withResponseHeaderFields: headers, for: url) { cookies[c.name] = c.value }
+                }
+                continuation.resume(returning: HTTPResponse(status: http?.statusCode ?? 0, body: data ?? Data(), headers: headers, cookies: cookies))
+            }
+            if !request.followRedirects { policy.stopRedirects(for: task.taskIdentifier) }
+            task.resume()
         }
+    }
+}
+
+/// Stops redirects for the tasks that asked (`followRedirects: false`), so their 3xx comes back as is.
+final class RedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let stopped = Locked<Set<Int>>([])
+
+    func stopRedirects(for task: Int) {
+        stopped.withLock { _ = $0.insert(task) }
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        let stop = stopped.withLock { $0.remove(task.taskIdentifier) != nil }
+        completionHandler(stop ? nil : request)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        stopped.withLock { _ = $0.remove(task.taskIdentifier) }
     }
 }
 

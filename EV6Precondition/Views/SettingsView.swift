@@ -86,9 +86,13 @@ private struct MyCarSection: View {
 
 private struct KiaConnectSection: View {
     @Environment(CarModel.self) private var model
+    @State private var email = ""
+    @State private var password = ""
+    @State private var signInError: String?
     @State private var token = ""
     @State private var pin = ""
     @State private var vin = ""
+    @State private var showAdvanced = false
     @FocusState private var vinFocused: Bool
 
     private static let tokenGuide = URL(string: "https://github.com/Hyundai-Kia-Connect/hyundai_kia_connect_api/discussions/987")!
@@ -99,36 +103,75 @@ private struct KiaConnectSection: View {
                 Label("Problem: \(failure)", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
             }
-
-            SecureField(model.hasToken ? "Replace refresh token" : "Refresh token", text: $token)
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-                .font(.body.monospaced())
-            if !token.isEmpty && !CarModel.tokenLooksValid(token.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                Text("Kia tokens are usually 48 capital letters and digits")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-            }
-            HStack {
-                Button("Save token") {
-                    let value = token
-                    token = ""
-                    Task { await model.saveCredentials(token: value) }
+            if let account = model.accountEmail {
+                LabeledContent {
+                    Text(account).lineLimit(1)
+                } label: {
+                    Label("Signed in", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
                 }
-                .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Spacer()
-                if model.hasToken {
-                    Button("Remove", role: .destructive) {
-                        Task { await model.saveCredentials(token: "") }
+                Button("Sign Out", role: .destructive) {
+                    Task { await model.signOut() }
+                }
+            } else {
+                TextField("Kia account email", text: $email)
+                    .textContentType(.username)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                SecureField("Password", text: $password)
+                    .textContentType(.password)
+                    .submitLabel(.go)
+                    .onSubmit { signIn() }
+                Button {
+                    signIn()
+                } label: {
+                    HStack {
+                        Text(model.signingIn ? "Signing In…" : "Sign In")
+                        Spacer()
+                        if model.signingIn { ProgressView() }
                     }
                 }
+                .disabled(model.signingIn || email.isEmpty || password.isEmpty)
+                if let signInError {
+                    Text(signInError).font(.footnote).foregroundStyle(.orange)
+                }
             }
-            .buttonStyle(.borderless)
-            Link("How to get a refresh token", destination: Self.tokenGuide)
         } header: {
-            Text("Kia Connect")
+            Text("Kia account")
         } footer: {
-            Text("Kia has no public API, so this uses the Kia Connect app's own service (Europe). It can stop working whenever Kia changes it. Sign in once in a browser to get a refresh token, then paste it here. The token and PIN are kept in the iOS Keychain and never logged or exported.")
+            Text("The same email and password as the Kia app (Europe). The password is encrypted with Kia's key on this iPhone and only ever sent to Kia; it's kept in the iOS Keychain so the app can sign back in by itself if Kia ends the session. Kia has no public API, so this can stop working whenever Kia changes theirs.")
+        }
+
+        Section {
+            DisclosureGroup("Advanced: refresh token", isExpanded: $showAdvanced) {
+                SecureField(model.hasToken && model.accountEmail == nil ? "Replace refresh token" : "Refresh token", text: $token)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .font(.body.monospaced())
+                if !token.isEmpty && !CarModel.tokenLooksValid(token.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    Text("Kia tokens are usually 48 capital letters and digits")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                }
+                HStack {
+                    Button("Save token") {
+                        let value = token
+                        token = ""
+                        Task { await model.saveCredentials(token: value) }
+                    }
+                    .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Spacer()
+                    if model.hasToken && model.accountEmail == nil {
+                        Button("Remove", role: .destructive) {
+                            Task { await model.saveCredentials(token: "") }
+                        }
+                    }
+                }
+                .buttonStyle(.borderless)
+                Link("About refresh tokens", destination: Self.tokenGuide)
+            }
+        } footer: {
+            Text("Only if you already have a Kia Connect refresh token. Signing in above is simpler.")
         }
 
         Section {
@@ -174,6 +217,18 @@ private struct KiaConnectSection: View {
                 }
         } footer: {
             Text("Only if the account has more than one car; otherwise the first EV is used.")
+        }
+    }
+}
+
+extension KiaConnectSection {
+    private func signIn() {
+        let (e, p) = (email, password)
+        guard !e.isEmpty, !p.isEmpty else { return }
+        signInError = nil
+        Task {
+            signInError = await model.signIn(email: e, password: p)
+            if signInError == nil { password = "" }
         }
     }
 }

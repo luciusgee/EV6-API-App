@@ -579,7 +579,7 @@ private struct BannerRow: View {
 
     private var text: String {
         switch banner {
-        case .setupNeeded: return "Add your Kia Connect refresh token in Settings to connect your car."
+        case .setupNeeded: return "Sign in with your Kia account in Settings to connect your car."
         case .authStopped(let reason): return reason
         case .paused(let reason): return reason.capitalizingFirst
         case .fakeMode: return "Fake car on. Nothing is sent to Kia."

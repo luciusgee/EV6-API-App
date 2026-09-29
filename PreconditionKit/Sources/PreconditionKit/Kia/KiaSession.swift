@@ -20,6 +20,9 @@ public struct KiaSession: Codable, Equatable, Sendable {
     /// CCS2 only: `"Bearer …"`, obtained with the PIN.
     public var controlToken: String?
     public var controlExpiresAt: Date
+    /// Set when signed in with email and password: the newer Kia app's token set, which refreshes the
+    /// access token (`refreshToken` then holds the CCI refresh token).
+    public var cci: CCITokens?
 
     public init(
         enteredTokenHash: String,
@@ -32,7 +35,8 @@ public struct KiaSession: Codable, Equatable, Sendable {
         selectedFor: String? = nil,
         ccs2: Int = 0,
         controlToken: String? = nil,
-        controlExpiresAt: Date = .distantPast
+        controlExpiresAt: Date = .distantPast,
+        cci: CCITokens? = nil
     ) {
         self.enteredTokenHash = enteredTokenHash
         self.refreshToken = refreshToken
@@ -45,10 +49,46 @@ public struct KiaSession: Codable, Equatable, Sendable {
         self.ccs2 = ccs2
         self.controlToken = controlToken
         self.controlExpiresAt = controlExpiresAt
+        self.cci = cci
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enteredTokenHash = try c.decode(String.self, forKey: .enteredTokenHash)
+        refreshToken = try c.decode(String.self, forKey: .refreshToken)
+        accessToken = try c.decodeIfPresent(String.self, forKey: .accessToken)
+        accessExpiresAt = try c.decodeIfPresent(Date.self, forKey: .accessExpiresAt) ?? .distantPast
+        deviceId = try c.decodeIfPresent(String.self, forKey: .deviceId)
+        vehicleId = try c.decodeIfPresent(String.self, forKey: .vehicleId)
+        vehicleVin = try c.decodeIfPresent(String.self, forKey: .vehicleVin)
+        selectedFor = try c.decodeIfPresent(String.self, forKey: .selectedFor)
+        ccs2 = try c.decodeIfPresent(Int.self, forKey: .ccs2) ?? 0
+        controlToken = try c.decodeIfPresent(String.self, forKey: .controlToken)
+        controlExpiresAt = try c.decodeIfPresent(Date.self, forKey: .controlExpiresAt) ?? .distantPast
+        cci = try c.decodeIfPresent(CCITokens.self, forKey: .cci)
     }
 
     public static func fingerprint(_ token: String) -> String {
         Digest.sha256Hex(token)
+    }
+}
+
+/// The token set from the Kia app's current sign-in (the "OneApp"/CCI service).
+public struct CCITokens: Codable, Equatable, Sendable {
+    public var accessToken: String
+    public var exchangeableToken: String
+    public var exchangeableRefreshToken: String
+    public var nonCcsToken: String
+    public var nonCcsRefreshToken: String
+    public var idToken: String
+
+    public init(accessToken: String, exchangeableToken: String, exchangeableRefreshToken: String, nonCcsToken: String, nonCcsRefreshToken: String, idToken: String) {
+        self.accessToken = accessToken
+        self.exchangeableToken = exchangeableToken
+        self.exchangeableRefreshToken = exchangeableRefreshToken
+        self.nonCcsToken = nonCcsToken
+        self.nonCcsRefreshToken = nonCcsRefreshToken
+        self.idToken = idToken
     }
 }
 

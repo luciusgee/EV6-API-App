@@ -28,7 +28,11 @@ public final class CarModel {
     /// Newest first.
     public private(set) var log: [LogEntry] = []
     public private(set) var settings = AppSettings()
+    /// Signed in (email and password) or a refresh token entered.
     public private(set) var hasToken = false
+    /// The Kia account email when signed in with it.
+    public private(set) var accountEmail: String?
+    public private(set) var signingIn = false
     public private(set) var hasPin = false
     public private(set) var vin = ""
     public private(set) var busy: Busy?
@@ -66,7 +70,8 @@ public final class CarModel {
         await container.start()
         settings = await container.stores.settings.load()
         let creds = await container.credentials.credentials()
-        hasToken = !(creds?.refreshToken.isEmpty ?? true)
+        hasToken = creds?.isConfigured ?? false
+        accountEmail = creds?.account?.email
         hasPin = !(creds?.pin?.isEmpty ?? true)
         vin = creds?.vin ?? ""
         fakeCar = container.fakeCar.state
@@ -157,21 +162,59 @@ public final class CarModel {
         token.count == 48 && token.allSatisfy { ("A"..."Z").contains($0) || ("0"..."9").contains($0) }
     }
 
+    /// Signs in with the Kia account and reads the car to prove it works. Returns an error to show, or nil.
+    public func signIn(email: String, password: String) async -> String? {
+        let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !e.isEmpty, !password.isEmpty else { return "Enter your Kia account email and password." }
+        signingIn = true
+        defer { signingIn = false }
+        let current = await container.credentials.credentials()
+        await container.credentials.save(Credentials(vin: current?.vin ?? "", pin: current?.pin, email: e, password: password))
+        await container.vehicles.clear()
+        await container.stores.automationState.update { $0.authFailure = nil }
+        await container.stores.log.append(LogEntry(at: now, kind: .info, decision: "settings", reason: "signed in to Kia as \(maskEmail(e))"))
+        hasToken = true
+        accountEmail = e
+        let result = await container.engine.refreshVehicle()
+        await reloadState()
+        if let error = result.error {
+            return error.isAuthFailure ? error.message.capitalizingFirstLetter : "Signed in, but reading the car failed: \(error.message)"
+        }
+        return nil
+    }
+
+    /// Forgets the Kia login (keeps the PIN and VIN).
+    public func signOut() async {
+        let current = await container.credentials.credentials()
+        if let pin = current?.pin, !pin.isEmpty {
+            await container.credentials.save(Credentials(vin: current?.vin ?? "", pin: pin))
+        } else {
+            await container.credentials.save(nil)
+        }
+        await container.client.reset()
+        await container.vehicles.clear()
+        await container.stores.log.append(LogEntry(at: now, kind: .info, decision: "settings", reason: "signed out of Kia"))
+        hasToken = false
+        accountEmail = nil
+        await reloadState()
+    }
+
     /// Saves what the user entered. `nil` keeps the stored value; an empty string removes it.
     public func saveCredentials(token: String? = nil, pin: String? = nil, vin newVin: String? = nil) async {
         let current = await container.credentials.credentials()
         let refreshToken = (token ?? current?.refreshToken ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let newPin = (pin ?? current?.pin ?? "").trimmingCharacters(in: .whitespaces)
         let wantedVin = (newVin ?? current?.vin ?? "").trimmingCharacters(in: .whitespaces).uppercased()
+        // A pasted token replaces an account sign-in; otherwise the account stays.
+        let keepAccount = token == nil || refreshToken.isEmpty
+        let email = keepAccount ? current?.email : nil
+        let password = keepAccount ? current?.password : nil
 
         let tokenChanged = refreshToken != (current?.refreshToken ?? "")
         let vinChanged = wantedVin != (current?.vin ?? "")
 
-        if refreshToken.isEmpty {
-            await container.credentials.save(nil)
-        } else {
-            await container.credentials.save(Credentials(refreshToken: refreshToken, vin: wantedVin, pin: newPin.isEmpty ? nil : newPin))
-        }
+        let next = Credentials(refreshToken: refreshToken, vin: wantedVin, pin: newPin.isEmpty ? nil : newPin, email: email, password: password)
+        await container.credentials.save(next.isConfigured || !newPin.isEmpty ? next : nil)
         if tokenChanged || vinChanged {
             // A new login or another car: the cached state and the old stop reason no longer apply.
             if !settings.fakeMode { await container.vehicles.clear() }
@@ -183,9 +226,10 @@ public final class CarModel {
                 reason: refreshToken.isEmpty ? "Kia Connect refresh token removed" : "Kia Connect refresh token replaced"
             ))
         }
-        hasToken = !refreshToken.isEmpty
+        hasToken = next.isConfigured
+        accountEmail = next.account?.email
         hasPin = !newPin.isEmpty
-        vin = refreshToken.isEmpty ? "" : wantedVin
+        vin = next.isConfigured ? wantedVin : ""
         await reloadState()
     }
 

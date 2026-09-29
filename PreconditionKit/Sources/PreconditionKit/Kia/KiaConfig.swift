@@ -20,6 +20,10 @@ public struct KiaConfig: Equatable, Sendable {
     public var cfbBase64: String
     /// How long the car climatises for. Kia requires a duration.
     public var climateMinutes: Int
+    /// The Kia app's current sign-in (hyundai_kia_connect_api's "OneApp/CCI" flow).
+    public var oneAppClientId: String
+    public var oneAppRedirect: String
+    public var cciBase: String
 
     public init(
         apiBase: String = "https://\(KiaConfig.apiHost):8080",
@@ -28,7 +32,10 @@ public struct KiaConfig: Equatable, Sendable {
         serviceSecret: String = "secret",
         appId: String = "a2b8469b-30a3-4361-8e13-6fceea8fbe74",
         cfbBase64: String = "wLTVxwidmH8CfJYBWSnHD6E0huk0ozdiuygB4hLkM5XCgzAL1Dk5sE36d/bx5PFMbZs=",
-        climateMinutes: Int = 10
+        climateMinutes: Int = 10,
+        oneAppClientId: String = "01b36c86-79e8-486c-8009-15f2ad88d670",
+        oneAppRedirect: String = "https://oneapp.kia.com/redirect",
+        cciBase: String = "https://cci-api-eu.kia.com"
     ) {
         self.apiBase = apiBase
         self.idpBase = idpBase
@@ -37,7 +44,17 @@ public struct KiaConfig: Equatable, Sendable {
         self.appId = appId
         self.cfbBase64 = cfbBase64
         self.climateMinutes = climateMinutes
+        self.oneAppClientId = oneAppClientId
+        self.oneAppRedirect = oneAppRedirect
+        self.cciBase = cciBase
     }
+
+    public static let browserUserAgent = "Mozilla/5.0 (Linux; Android 4.1.1; Galaxy Nexus Build/JRO03C) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.166 Mobile Safari/535.19_CCS_APP_AOS"
+    static let cciPackageId = "com.kia.oneapp.eu"
+    static let cciClientVersion = "1.3.3"
+    static let cciOsVersion = "27"
+
+    var cciDomain: String { "\(cciBase)/domain/api" }
 
     var spa: String { "\(apiBase)/api/v1/spa" }
     var spaV2: String { "\(apiBase)/api/v2/spa" }

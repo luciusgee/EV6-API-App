@@ -182,7 +182,7 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
 
     private func call<T>(_ kind: RequestKind, _ op: (KiaSession, Credentials) async throws -> T) async -> ApiResult<T> {
         await mutex.withLock {
-            guard let creds = await credentials.credentials() else { return .failure(.notConfigured, nil) }
+            guard let creds = await credentials.credentials(), creds.isConfigured else { return .failure(.notConfigured, nil) }
             guard let ticket = await budget.tryAcquire(kind) else { return .failure(.budgetExhausted(kind), nil) }
             do {
                 let value = try await withSession(creds, op)
@@ -240,24 +240,59 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
     }
 
     private func ensureSession(_ creds: Credentials) async throws -> KiaSession {
-        let hash = KiaSession.fingerprint(creds.refreshToken)
+        let hash = creds.loginFingerprint
         var s: KiaSession
         if let stored = await sessions.load(), stored.enteredTokenHash == hash {
             s = stored
         } else {
-            s = KiaSession(enteredTokenHash: hash, refreshToken: creds.refreshToken)
+            s = KiaSession(enteredTokenHash: hash, refreshToken: creds.account == nil ? creds.refreshToken : "")
         }
-        if s.accessToken == nil || time.now() >= s.accessExpiresAt.addingTimeInterval(-Self.refreshMargin) {
-            s = await save(try await refreshLogin(s))
-        }
-        if s.deviceId == nil {
-            s = await save(try await registerDevice(s))
+        let expired = s.accessToken == nil || time.now() >= s.accessExpiresAt.addingTimeInterval(-Self.refreshMargin)
+        if let account = creds.account {
+            // The account sign-in identifies the phone by its registered device id, so register first.
+            if s.deviceId == nil {
+                s = await save(try await registerDevice(s))
+            }
+            if expired {
+                s = await save(try await accountLogin(s, email: account.email, password: account.password))
+            }
+        } else {
+            if expired {
+                s = await save(try await refreshLogin(s))
+            }
+            if s.deviceId == nil {
+                s = await save(try await registerDevice(s))
+            }
         }
         let wanted = creds.vin.trimmingCharacters(in: .whitespaces).uppercased()
         if s.vehicleId == nil || s.selectedFor != wanted {
             s = await save(try await selectVehicle(s, wantedVin: wanted))
         }
         return s
+    }
+
+    /// Refreshes with the stored token set; signs in with the password when there is none or Kia ended it.
+    private func accountLogin(_ s: KiaSession, email: String, password: String) async throws -> KiaSession {
+        let login = KiaAccountLogin(transport: transport, config: config, now: { [time] in time.now() })
+        let deviceId = s.deviceId ?? ""
+        var result: KiaAccountLogin.Result?
+        if let cci = s.cci, !s.refreshToken.isEmpty {
+            do {
+                result = try await login.refresh(cci, refreshToken: s.refreshToken, deviceId: deviceId)
+            } catch let failure as KiaFailure {
+                // Kia ended the session: sign in again below. Other failures (offline) go up.
+                _ = failure
+            }
+        }
+        let r: KiaAccountLogin.Result
+        if let result { r = result } else { r = try await login.signIn(email: email, password: password, deviceId: deviceId) }
+        var next = s
+        next.accessToken = r.accessToken
+        next.accessExpiresAt = r.expiresAt
+        next.refreshToken = r.refreshToken
+        next.cci = r.cci
+        next.controlToken = nil
+        return next
     }
 
     private func save(_ s: KiaSession) async -> KiaSession {
@@ -444,7 +479,7 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
         (c * 2).rounded(.toNearestOrAwayFromZero) / 2
     }
 
-    private static func url(_ string: String) throws -> URL {
+    static func url(_ string: String) throws -> URL {
         guard let url = URL(string: string) else { throw KiaAPIError(httpCode: 0, resCode: nil, detail: "bad URL") }
         return url
     }
@@ -454,7 +489,7 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
         return id
     }
 
-    private static func formEncode(_ value: String) -> String {
+    static func formEncode(_ value: String) -> String {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value

@@ -93,7 +93,7 @@ public final class VehicleRepository: Sendable {
 /// path made the request. The next success resumes it.
 public final class ApiMonitor: ApiMetaSink {
     /// How to fix a rejected login, shown in the notification.
-    public static let authHelp = "Get a new Kia Connect refresh token (and check your PIN) and paste it in Settings."
+    public static let authHelp = "Sign in to Kia again in Settings (and check your PIN)."
 
     private let state: AutomationStateStore
     private let notifier: Notifier

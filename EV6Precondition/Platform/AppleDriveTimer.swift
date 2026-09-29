@@ -31,10 +31,21 @@ enum MapsLinkExpander {
     static func expand(_ link: String) async throws -> String {
         let trimmed = link.trimmingCharacters(in: .whitespacesAndNewlines)
         guard GoogleMapsLink.isShort(trimmed), let url = URL(string: trimmed) else { return trimmed }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        let (_, response) = try await URLSession.shared.data(for: request)
+        // Take the short link's own redirect and stop: following on can end at a cookie-consent page.
+        let session = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        let (_, response) = try await session.data(from: url)
+        if let http = response as? HTTPURLResponse, let location = http.value(forHTTPHeaderField: "Location") {
+            return location
+        }
         return response.url?.absoluteString ?? trimmed
+    }
+
+    private final class NoRedirects: NSObject, URLSessionTaskDelegate {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest) async -> URLRequest? {
+            nil
+        }
     }
 
     /// The route's points from any Google Maps directions link.

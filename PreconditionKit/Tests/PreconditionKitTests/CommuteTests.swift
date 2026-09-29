@@ -36,6 +36,23 @@ final class CommuteTests: XCTestCase {
         XCTAssertEqual(try GoogleMapsLink.points(from: c.url!.absoluteString).count, 2)
     }
 
+    /// The form shared links from the Google Maps app expand to (made-up places).
+    func testSharedAppLinksWithSaddrDaddrAndGeocodes() throws {
+        let via = "https://maps.google.com/?geocode=FeDTEQMdQCv-_w%3D%3D;FYBaEwMdIGz7_w%3D%3D;FXCkFQMd4M_6_ykAAQIDBAUGBw%3D%3D&daddr=51.6000000,-0.3000000+to:Unit+1,+Some+Park,+Town+AB1+2CD&saddr=51.5000000,-0.1200000&dirflg=d&ftid=0x1:0x2"
+        XCTAssertEqual(try GoogleMapsLink.points(from: via), [
+            LatLon(lat: 51.5, lon: -0.12), LatLon(lat: 51.6, lon: -0.3), LatLon(lat: 51.75, lon: -0.34),
+        ])
+        // Start named rather than written as coordinates, and no via point.
+        let direct = "https://maps.google.com/?geocode=FXCkFQMd4M_6_w%3D%3D;FeDTEQMdQCv-_w%3D%3D&daddr=Some+Road,+Town&saddr=Unit+1,+Some+Park,+Town&dirflg=d"
+        XCTAssertEqual(try GoogleMapsLink.points(from: direct), [LatLon(lat: 51.75, lon: -0.34), LatLon(lat: 51.5, lon: -0.12)])
+        XCTAssertEqual(GoogleMapsLink.geocodePoint("FeDTEQMdQCv-_w"), LatLon(lat: 51.5, lon: -0.12))
+        XCTAssertNil(GoogleMapsLink.geocodePoint("not base64!"))
+        // A named stop without a geocode can't be placed.
+        XCTAssertThrowsError(try GoogleMapsLink.points(from: "https://maps.google.com/?daddr=Somewhere&saddr=51.5,-0.12")) {
+            XCTAssertEqual($0 as? GoogleMapsLink.Failure, .missingPlace("Somewhere"))
+        }
+    }
+
     func testLinksItCantRead() {
         XCTAssertThrowsError(try GoogleMapsLink.points(from: "https://www.google.com/maps/place/Kettering")) {
             XCTAssertEqual($0 as? GoogleMapsLink.Failure, .notDirections)

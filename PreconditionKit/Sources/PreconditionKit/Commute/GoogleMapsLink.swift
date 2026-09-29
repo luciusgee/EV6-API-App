@@ -48,6 +48,21 @@ public enum GoogleMapsLink {
             return [o] + vias + [d]
         }
 
+        // What shared links from the Google Maps app expand to:
+        // maps.google.com/?saddr=<start>&daddr=<via>+to:<end>&geocode=<start>;<via>;<end>
+        if let items = components.queryItems, let daddr = items.first(where: { $0.name == "daddr" })?.value {
+            let value = { (name: String) in items.first { $0.name == name }?.value }
+            let stops = ([value("saddr") ?? ""] + daddr.replacingOccurrences(of: "+", with: " ").components(separatedBy: " to:"))
+                .map { $0.replacingOccurrences(of: "+", with: " ").trimmingCharacters(in: .whitespaces) }
+            let geocodes = (value("geocode") ?? "").split(separator: ";", omittingEmptySubsequences: false).map { geocodePoint(String($0)) }
+            guard stops.count >= 2 else { throw Failure.notDirections }
+            return try stops.enumerated().map { i, text in
+                if let c = coordinate(text) { return c }
+                if i < geocodes.count, let c = geocodes[i] { return c }
+                throw Failure.missingPlace(text.isEmpty ? "your location" : text)
+            }
+        }
+
         let path = components.percentEncodedPath
         guard let dir = path.range(of: "/dir/") else { throw Failure.notDirections }
         var stops: [String] = []
@@ -84,6 +99,43 @@ public enum GoogleMapsLink {
         guard out.count >= 2 else { throw Failure.notDirections }
         // Points dragged after the last stop would be meaningless.
         return out
+    }
+
+    /// One `geocode` entry: base64url protobuf with the latitude and longitude as fixed32 fields 2 and 3,
+    /// in millionths of a degree.
+    static func geocodePoint(_ token: String) -> LatLon? {
+        var b64 = token.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while b64.count % 4 != 0 { b64 += "=" }
+        guard let data = Data(base64Encoded: b64) else { return nil }
+        let bytes = [UInt8](data)
+        var i = 0
+        var lat: Int32?, lon: Int32?
+        func fixed32(_ at: Int) -> Int32 {
+            Int32(bitPattern: UInt32(bytes[at]) | UInt32(bytes[at + 1]) << 8 | UInt32(bytes[at + 2]) << 16 | UInt32(bytes[at + 3]) << 24)
+        }
+        while i < bytes.count {
+            let tag = bytes[i]
+            i += 1
+            switch tag & 7 {
+            case 5:
+                guard i + 4 <= bytes.count else { return nil }
+                if tag >> 3 == 2 { lat = fixed32(i) } else if tag >> 3 == 3 { lon = fixed32(i) }
+                i += 4
+            case 1:
+                i += 8
+            case 0:
+                while i < bytes.count, bytes[i] & 0x80 != 0 { i += 1 }
+                i += 1
+            case 2:
+                guard i < bytes.count else { return nil }
+                i += 1 + Int(bytes[i])
+            default:
+                return nil
+            }
+        }
+        guard let lat, let lon else { return nil }
+        let p = LatLon(lat: Double(lat) / 1e6, lon: Double(lon) / 1e6)
+        return abs(p.lat) <= 90 && abs(p.lon) <= 180 ? p : nil
     }
 
     /// "52.04,-0.77" (or with a space) as a coordinate.

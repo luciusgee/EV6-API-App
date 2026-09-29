@@ -65,7 +65,7 @@ struct CarStatusIntent: AppIntent {
 enum LockAction: String, AppEnum {
     case lock, unlock
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Lock action"
-    static var caseDisplayRepresentations: [LockAction: DisplayRepresentation] = ["lock": "Lock", "unlock": "Unlock"]
+    static var caseDisplayRepresentations: [LockAction: DisplayRepresentation] = [.lock: "Lock", .unlock: "Unlock"]
 }
 
 struct LockCarIntent: AppIntent {
@@ -91,7 +91,7 @@ struct LockCarIntent: AppIntent {
 enum ChargeAction: String, AppEnum {
     case start, stop
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Charging action"
-    static var caseDisplayRepresentations: [ChargeAction: DisplayRepresentation] = ["start": "Start", "stop": "Stop"]
+    static var caseDisplayRepresentations: [ChargeAction: DisplayRepresentation] = [.start: "Start", .stop: "Stop"]
 }
 
 struct ChargingIntent: AppIntent {

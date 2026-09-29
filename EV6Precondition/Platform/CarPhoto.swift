@@ -54,7 +54,7 @@ final class CarPhoto {
     }
 
     /// Redrawn the right way up and no bigger than `maxSide`, so Vision and the PNG agree on orientation.
-    private static func upright(_ image: UIImage, maxSide: CGFloat) -> UIImage? {
+    static func upright(_ image: UIImage, maxSide: CGFloat) -> UIImage? {
         let scale = min(1, maxSide / max(image.size.width, image.size.height))
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         let format = UIGraphicsImageRendererFormat()
@@ -65,7 +65,7 @@ final class CarPhoto {
     }
 
     /// iOS 17 subject lifting: everything that isn't the car becomes transparent, cropped to the car.
-    nonisolated private static func liftSubject(_ image: UIImage) -> UIImage? {
+    nonisolated static func liftSubject(_ image: UIImage) -> UIImage? {
         guard let cg = image.cgImage else { return nil }
         let request = VNGenerateForegroundInstanceMaskRequest()
         let handler = VNImageRequestHandler(cgImage: cg, options: [:])
@@ -83,44 +83,99 @@ final class CarPhoto {
     }
 }
 
-/// The owner's photo when there is one, otherwise the drawn EV6.
+/// The photos of the owner's car that ship with the app, cut out of their backgrounds on the phone the
+/// first time they're shown (Vision needs the Neural Engine, so this can't happen at build time) and kept.
+@MainActor
+@Observable
+final class CarCutouts {
+    static let shared = CarCutouts()
+
+    private(set) var images: [String: UIImage] = [:]
+    @ObservationIgnored private var started: Set<String> = []
+
+    private static func file(_ name: String) -> URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("EV6Precondition/cutout-\(name).png")
+    }
+
+    /// The cut-out, or nil until it's ready (or if the phone can't cut it out).
+    func image(_ name: String) -> UIImage? {
+        if let image = images[name] { return image }
+        if !started.contains(name) {
+            started.insert(name)
+            Task { await prepare(name) }
+        }
+        return nil
+    }
+
+    private func prepare(_ name: String) async {
+        let url = Self.file(name)
+        if let saved = UIImage(contentsOfFile: url.path) {
+            images[name] = saved
+            return
+        }
+        guard let source = UIImage(named: name), let upright = CarPhoto.upright(source, maxSide: 2000) else { return }
+        guard let lifted = await Task.detached(priority: .utility, operation: { CarPhoto.liftSubject(upright) }).value else { return }
+        if let png = lifted.pngData() {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? png.write(to: url, options: .atomic)
+        }
+        images[name] = lifted
+    }
+}
+
+/// Your car: a photo you picked, else the bundled photo of it (cut out once ready, the full photo until
+/// then), with charging and climate badges.
 struct CarHeroImage: View {
     var photo = CarPhoto.shared
+    var cutouts = CarCutouts.shared
+    var name = "CarFront"
     let paint: CarPaint
     var charging = false
     var pluggedIn = false
     var climate: EV6Illustration.ClimateGlow?
 
     var body: some View {
-        if let image = photo.image {
-            ZStack(alignment: .bottom) {
-                // Soft shadow under the wheels.
-                Ellipse()
-                    .fill(.black.opacity(0.35))
-                    .frame(height: 18)
-                    .padding(.horizontal, 30)
-                    .blur(radius: 10)
-                    .offset(y: 4)
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 190)
-            }
-            .overlay(alignment: .topTrailing) {
-                if charging || climate != nil {
-                    HStack(spacing: 6) {
-                        if charging { Image(systemName: "bolt.fill").foregroundStyle(.green) }
-                        if let climate { Image(systemName: climate == .heating ? "heat.waves" : "snowflake").foregroundStyle(climate == .heating ? .orange : .cyan) }
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .padding(8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .symbolEffect(.pulse)
+        Group {
+            if let image = photo.image ?? cutouts.image(name) {
+                ZStack(alignment: .bottom) {
+                    // Soft shadow under the wheels.
+                    Ellipse()
+                        .fill(.black.opacity(0.35))
+                        .frame(height: 18)
+                        .padding(.horizontal, 30)
+                        .blur(radius: 10)
+                        .offset(y: 4)
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 210)
                 }
+                .transition(.opacity)
+            } else if UIImage(named: name) != nil {
+                Image(name)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(height: 210)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            } else {
+                EV6Illustration(paint: paint, charging: charging, pluggedIn: pluggedIn, climate: climate)
             }
-            .accessibilityHidden(true)
-        } else {
-            EV6Illustration(paint: paint, charging: charging, pluggedIn: pluggedIn, climate: climate)
         }
+        .animation(.easeInOut(duration: 0.4), value: cutouts.images[name] != nil)
+        .overlay(alignment: .topTrailing) {
+            if charging || climate != nil {
+                HStack(spacing: 6) {
+                    if charging { Image(systemName: "bolt.fill").foregroundStyle(.green) }
+                    if let climate { Image(systemName: climate == .heating ? "heat.waves" : "snowflake").foregroundStyle(climate == .heating ? .orange : .cyan) }
+                }
+                .font(.subheadline.weight(.semibold))
+                .padding(8)
+                .background(.ultraThinMaterial, in: Capsule())
+                .symbolEffect(.pulse)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }

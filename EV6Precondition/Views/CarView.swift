@@ -5,7 +5,7 @@ import SwiftUI
 struct CarView: View {
     @Environment(CarModel.self) private var model
     @Environment(RulesModel.self) private var rules
-    @AppStorage(CarPaint.storageKey) private var paint: CarPaint = .snowWhitePearl
+    @AppStorage(CarPaint.storageKey) private var paint: CarPaint = .runwayRed
     @State private var target: Double?
     @State private var confirmUnlock = false
     @State private var editingLimits = false

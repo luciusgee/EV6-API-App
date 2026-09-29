@@ -29,6 +29,8 @@ struct ScannerView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
+                ScannerHeader()
+                    .padding([.horizontal, .top], 16)
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
                     ForEach(tools) { tool in
                         NavigationLink(value: tool.id) {
@@ -74,6 +76,38 @@ struct ScannerView: View {
                 AdapterPicker(link: obd.link)
             }
         }
+    }
+}
+
+/// The close-up of the car, with the badge and live status.
+private struct ScannerHeader: View {
+    @Environment(OBDService.self) private var obd
+
+    var body: some View {
+        Image("CarCloseup")
+            .resizable()
+            .scaledToFill()
+            .frame(height: 190)
+            .frame(maxWidth: .infinity)
+            .clipped()
+            .overlay {
+                LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
+            }
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 10) {
+                        Image("KiaLogo").renderingMode(.template).resizable().scaledToFit().frame(height: 13)
+                        Text("EV6 GT-LINE").font(.system(size: 13, weight: .heavy)).tracking(3)
+                    }
+                    Text(obd.carState == .connected ? (obd.demo ? "Demo car connected" : "Connected to your EV6") : "Diagnostics & live data")
+                        .font(.caption)
+                        .opacity(0.85)
+                }
+                .foregroundStyle(.white)
+                .padding(16)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .accessibilityHidden(true)
     }
 }
 

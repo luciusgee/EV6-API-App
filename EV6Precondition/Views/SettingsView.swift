@@ -32,14 +32,14 @@ struct SettingsView: View {
 
 private struct MyCarSection: View {
     @Environment(CarModel.self) private var model
-    @AppStorage(CarPaint.storageKey) private var paint: CarPaint = .snowWhitePearl
+    @AppStorage(CarPaint.storageKey) private var paint: CarPaint = .runwayRed
     @State private var photo = CarPhoto.shared
     @State private var picked: PhotosPickerItem?
     @State private var keepBackground = false
 
     var body: some View {
         Section {
-            CarHeroImage(paint: paint)
+            CarHeroImage(name: "CarRear", paint: paint)
                 .padding(.vertical, 8)
                 .overlay {
                     if photo.working {
@@ -49,10 +49,10 @@ private struct MyCarSection: View {
                     }
                 }
             PhotosPicker(selection: $picked, matching: .images) {
-                Label(photo.image == nil ? "Use a Photo of Your Car" : "Change Photo", systemImage: "photo.badge.plus")
+                Label("Use a Different Photo", systemImage: "photo.badge.plus")
             }
             if photo.image != nil {
-                Button("Use the Drawing Instead", role: .destructive) { photo.remove() }
+                Button("Back to the Built-in Photos", role: .destructive) { photo.remove() }
             }
             if let problem = photo.problem {
                 Text(problem).font(.footnote).foregroundStyle(.orange)
@@ -61,17 +61,6 @@ private struct MyCarSection: View {
                     if let item = picked { Task { await load(item) } }
                 }
             }
-            Picker("Paint", selection: $paint) {
-                ForEach(CarPaint.allCases) { p in
-                    Label {
-                        Text(p.name)
-                    } icon: {
-                        Image(systemName: "circle.fill").foregroundStyle(p.swatch)
-                    }
-                    .tag(p)
-                }
-            }
-            .pickerStyle(.navigationLink)
             Toggle("Miles", isOn: Binding(
                 get: { model.settings.useMiles },
                 set: { on in Task { await model.updateSettings { $0.useMiles = on } } }
@@ -79,7 +68,7 @@ private struct MyCarSection: View {
         } header: {
             Text("My EV6")
         } footer: {
-            Text("Pick a side-on photo of your car, or a Kia press image saved to your phone: the car is cut out of its background on your iPhone. The paint colour is for the drawing. 2022 EV6 GT-Line AWD · 77.4 kWh · 325 bhp.")
+            Text("2022 EV6 GT-Line AWD · Runway Red · 77.4 kWh · 325 bhp. Your photos are cut out of their backgrounds on this iPhone the first time they're shown.")
         }
         .onChange(of: picked) { _, item in
             keepBackground = false

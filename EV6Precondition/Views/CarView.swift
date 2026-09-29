@@ -288,6 +288,11 @@ struct CarView: View {
     private var tripsSection: some View {
         Section {
             NavigationLink {
+                CommuteView()
+            } label: {
+                Label("Commute", systemImage: "car.rear.road.lane")
+            }
+            NavigationLink {
                 RoutePlannerView()
             } label: {
                 Label("Plan a trip", systemImage: "map")

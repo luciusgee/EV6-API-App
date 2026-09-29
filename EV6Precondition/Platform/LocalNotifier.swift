@@ -51,6 +51,11 @@ final class LocalNotifier: NSObject, Notifier, UNUserNotificationCenterDelegate,
         await post(title: title, text: text, category: nil)
     }
 
+    /// A plain notice, e.g. the commute check's result.
+    func note(title: String, text: String) async {
+        await post(title: title, text: text, category: nil)
+    }
+
     func alert(_ alert: CarAlert) async {
         await post(title: alert.title, text: alert.body, category: nil)
     }

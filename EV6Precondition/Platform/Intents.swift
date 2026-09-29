@@ -145,6 +145,12 @@ struct StopClimateIntent: AppIntent {
 struct EV6Shortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
+            intent: CheckCommuteIntent(),
+            phrases: ["Check my commute with \(.applicationName)", "Which way home in \(.applicationName)"],
+            shortTitle: "Check commute",
+            systemImageName: "car.rear.road.lane"
+        )
+        AppShortcut(
             intent: StartClimateIntent(),
             phrases: ["Start climate with \(.applicationName)", "Warm up the car with \(.applicationName)", "Precondition my car with \(.applicationName)"],
             shortTitle: "Start climate",
@@ -186,5 +192,36 @@ struct EV6Shortcuts: AppShortcutsProvider {
             shortTitle: "Run scheduled rules",
             systemImageName: "calendar.badge.clock"
         )
+    }
+}
+
+/// Checks traffic on a commute's routes and gives back the ETA message, for a Shortcuts automation to
+/// send with Send Message.
+struct CheckCommuteIntent: AppIntent {
+    static var title: LocalizedStringResource = "Check my commute"
+    static var description = IntentDescription("Checks traffic on your commute's routes, picks the way to go, notifies you, and gives back your ETA message. Follow it with Send Message to text it.")
+    static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "Commute", description: "Its name in the app, e.g. Home. Leave empty for the first one.")
+    var commute: String?
+
+    @Parameter(title: "Notify me", default: true)
+    var notify: Bool
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
+        let services = AppServices.shared
+        await services.prepare()
+        guard let chosen = services.commute.commute(named: commute) else {
+            return .result(value: "", dialog: "Add a commute in the EV6 app first (Car, then Commute).")
+        }
+        let advice = await services.commute.check(chosen.id)
+        let text = services.commute.message(for: chosen.id) { $0.formatted(date: .omitted, time: .shortened) } ?? ""
+        let headline = advice?.headline ?? "Couldn't check the traffic."
+        let arrival = advice?.arrival.map { "Arrive \($0.formatted(date: .omitted, time: .shortened))" }
+        if notify {
+            await services.notifier.note(title: [chosen.name, arrival].compactMap { $0 }.joined(separator: " · "), text: headline)
+        }
+        return .result(value: text, dialog: "\([headline, arrival.map { $0 + "." }].compactMap { $0 }.joined(separator: " "))")
     }
 }

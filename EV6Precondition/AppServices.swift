@@ -12,6 +12,7 @@ final class AppServices {
     let rules: RulesModel
     let charging: ChargingModel
     let presence: PresenceModel
+    let commute: CommuteModel
     let obd = OBDService()
     private var prepared = false
 
@@ -35,6 +36,13 @@ final class AppServices {
         self.car = car
         self.rules = RulesModel(container: container)
         self.presence = PresenceModel(directory: support.appendingPathComponent("EV6Precondition", isDirectory: true))
+        let commute = CommuteModel(directory: support.appendingPathComponent("EV6Precondition", isDirectory: true))
+        // Google's traffic when there's a key (it follows your via points exactly), else Apple Maps.
+        commute.timer = {
+            if let key = ChargerKeys.google { return GoogleRoutesClient(transport: URLSessionTransport(), key: key) }
+            return AppleDriveTimer()
+        }
+        self.commute = commute
         self.charging = ChargingModel(directory: support.appendingPathComponent("EV6Precondition", isDirectory: true), transport: URLSessionTransport())
         notifier.onStop = {
             await car.stop()
@@ -74,6 +82,7 @@ final class AppServices {
         await car.load()
         await charging.load()
         await presence.load()
+        await commute.load()
         // The fake car was a development aid; the app only talks to the real car now.
         if car.settings.fakeMode {
             await car.updateSettings { $0.fakeMode = false }

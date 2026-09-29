@@ -7,3 +7,4 @@
 - The iOS app (`EV6Precondition/`) is built by Codemagic (`codemagic.yaml`); the Xcode project is generated from `project.yml` by XcodeGen and isn't committed.
 - HANDOVER.md, FUNCTIONS.md and TESTS.md describe the Android app being ported; `reference-source/` is the Kotlin reference.
 - Every build that adds or changes something the user would use gets a tour step in `PreconditionKit/Sources/PreconditionKit/Guide/Guide.swift` (new or updated) and a new `GuideRelease` at the top of `releases` (next number) listing those steps. That's what drives the in-app What's new and tour.
+- App Store Connect caps uploads per app per day (error ITMS-90382 "Upload limit reached"; the build succeeds and only Publishing fails). Batch changes and release to TestFlight a few times a day at most, not after every commit.

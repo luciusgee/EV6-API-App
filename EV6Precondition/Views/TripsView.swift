@@ -136,13 +136,14 @@ private struct WhereToCard: View {
                            startPoint: .topTrailing, endPoint: .bottomLeading)
             GeometryReader { geo in
                 let w = geo.size.width, h = geo.size.height
-                let start = CGPoint(x: w * 0.55, y: h * 0.82)
-                let stop = CGPoint(x: w * 0.74, y: h * 0.42)
-                let end = CGPoint(x: w * 0.9, y: h * 0.16)
+                // Kept to the right, clear of the words.
+                let start = CGPoint(x: w * 0.7, y: h * 0.84)
+                let stop = CGPoint(x: w * 0.81, y: h * 0.48)
+                let end = CGPoint(x: w * 0.92, y: h * 0.17)
                 Path { p in
                     p.move(to: start)
-                    p.addQuadCurve(to: stop, control: CGPoint(x: w * 0.72, y: h * 0.78))
-                    p.addQuadCurve(to: end, control: CGPoint(x: w * 0.78, y: h * 0.18))
+                    p.addQuadCurve(to: stop, control: CGPoint(x: w * 0.84, y: h * 0.8))
+                    p.addQuadCurve(to: end, control: CGPoint(x: w * 0.83, y: h * 0.2))
                 }
                 .stroke(Color.white.opacity(0.35), style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [2, 7]))
                 Circle().fill(.white).frame(width: 9, height: 9).position(start)

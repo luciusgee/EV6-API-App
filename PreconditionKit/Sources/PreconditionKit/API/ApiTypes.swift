@@ -151,6 +151,8 @@ public enum CarCommand: Equatable, Sendable {
     case setChargeLimits(ac: Int, dc: Int)
     /// When the car charges at home. Needs the Kia Connect PIN.
     case setOffPeak(OffPeakWindow)
+    /// Sends a destination, with any waypoints before it, to the car's nav. Needs the Kia Connect PIN.
+    case sendToCar([NavPoint])
 
     public var description: String {
         switch self {
@@ -159,6 +161,7 @@ public enum CarCommand: Equatable, Sendable {
         case .lock: return "lock the car"
         case .unlock: return "unlock the car"
         case .setChargeLimits(let ac, let dc): return "set charge limits to \(ac)% AC, \(dc)% DC"
+        case .sendToCar(let points): return "send \(points.last?.name ?? "a destination") to the car's nav"
         case .setOffPeak(let w): return "set off-peak charging to \(w.text)\(w.onlyOffPeak ? " only" : "")"
         }
     }

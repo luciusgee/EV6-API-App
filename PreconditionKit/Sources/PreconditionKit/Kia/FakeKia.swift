@@ -225,6 +225,9 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
         if path.hasSuffix("/pin") {
             return HTTPResponse(status: 200, text: #"{"controlToken":"fake-control","expiresTime":600}"#)
         }
+        if path.hasSuffix("/location/routes") {
+            return ok([:], msgId: msgId(now))
+        }
         if path.hasSuffix("/reservation/chargehvac") {
             let body = request.body.flatMap(JSONValue.parse)
             let info = body?["offPeakPowerInfo"]

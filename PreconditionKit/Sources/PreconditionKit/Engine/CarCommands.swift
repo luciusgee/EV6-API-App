@@ -207,6 +207,8 @@ extension PreconditionEngine {
             details.chargeLimitDC = KiaClient.chargeLimit(dc)
         case .setOffPeak(let window):
             details.offPeak = window
+        case .sendToCar:
+            break
         }
         s.details = details
     }

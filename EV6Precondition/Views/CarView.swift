@@ -288,6 +288,11 @@ struct CarView: View {
     private var tripsSection: some View {
         Section {
             NavigationLink {
+                TrafficAheadView()
+            } label: {
+                Label("Traffic ahead", systemImage: "exclamationmark.triangle")
+            }
+            NavigationLink {
                 CommuteView()
             } label: {
                 Label("Commute", systemImage: "car.rear.road.lane")

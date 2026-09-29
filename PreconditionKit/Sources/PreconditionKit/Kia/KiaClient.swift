@@ -167,6 +167,10 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
                 let acEntry: JSONValue = ["plugType": 1, "targetSOClevel": .number(Double(Self.chargeLimit(ac)))]
                 let body: JSONValue = ["targetSOClist": [dcEntry, acEntry]]
                 return Self.receipt(try await self.post("\(self.config.spa)/vehicles/\(id)/charge/target", self.authHeaders(s), body))
+            case .sendToCar(let points):
+                let headers = try await self.controlHeaders(s, creds, for: "sending places to the car")
+                let body = NavPoint.requestBody(points, deviceId: s.deviceId ?? "")
+                return Self.receipt(try await self.post("\(self.config.spaV2)/vehicles/\(id)/location/routes", headers, body))
             case .setOffPeak(let window):
                 // Kia replaces the whole schedule, so read the departures the car has (cached; doesn't wake it).
                 let path = ccs2 ? "ccs2/carstatus/latest" : "status/latest"

@@ -402,17 +402,20 @@ private struct HeroCard: View {
 
             BatteryBar(fraction: Double(soc ?? 0) / 100, tint: tint, limit: snapshot?.details?.chargeLimitAC)
 
-            HStack(spacing: 8) {
-                if let snapshot, let charging = DisplayText.charging(snapshot) {
-                    Chip(text: charging, systemImage: snapshot.chargingState == .charging ? "bolt.fill" : "powerplug", tint: snapshot.chargingState == .charging ? .green : .secondary)
+            // One row when everything fits; otherwise the (long) charging chip gets its own row.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    chargingChip(fixed: true)
+                    otherChips
+                    Spacer(minLength: 0)
                 }
-                if let locked = snapshot?.details?.locked {
-                    Chip(text: locked ? "Locked" : "Unlocked", systemImage: locked ? "lock.fill" : "lock.open.fill", tint: locked ? .secondary : .red)
+                VStack(alignment: .leading, spacing: 8) {
+                    chargingChip(fixed: false)
+                    HStack(spacing: 8) {
+                        otherChips
+                        Spacer(minLength: 0)
+                    }
                 }
-                if snapshot?.climate == .running {
-                    Chip(text: "Climate on", systemImage: "fan.fill", tint: .orange)
-                }
-                Spacer(minLength: 0)
             }
         }
         .padding(16)
@@ -420,6 +423,24 @@ private struct HeroCard: View {
         .animation(.easeInOut, value: soc)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
+    }
+
+    @ViewBuilder
+    private func chargingChip(fixed: Bool) -> some View {
+        if let snapshot, let charging = DisplayText.charging(snapshot) {
+            Chip(text: charging, systemImage: snapshot.chargingState == .charging ? "bolt.fill" : "powerplug",
+                 tint: snapshot.chargingState == .charging ? .green : .secondary, fixed: fixed)
+        }
+    }
+
+    @ViewBuilder
+    private var otherChips: some View {
+        if let locked = snapshot?.details?.locked {
+            Chip(text: locked ? "Locked" : "Unlocked", systemImage: locked ? "lock.fill" : "lock.open.fill", tint: locked ? .secondary : .red)
+        }
+        if snapshot?.climate == .running {
+            Chip(text: "Climate on", systemImage: "fan.fill", tint: .orange)
+        }
     }
 
     private var accessibilityText: String {
@@ -457,11 +478,14 @@ private struct Chip: View {
     let text: String
     let systemImage: String
     let tint: Color
+    /// Full width, never truncated; off, it may wrap onto a second line instead.
+    var fixed = true
 
     var body: some View {
         Label(text, systemImage: systemImage)
             .font(.caption.weight(.medium))
-            .lineLimit(1)
+            .lineLimit(fixed ? 1 : 2)
+            .fixedSize(horizontal: fixed, vertical: !fixed)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .foregroundStyle(tint == .secondary ? Color.secondary : tint)

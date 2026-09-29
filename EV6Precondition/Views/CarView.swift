@@ -336,7 +336,20 @@ private struct HeroCard: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            EV6Illustration(
+            HStack(alignment: .center, spacing: 12) {
+                KiaLogo()
+                    .frame(width: 58, height: 14)
+                Rectangle().fill(.secondary.opacity(0.5)).frame(width: 1, height: 16)
+                Text("EV6")
+                    .font(.system(size: 17, weight: .heavy))
+                    .tracking(3)
+                Text("GT-LINE AWD")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(2.5)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            CarHeroImage(
                 paint: paint,
                 charging: snapshot?.chargingState == .charging,
                 pluggedIn: snapshot?.pluggedIn == true,

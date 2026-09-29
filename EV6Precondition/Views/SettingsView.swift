@@ -1,4 +1,5 @@
 import CoreLocation
+import PhotosUI
 import PreconditionKit
 import SwiftUI
 import UIKit
@@ -32,11 +33,34 @@ struct SettingsView: View {
 private struct MyCarSection: View {
     @Environment(CarModel.self) private var model
     @AppStorage(CarPaint.storageKey) private var paint: CarPaint = .snowWhitePearl
+    @State private var photo = CarPhoto.shared
+    @State private var picked: PhotosPickerItem?
+    @State private var keepBackground = false
 
     var body: some View {
         Section {
-            EV6Illustration(paint: paint)
+            CarHeroImage(paint: paint)
                 .padding(.vertical, 8)
+                .overlay {
+                    if photo.working {
+                        ProgressView("Cutting out your car…")
+                            .padding()
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            PhotosPicker(selection: $picked, matching: .images) {
+                Label(photo.image == nil ? "Use a Photo of Your Car" : "Change Photo", systemImage: "photo.badge.plus")
+            }
+            if photo.image != nil {
+                Button("Use the Drawing Instead", role: .destructive) { photo.remove() }
+            }
+            if let problem = photo.problem {
+                Text(problem).font(.footnote).foregroundStyle(.orange)
+                Button("Use the Whole Photo Instead") {
+                    keepBackground = true
+                    if let item = picked { Task { await load(item) } }
+                }
+            }
             Picker("Paint", selection: $paint) {
                 ForEach(CarPaint.allCases) { p in
                     Label {
@@ -55,8 +79,17 @@ private struct MyCarSection: View {
         } header: {
             Text("My EV6")
         } footer: {
-            Text("2022 EV6 GT-Line AWD · 77.4 kWh · 325 bhp. Miles off shows km and kWh/100 km.")
+            Text("Pick a side-on photo of your car, or a Kia press image saved to your phone: the car is cut out of its background on your iPhone. The paint colour is for the drawing. 2022 EV6 GT-Line AWD · 77.4 kWh · 325 bhp.")
         }
+        .onChange(of: picked) { _, item in
+            keepBackground = false
+            if let item { Task { await load(item) } }
+        }
+    }
+
+    private func load(_ item: PhotosPickerItem) async {
+        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+        await photo.use(data, cutOut: !keepBackground)
     }
 }
 

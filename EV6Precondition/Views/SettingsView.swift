@@ -10,6 +10,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                GuideSettingsSection()
                 MyCarSection()
                 KiaConnectSection()
                 SafetySection()

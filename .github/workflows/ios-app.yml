@@ -30,3 +30,15 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee build.log | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
           grep -q "BUILD SUCCEEDED" build.log
+
+  # Codemagic builds with the newest Xcode; this runs the kit's tests with it too, with readable logs.
+  kit-tests-latest-xcode:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode
+        run: xcodebuild -version && swift --version
+      - name: PreconditionKit tests
+        run: |
+          set -o pipefail
+          swift test --package-path PreconditionKit 2>&1 | grep -E "error|failed|Executed|warning: unre" | head -80

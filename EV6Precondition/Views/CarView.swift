@@ -53,7 +53,6 @@ struct CarView: View {
 
                 climateSection
                 chargingSection
-                tripsSection
                 statusSection
             }
             .listStyle(.insetGrouped)
@@ -281,35 +280,6 @@ struct CarView: View {
             return "Smart charge \(plan.start.formatted(date: .omitted, time: .shortened))"
         }
         return chargingModel.monthly.first.map { "\(DisplayText.money(pence: $0.totals.costPence)) this month" } ?? ""
-    }
-
-    // MARK: Trips
-
-    private var tripsSection: some View {
-        Section {
-            NavigationLink {
-                TrafficAheadView()
-            } label: {
-                Label("Traffic ahead", systemImage: "exclamationmark.triangle")
-            }
-            NavigationLink {
-                CommuteView()
-            } label: {
-                Label("Commute", systemImage: "car.rear.road.lane")
-            }
-            NavigationLink {
-                RoutePlannerView()
-            } label: {
-                Label("Plan a trip", systemImage: "map")
-            }
-            NavigationLink {
-                TimeAtPlacesView()
-            } label: {
-                Label("Time at places", systemImage: "clock.badge.checkmark")
-            }
-        } header: {
-            Text("Trips")
-        }
     }
 
     // MARK: Status

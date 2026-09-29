@@ -2,7 +2,7 @@ import Foundation
 
 /// The app's tabs, for the tour to switch between.
 public enum AppTab: String, Codable, CaseIterable, Sendable {
-    case car, rules, scanner, settings
+    case car, trips, rules, scanner, settings
 }
 
 /// Screens the tour can open with "Show me".
@@ -87,27 +87,33 @@ public enum Guide {
                       symbol: "chart.bar.xaxis", tab: .car, screen: .energy),
         ]),
         GuideSection(id: "trips", title: "Trips", symbol: "map.fill", steps: [
+            GuideStep("trips.tab", "The Trips tab",
+                      "Everything for driving somewhere is here: Where to? for a planned trip, Traffic ahead, your commutes with their latest check, saved trips, and time at places.",
+                      symbol: "map.fill", tab: .trips),
             GuideStep("trips.plan", "Plan a trip",
-                      "Car tab › Trips › Plan a trip. Start from the car, from you, or anywhere else, then pick where you're going and when you leave. It plans the charging stops, how long each takes, and what you'll arrive with. It can also set smart charging so you leave with enough.",
-                      symbol: "map", tab: .car, screen: .planTrip),
+                      "Trips tab › Where to? Start from the car, from you, or anywhere else, then pick where you're going and when you leave. It plans the charging stops, how long each takes, and what you'll arrive with. It can also set smart charging so you leave with enough.",
+                      symbol: "map", tab: .trips, screen: .planTrip),
+            GuideStep("trips.tesla", "Tesla Superchargers",
+                      "Most UK Superchargers take any car through the Tesla app; you pay by card in the app, less with its monthly membership. Most are older V3 units where an EV6 charges at about 60 kW, so the planner allows for that.",
+                      symbol: "bolt.car", tab: .trips),
             GuideStep("trips.food", "Charge and eat",
                       "Under each charging stop is a line showing which of your food places are a short walk away, and roughly when you'll get there. Tap it to see every charger you could use for that stop, with the food at each. Pick one and the trip is planned around it. Change your food list in Food I look for.",
-                      symbol: "fork.knife", tab: .car, screen: .foodChains),
+                      symbol: "fork.knife", tab: .trips, screen: .foodChains),
             GuideStep("trips.saved", "Save it, send it to the car",
-                      "At the bottom of a planned trip: Save this trip keeps it (it's listed at the top of Plan a trip), and Send to the car puts the stops and destination in the car's sat nav, now or whenever you're ready.",
-                      symbol: "car.side.arrowtriangle.up.fill", tab: .car, screen: .planTrip),
+                      "At the bottom of a planned trip: Save this trip keeps it (it's listed in the Trips tab), and Send to the car puts the stops and destination in the car's sat nav, now or whenever you're ready.",
+                      symbol: "car.side.arrowtriangle.up.fill", tab: .trips, screen: .planTrip),
             GuideStep("trips.traffic", "Traffic ahead",
                       "On the move, pick where you're heading (the last place sent to the car is already there). It shows the traffic on the rest of the drive and other ways to go. Choose one and send it to the car. Kia doesn't share where the car's sat nav is going, so it's picked here.",
-                      symbol: "exclamationmark.triangle", tab: .car, screen: .trafficAhead),
+                      symbol: "exclamationmark.triangle", tab: .trips, screen: .trafficAhead),
             GuideStep("trips.commute", "Commute",
                       "Add your routes home by pasting their Google Maps links, favourite first. It checks the traffic on all of them, takes your favourite unless another is much quicker, and writes your ETA message (\"I'll be home at 18:38…\") ready to send.",
-                      symbol: "car.rear.road.lane", tab: .car, screen: .commute),
+                      symbol: "car.rear.road.lane", tab: .trips, screen: .commute),
             GuideStep("trips.commuteAuto", "Commute on autopilot",
                       "In Shortcuts › Automation, make one for when you leave work (or a time on weekdays), set to Run Immediately. Add Check my commute from EV6, then Send Message with its result. You get a notification saying which way to go, and your message goes by itself.",
-                      symbol: "wand.and.stars", tab: .car, screen: .commute),
+                      symbol: "wand.and.stars", tab: .trips, screen: .commute),
             GuideStep("trips.places", "Time at places",
                       "How long the car was at each of your places on any day, from its own trips: handy for timesheets.",
-                      symbol: "clock.badge.checkmark", tab: .car, screen: .timeAtPlaces),
+                      symbol: "clock.badge.checkmark", tab: .trips, screen: .timeAtPlaces),
         ]),
         GuideSection(id: "rules", title: "Rules", symbol: "list.bullet.rectangle", steps: [
             GuideStep("rules.intro", "Rules",
@@ -151,7 +157,8 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
-        GuideRelease(number: 7, title: "A new widget and Watch look, and trips from anywhere", stepIds: ["extras.glance", "trips.plan"]),
+        GuideRelease(number: 8, title: "Trips has its own tab, and a simpler planner", stepIds: ["trips.tab", "trips.plan", "trips.tesla"]),
+        GuideRelease(number: 7, title: "A new widget and Watch look", stepIds: ["extras.glance"]),
         GuideRelease(number: 6, title: "Plug-in checks", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 5, title: "Food on the way, and this guide", stepIds: ["trips.food", "trips.saved", "settings.guide"]),
         GuideRelease(number: 4, title: "Traffic ahead", stepIds: ["trips.traffic"]),

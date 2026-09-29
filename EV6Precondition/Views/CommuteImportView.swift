@@ -43,7 +43,7 @@ struct CommuteImportView: View {
                 }
                 if done {
                     Section {
-                        Label("Added. Open Car › Commute to add the message and phone number.", systemImage: "checkmark.circle.fill")
+                        Label("Added. Open Trips › Manage commutes to add the message and phone number.", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     }
                 }

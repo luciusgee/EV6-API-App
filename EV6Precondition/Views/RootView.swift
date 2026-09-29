@@ -14,6 +14,9 @@ struct RootView: View {
             CarView()
                 .tabItem { Label("Car", systemImage: "car.fill") }
                 .tag(AppTab.car)
+            TripsView()
+                .tabItem { Label("Trips", systemImage: "map.fill") }
+                .tag(AppTab.trips)
             RulesView()
                 .tabItem { Label("Rules", systemImage: "list.bullet.rectangle") }
                 .tag(AppTab.rules)

@@ -213,7 +213,7 @@ struct CheckCommuteIntent: AppIntent {
         let services = AppServices.shared
         await services.prepare()
         guard let chosen = services.commute.commute(named: commute) else {
-            return .result(value: "", dialog: "Add a commute in the EV6 app first (Car, then Commute).")
+            return .result(value: "", dialog: "Add a commute in the EV6 app first (Trips, then Set up a commute).")
         }
         let advice = await services.commute.check(chosen.id)
         let text = services.commute.message(for: chosen.id) { $0.formatted(date: .omitted, time: .shortened) } ?? ""

@@ -75,3 +75,12 @@ final class RoutePlannerTests: XCTestCase {
         XCTAssertEqual(ChargerPower.guess(name: "Some Charger"), 50)
     }
 }
+
+extension RoutePlannerTests {
+    func testTeslaSuperchargersArePlannedAtWhatAnEV6Gets() {
+        XCTAssertEqual(ChargerPower.guess(name: "Tesla Supercharger Leicester Forest East"), 60)
+        XCTAssertEqual(ChargerPower.forEV6(250, name: "Tesla · Supercharger Stafford"), 60)
+        XCTAssertEqual(ChargerPower.forEV6(350, name: "Ionity Stafford"), 350)
+        XCTAssertEqual(ChargerPower.guess(name: "Ionity Stafford Services"), 150)
+    }
+}

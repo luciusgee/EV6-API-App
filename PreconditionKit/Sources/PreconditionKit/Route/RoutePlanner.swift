@@ -29,21 +29,38 @@ public extension RouteCharger {
     /// A known site placed on the route: real speed, not a guess.
     init(site: ChargeSite, alongKm: Double, detourKm: Double) {
         let who = site.operatorName.map { $0 + " · " } ?? ""
-        self.init(id: site.id, name: who + site.name, position: site.position, alongKm: alongKm, detourKm: detourKm,
-                  powerKW: site.maxKW ?? 50, powerGuessed: site.maxKW == nil)
+        let name = who + site.name
+        self.init(id: site.id, name: name, position: site.position, alongKm: alongKm, detourKm: detourKm,
+                  powerKW: ChargerPower.forEV6(site.maxKW ?? 50, name: name), powerGuessed: site.maxKW == nil)
     }
 }
 
 /// Guesses a charger's speed from the operator in its name: UK rapid networks are 150 kW or more.
 public enum ChargerPower {
-    static let ultraRapid = ["ionity", "gridserve", "electric highway", "instavolt", "osprey", "fastned", "tesla", "supercharger",
+    static let ultraRapid = ["ionity", "gridserve", "electric highway", "instavolt", "osprey", "fastned",
                              "bp pulse", "shell recharge", "mfg ev power", "mfg", "be.ev", "evyve", "applegreen", "ez-charge",
                              "moto", "welcome break", "roadchef", "allego", "ubitricity hub", "believ rapid", "sainsbury", "tesco ev"]
     static let slow = ["hotel", "destination", "council", "car park", "retail park", "pod point", "source london", "char.gy",
                        "connected kerb", "ubitricity", "lamp", "village hall", "church", "school"]
 
+    /// What an EV6 actually gets from a Tesla Supercharger. Most UK sites are V3 (about 500 V): the
+    /// 800 V EV6 has to step the voltage up and tops out around 60 kW there. Newer V4 cabinets reach 1,000 V
+    /// but can't be told apart from here, so plan on the slower figure.
+    public static let teslaForEV6: Double = 60
+
+    static func isTesla(_ name: String) -> Bool {
+        let n = name.lowercased()
+        return n.contains("tesla") || n.contains("supercharger")
+    }
+
+    /// A site's rated speed, as the EV6 will see it.
+    public static func forEV6(_ kW: Double, name: String) -> Double {
+        isTesla(name) ? min(kW, teslaForEV6) : kW
+    }
+
     public static func guess(name: String) -> Double {
         let n = name.lowercased()
+        if isTesla(n) { return teslaForEV6 }
         if slow.contains(where: { n.contains($0) }) && !n.contains("rapid") { return 22 }
         if ultraRapid.contains(where: { n.contains($0) }) || n.contains("hub") || n.contains("ultra") { return 150 }
         if n.contains("rapid") { return 50 }

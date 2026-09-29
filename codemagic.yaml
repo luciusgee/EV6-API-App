@@ -74,7 +74,12 @@ workflows:
       - name: Next build number
         script: |
           LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
-          echo "BUILD_NUMBER_NEXT=$((LATEST + 1))" >> $CM_ENV
+          # Minutes since 2026-01-01 always goes up, so a failed lookup or a build Apple is still
+          # processing can't make two uploads share a number (Apple rejects the second).
+          CLOCK=$(( ($(date -u +%s) - 1767225600) / 60 ))
+          NEXT=$(( LATEST + 1 > CLOCK ? LATEST + 1 : CLOCK ))
+          echo "Latest on TestFlight: $LATEST; this build: $NEXT"
+          echo "BUILD_NUMBER_NEXT=$NEXT" >> $CM_ENV
       - name: Build the ipa
         script: |
           xcode-project build-ipa \

@@ -135,53 +135,66 @@ final class CarPhoto {
     }
 }
 
-/// The photos of the owner's car that ship with the app, cut out of their backgrounds on the phone the
-/// first time they're shown (Vision needs the Neural Engine, so this can't happen at build time) and kept.
-@MainActor
-@Observable
-final class CarCutouts {
-    static let shared = CarCutouts()
+/// Kia's studio renders of the 2022 EV6 in Runway Red: 72 frames, 5° apart, turning the car a full
+/// circle. Frame 1 is side-on with the nose to the left; dragging right brings the nose round.
+struct CarSpin: View {
+    static let frames = 72
+    /// Front three-quarter, like the photo in the Kia app.
+    static let front = 64
+    /// Rear three-quarter.
+    static let rear = 10
 
-    private(set) var images: [String: UIImage] = [:]
-    @ObservationIgnored private var started: Set<String> = []
+    var rest = CarSpin.front
+    var interactive = true
+    @State private var frame: Int?
+    @State private var dragStart: Int?
 
-    private static func file(_ name: String) -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("EV6Precondition/cutout-v2-\(name).png")
+    private var shown: Int { frame ?? rest }
+
+    var body: some View {
+        Image("EV6Spin\(shown)")
+            .resizable()
+            .scaledToFit()
+            .frame(maxHeight: 210)
+            .contentShape(Rectangle())
+            // Alongside the page's scrolling: only sideways movement turns the car.
+            .simultaneousGesture(drag, including: interactive ? .all : .subviews)
+            .onTapGesture(count: 2) { if interactive { Task { await settle() } } }
+            .sensoryFeedback(.selection, trigger: shown) { _, _ in frame != nil && shown % 9 == 0 }
     }
 
-    /// The cut-out, or nil until it's ready (or if the phone can't cut it out).
-    func image(_ name: String) -> UIImage? {
-        if let image = images[name] { return image }
-        if !started.contains(name) {
-            started.insert(name)
-            Task { await prepare(name) }
-        }
-        return nil
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                let start = dragStart ?? shown
+                dragStart = start
+                // About 7 points of drag per 5° step.
+                frame = Self.wrap(start - Int((value.translation.width / 7).rounded()))
+            }
+            .onEnded { _ in dragStart = nil }
     }
 
-    private func prepare(_ name: String) async {
-        let url = Self.file(name)
-        if let saved = UIImage(contentsOfFile: url.path) {
-            images[name] = saved
-            return
+    /// Turns back to the resting angle the short way round, a frame at a time.
+    private func settle() async {
+        guard var current = frame else { return }
+        let forward = Self.wrap(rest - current)
+        let step = forward <= Self.frames / 2 ? 1 : -1
+        while current != rest {
+            current = Self.wrap(current + step)
+            frame = current
+            try? await Task.sleep(for: .milliseconds(12))
         }
-        guard let source = UIImage(named: name), let upright = CarPhoto.upright(source, maxSide: 2000) else { return }
-        guard let lifted = await Task.detached(priority: .utility, operation: { CarPhoto.liftSubject(upright) }).value else { return }
-        if let png = lifted.pngData() {
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? png.write(to: url, options: .atomic)
-        }
-        images[name] = lifted
+        frame = nil
     }
+
+    static func wrap(_ n: Int) -> Int { ((n - 1) % frames + frames) % frames + 1 }
 }
 
-/// Your car: a photo you picked, else the bundled photo of it (cut out once ready, the full photo until
-/// then), with charging and climate badges.
+/// Your car: a photo you picked, else Kia's render of it, with charging and climate badges.
 struct CarHeroImage: View {
     var photo = CarPhoto.shared
-    var cutouts = CarCutouts.shared
-    var name = "CarFront"
+    var rest = CarSpin.front
+    var interactive = true
     let paint: CarPaint
     var charging = false
     var pluggedIn = false
@@ -189,33 +202,17 @@ struct CarHeroImage: View {
 
     var body: some View {
         Group {
-            if let image = photo.image ?? cutouts.image(name) {
-                ZStack(alignment: .bottom) {
-                    // Soft shadow under the wheels.
-                    Ellipse()
-                        .fill(.black.opacity(0.35))
-                        .frame(height: 18)
-                        .padding(.horizontal, 30)
-                        .blur(radius: 10)
-                        .offset(y: 4)
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 210)
-                }
-                .transition(.opacity)
-            } else if UIImage(named: name) != nil {
-                Image(name)
+            if let image = photo.image {
+                Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
-                    .frame(height: 210)
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .scaledToFit()
+                    .frame(maxHeight: 210)
+            } else if UIImage(named: "EV6Spin\(rest)") != nil {
+                CarSpin(rest: rest, interactive: interactive)
             } else {
                 EV6Illustration(paint: paint, charging: charging, pluggedIn: pluggedIn, climate: climate)
             }
         }
-        .animation(.easeInOut(duration: 0.4), value: cutouts.images[name] != nil)
         .overlay(alignment: .topTrailing) {
             if charging || climate != nil {
                 HStack(spacing: 6) {
@@ -228,6 +225,8 @@ struct CarHeroImage: View {
                 .symbolEffect(.pulse)
             }
         }
-        .accessibilityHidden(true)
+        .accessibilityElement()
+        .accessibilityLabel("Your EV6")
+        .accessibilityHint(interactive ? "Drag to turn the car round." : "")
     }
 }

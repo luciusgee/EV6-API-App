@@ -38,7 +38,7 @@ private struct MyCarSection: View {
 
     var body: some View {
         Section {
-            CarHeroImage(name: "CarRear", paint: paint)
+            CarHeroImage(rest: CarSpin.rear, interactive: false, paint: paint)
                 .padding(.vertical, 8)
                 .overlay {
                     if photo.working {
@@ -51,7 +51,7 @@ private struct MyCarSection: View {
                 Label("Use a Different Photo", systemImage: "photo.badge.plus")
             }
             if photo.image != nil {
-                Button("Back to the Built-in Photos", role: .destructive) { photo.remove() }
+                Button("Back to Kia's Render", role: .destructive) { photo.remove() }
             }
             if let problem = photo.problem {
                 Text(problem).font(.footnote).foregroundStyle(.orange)
@@ -67,7 +67,7 @@ private struct MyCarSection: View {
         } header: {
             Text("My EV6")
         } footer: {
-            Text("2022 EV6 GT-Line AWD · Runway Red · 77.4 kWh · 325 bhp. Your photos are cut out of their backgrounds on this iPhone the first time they're shown.")
+            Text("2022 EV6 GT-Line AWD · Runway Red · 77.4 kWh · 325 bhp. On the Car tab, drag the car to turn it round; double-tap to put it back. A photo of your own is cut out of its background on this iPhone.")
         }
         .onChange(of: picked) { _, item in
             keepBackground = false

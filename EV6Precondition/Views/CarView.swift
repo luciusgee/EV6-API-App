@@ -172,19 +172,33 @@ struct CarView: View {
 
     private var climateSection: some View {
         Section {
-            RoundStepper(
-                "Temperature",
-                value: Binding(
-                    get: { shownTarget },
-                    set: { v in
-                        target = v
-                        Task { await model.updateSettings { $0.defaultTargetC = v } }
-                    }
-                ),
-                in: AppSettings.minTargetC...AppSettings.maxTargetC,
-                step: 0.5,
-                tint: shownTarget >= 20 ? .orange : .cyan
-            ) { Describe.temp($0) }
+            VStack(alignment: .leading, spacing: 6) {
+                LabeledContent {
+                    Text(Describe.temp(shownTarget))
+                        .font(.title3.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(shownTarget >= 20 ? .orange : .cyan)
+                } label: {
+                    Label("Temperature", systemImage: "thermometer.medium")
+                }
+                Slider(
+                    value: Binding(get: { shownTarget }, set: { target = $0 }),
+                    in: AppSettings.minTargetC...AppSettings.maxTargetC,
+                    step: 0.5
+                ) {
+                    Text("Temperature")
+                } minimumValueLabel: {
+                    Text("\(Int(AppSettings.minTargetC))°").font(.caption).foregroundStyle(.secondary)
+                } maximumValueLabel: {
+                    Text("\(Int(AppSettings.maxTargetC))°").font(.caption).foregroundStyle(.secondary)
+                } onEditingChanged: { editing in
+                    guard !editing else { return }
+                    let v = shownTarget
+                    Task { await model.updateSettings { $0.defaultTargetC = v } }
+                }
+                .tint(shownTarget >= 20 ? .orange : .cyan)
+            }
+            .padding(.vertical, 4)
             if let outside = snapshot?.outsideTempC {
                 LabeledContent("Outside", value: Describe.temp(outside))
             }
@@ -222,6 +236,15 @@ struct CarView: View {
                     Text(chargingSummary)
                 } label: {
                     Label("Charging & costs", systemImage: "bolt.batteryblock")
+                }
+            }
+            NavigationLink {
+                OffPeakView(current: details?.offPeak)
+            } label: {
+                LabeledContent {
+                    Text(details?.offPeak.map { $0.text + ($0.onlyOffPeak ? " only" : "") } ?? "")
+                } label: {
+                    Label("Off-peak charging", systemImage: "moon.stars")
                 }
             }
             NavigationLink {

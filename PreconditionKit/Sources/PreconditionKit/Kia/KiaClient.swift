@@ -154,6 +154,14 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
                 let acEntry: JSONValue = ["plugType": 1, "targetSOClevel": .number(Double(Self.chargeLimit(ac)))]
                 let body: JSONValue = ["targetSOClist": [dcEntry, acEntry]]
                 return Self.receipt(try await self.post("\(self.config.spa)/vehicles/\(id)/charge/target", self.authHeaders(s), body))
+            case .setOffPeak(let window):
+                // Kia replaces the whole schedule, so read the departures the car has (cached; doesn't wake it).
+                let path = ccs2 ? "ccs2/carstatus/latest" : "status/latest"
+                let status = try await self.get("\(self.config.spa)/vehicles/\(id)/\(path)", self.authHeaders(s))
+                let reservations = status.path("resMsg.vehicleStatusInfo.vehicleStatus.evStatus.reservChargeInfos")
+                let body = OffPeakWindow.requestBody(window, current: reservations)
+                let headers = try await self.controlHeaders(s, creds, for: "charging schedule changes")
+                return Self.receipt(try await self.post("\(self.config.spaV2)/vehicles/\(id)/ccs2/reservation/chargehvac", headers, body))
             }
         }
     }
@@ -408,9 +416,9 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
     }
 
     /// CCS2 commands need a short-lived control token, obtained with the Kia Connect PIN (§3.8).
-    private func controlHeaders(_ s: KiaSession, _ creds: Credentials) async throws -> [String: String] {
+    private func controlHeaders(_ s: KiaSession, _ creds: Credentials, for what: String = "climate commands") async throws -> [String: String] {
         guard let pin = creds.pin?.trimmingCharacters(in: .whitespaces), !pin.isEmpty else {
-            throw KiaFailure(error: .loginFailed(reason: "this car needs your Kia Connect PIN for climate commands"), httpCode: 401)
+            throw KiaFailure(error: .loginFailed(reason: "this car needs your Kia Connect PIN for \(what)"), httpCode: 401)
         }
         var session = s
         if session.controlToken == nil || time.now() >= session.controlExpiresAt.addingTimeInterval(-Self.controlTokenMargin) {

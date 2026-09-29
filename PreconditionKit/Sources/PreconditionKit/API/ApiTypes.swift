@@ -13,7 +13,7 @@ public struct Credentials: Codable, Equatable, Sendable, CustomStringConvertible
     public var refreshToken: String
     /// Optional: picks the car when the account has several. Empty = first EV.
     public var vin: String
-    /// Kia Connect PIN. Only CCS2 cars need it, for climate commands.
+    /// Kia Connect PIN. Needed for charging-schedule changes, and for climate commands on CCS2 cars.
     public var pin: String?
     /// The Kia account email and password (the Kia app's own sign-in).
     public var email: String?
@@ -149,6 +149,8 @@ public enum CarCommand: Equatable, Sendable {
     case unlock
     /// Where charging stops, in % (50–100, steps of 10), for AC and DC charging.
     case setChargeLimits(ac: Int, dc: Int)
+    /// When the car charges at home. Needs the Kia Connect PIN.
+    case setOffPeak(OffPeakWindow)
 
     public var description: String {
         switch self {
@@ -157,6 +159,7 @@ public enum CarCommand: Equatable, Sendable {
         case .lock: return "lock the car"
         case .unlock: return "unlock the car"
         case .setChargeLimits(let ac, let dc): return "set charge limits to \(ac)% AC, \(dc)% DC"
+        case .setOffPeak(let w): return "set off-peak charging to \(w.text)\(w.onlyOffPeak ? " only" : "")"
         }
     }
 }

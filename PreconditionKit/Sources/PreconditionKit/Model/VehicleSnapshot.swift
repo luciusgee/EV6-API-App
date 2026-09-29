@@ -97,6 +97,8 @@ public struct VehicleDetails: Codable, Equatable, Sendable {
     public var batteryHealthPercent: Double?
     public var defrostOn: Bool?
     public var steeringWheelHeatOn: Bool?
+    /// When the car charges at home, if it reported a window.
+    public var offPeak: OffPeakWindow?
 
     public init(
         odometerKm: Double? = nil,
@@ -113,7 +115,8 @@ public struct VehicleDetails: Codable, Equatable, Sendable {
         chargeLimitDC: Int? = nil,
         batteryHealthPercent: Double? = nil,
         defrostOn: Bool? = nil,
-        steeringWheelHeatOn: Bool? = nil
+        steeringWheelHeatOn: Bool? = nil,
+        offPeak: OffPeakWindow? = nil
     ) {
         self.odometerKm = odometerKm
         self.locked = locked
@@ -130,6 +133,7 @@ public struct VehicleDetails: Codable, Equatable, Sendable {
         self.batteryHealthPercent = batteryHealthPercent
         self.defrostOn = defrostOn
         self.steeringWheelHeatOn = steeringWheelHeatOn
+        self.offPeak = offPeak
     }
 
     public init(from decoder: Decoder) throws {
@@ -149,6 +153,7 @@ public struct VehicleDetails: Codable, Equatable, Sendable {
         batteryHealthPercent = try c.decodeIfPresent(Double.self, forKey: .batteryHealthPercent)
         defrostOn = try c.decodeIfPresent(Bool.self, forKey: .defrostOn)
         steeringWheelHeatOn = try c.decodeIfPresent(Bool.self, forKey: .steeringWheelHeatOn)
+        offPeak = try c.decodeIfPresent(OffPeakWindow.self, forKey: .offPeak)
     }
 
     /// Anything that deserves attention: open doors, low tyres, a weak 12 V battery.

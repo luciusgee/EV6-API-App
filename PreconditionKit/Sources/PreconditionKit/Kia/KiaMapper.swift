@@ -82,7 +82,8 @@ public enum KiaMapper {
             chargeLimitDC: limit(0),
             batteryHealthPercent: ev?.path("batterySoh")?.num.flatMap { $0 > 0 ? $0 : nil },
             defrostOn: vs?.path("defrost")?.bool,
-            steeringWheelHeatOn: wheel.map { $0 == 1 }
+            steeringWheelHeatOn: wheel.map { $0 == 1 },
+            offPeak: OffPeakWindow.parse(ev?.path("reservChargeInfos"))
         )
     }
 

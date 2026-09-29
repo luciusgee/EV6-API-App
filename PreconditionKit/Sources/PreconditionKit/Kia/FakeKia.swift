@@ -44,6 +44,8 @@ public struct FakeCarState: Codable, Equatable, Sendable {
     public var commandOutcome: FakeCommandOutcome = .success
     /// Seconds before the car reports back (0 in tests; a few seconds feels real in the app).
     public var confirmAfter: TimeInterval = 0
+    /// The off-peak window; nil is the Kia app's usual 23:00–06:00.
+    public var offPeak: OffPeakWindow?
 
     public init(
         socPercent: Int = 62,
@@ -217,6 +219,18 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
             }
             return ok([:], msgId: msgId(now))
         }
+        if path.hasSuffix("/pin") {
+            return HTTPResponse(status: 200, text: #"{"controlToken":"fake-control","expiresTime":600}"#)
+        }
+        if path.hasSuffix("/reservation/chargehvac") {
+            let body = request.body.flatMap(JSONValue.parse)
+            let info = body?["offPeakPowerInfo"]
+            if let start = OffPeakWindow.clockTime(info?.path("offPeakPowerTime1.starttime")),
+               let end = OffPeakWindow.clockTime(info?.path("offPeakPowerTime1.endtime")) {
+                car.withLock { $0.offPeak = OffPeakWindow(start: start, end: end, onlyOffPeak: info?["offPeakPowerFlag"]?.int == 2) }
+            }
+            return ok([:], msgId: msgId(now))
+        }
         if path.hasSuffix("/records") {
             let records: [JSONValue] = issued.current.suffix(20).reversed().map { id, at in
                 let done = now.timeIntervalSince(at) >= s.confirmAfter
@@ -240,6 +254,7 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
 
     private func status(_ s: FakeCarState, now: Date) -> JSONValue {
         let charging = s.pluggedIn && s.charging
+        let offPeak = s.offPeak ?? OffPeakWindow(start: ClockTime(hour: 23), end: ClockTime(hour: 6))
         let range: JSONValue = ["value": .number(Double(s.socPercent * 5)), "unit": 1]
         let evStatus: JSONValue = [
             "batteryStatus": .number(Double(s.socPercent)),
@@ -250,10 +265,17 @@ public final class FakeKia: HTTPTransport, @unchecked Sendable {
             "drvDistance": [["rangeByFuel": ["evModeRange": range]]],
             "chargePortDoorOpenStatus": .number(s.pluggedIn ? 1 : 2),
             "batterySoh": 97.5,
-            "reservChargeInfos": ["targetSOClist": [
-                ["plugType": 0, "targetSOClevel": .number(Double(s.chargeLimitDC))],
-                ["plugType": 1, "targetSOClevel": .number(Double(s.chargeLimitAC))],
-            ]],
+            "reservChargeInfos": [
+                "targetSOClist": [
+                    ["plugType": 0, "targetSOClevel": .number(Double(s.chargeLimitDC))],
+                    ["plugType": 1, "targetSOClevel": .number(Double(s.chargeLimitAC))],
+                ],
+                "reservFlag": 0,
+                "offpeakPowerInfo": [
+                    "offPeakPowerTime1": ["starttime": OffPeakWindow.kiaTime(offPeak.start), "endtime": OffPeakWindow.kiaTime(offPeak.end)],
+                    "offPeakPowerFlag": .number(offPeak.onlyOffPeak ? 2 : 1),
+                ],
+            ],
         ]
         let vehicleStatus: JSONValue = [
             "time": .string(Self.berlinTime(now.addingTimeInterval(-120))),

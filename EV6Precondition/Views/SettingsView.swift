@@ -1,5 +1,4 @@
 import CoreLocation
-import PhotosUI
 import PreconditionKit
 import SwiftUI
 import UIKit
@@ -46,34 +45,11 @@ struct SettingsView: View {
 private struct MyCarSection: View {
     @Environment(CarModel.self) private var model
     @AppStorage(CarPaint.storageKey) private var paint: CarPaint = .runwayRed
-    @State private var photo = CarPhoto.shared
-    @State private var picked: PhotosPickerItem?
-    @State private var keepBackground = false
 
     var body: some View {
         Section {
             CarHeroImage(rest: CarSpin.rear, paint: paint)
                 .padding(.vertical, 8)
-                .overlay {
-                    if photo.working {
-                        ProgressView("Cutting out your car…")
-                            .padding()
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    }
-                }
-            PhotosPicker(selection: $picked, matching: .images) {
-                Label("Use a Different Photo", systemImage: "photo.badge.plus")
-            }
-            if photo.image != nil {
-                Button("Back to Kia's Render", role: .destructive) { photo.remove() }
-            }
-            if let problem = photo.problem {
-                Text(problem).font(.footnote).foregroundStyle(.orange)
-                Button("Use the Whole Photo Instead") {
-                    keepBackground = true
-                    if let item = picked { Task { await load(item) } }
-                }
-            }
             Toggle("Miles", isOn: Binding(
                 get: { model.settings.useMiles },
                 set: { on in Task { await model.updateSettings { $0.useMiles = on } } }
@@ -81,17 +57,8 @@ private struct MyCarSection: View {
         } header: {
             Text("My EV6")
         } footer: {
-            Text("2022 EV6 GT-Line AWD · Runway Red · 77.4 kWh · 325 bhp. Drag the car to turn it round; double-tap to put it back. A photo of your own is cut out of its background on this iPhone.")
+            Text("2022 EV6 GT-Line AWD · Runway Red · 77.4 kWh · 325 bhp. Drag the car to turn it round; double-tap to put it back.")
         }
-        .onChange(of: picked) { _, item in
-            keepBackground = false
-            if let item { Task { await load(item) } }
-        }
-    }
-
-    private func load(_ item: PhotosPickerItem) async {
-        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
-        await photo.use(data, cutOut: !keepBackground)
     }
 }
 

@@ -11,6 +11,7 @@ struct EV6PreconditionApp: App {
                 .environment(services.car)
                 .environment(services.rules)
                 .environment(services.obd)
+                .environment(services.charging)
                 .task {
                     await services.prepare()
                 }

@@ -18,12 +18,17 @@ struct SettingsView: View {
                 RateLimitSection()
                 Section {
                     NavigationLink {
+                        AlertsSettingsView()
+                    } label: {
+                        Label("Alerts", systemImage: "bell.badge")
+                    }
+                    NavigationLink {
                         ActivityView()
                     } label: {
                         Label("Activity", systemImage: "clock.arrow.circlepath")
                     }
                 } footer: {
-                    Text("Every command, rule decision and problem, newest first.")
+                    Text("Alerts for charging, locks, windows and the 12 V battery; and the log of every command and rule decision.")
                 }
                 Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")

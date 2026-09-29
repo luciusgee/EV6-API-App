@@ -36,6 +36,9 @@ targets:
         # Read at run time to name the Keychain group shared with the widgets.
         AppIdentifierPrefix: $(AppIdentifierPrefix)
         NSSupportsLiveActivities: true
+        # Background reads of the car for alerts and smart charging.
+        BGTaskSchedulerPermittedIdentifiers: [com.luciusgee.ev6precondition.refresh]
+        UIBackgroundModes: [fetch]
         CFBundleURLTypes:
           - CFBundleURLName: com.luciusgee.ev6precondition
             CFBundleURLSchemes: [ev6]

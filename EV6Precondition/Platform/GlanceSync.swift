@@ -25,8 +25,14 @@ final class GlanceSync: NSObject {
         observe()
     }
 
+    private var lastSnapshotAt: Date?
+
     private func observe() {
         guard let car else { return }
+        if let snapshot = car.snapshot, snapshot.fetchedAt != lastSnapshotAt {
+            lastSnapshotAt = snapshot.fetchedAt
+            Task { await ChargingCoordinator.shared.handle(snapshot) }
+        }
         let glance = withObservationTracking {
             LiveActivities.update(car)
             return Self.glance(car)

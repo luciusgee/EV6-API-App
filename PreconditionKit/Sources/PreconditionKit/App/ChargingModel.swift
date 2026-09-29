@@ -35,13 +35,22 @@ public final class ChargingModel {
 
     public var now: Date { time.now() }
 
+    @ObservationIgnored private var loaded = false
+
     public func load() async {
         settings = await settingsStore.load()
         data = await dataStore.load()
         agile = await pricesStore.load()
+        loaded = true
+    }
+
+    /// Everything that writes starts here, so a write never replaces the files with defaults.
+    private func ensureLoaded() async {
+        if !loaded { await load() }
     }
 
     public func update(_ change: (inout ChargingSettings) -> Void) async {
+        await ensureLoaded()
         var copy = settings
         change(&copy)
         copy.smart.targetPercent = min(100, max(50, copy.smart.targetPercent))
@@ -72,6 +81,7 @@ public final class ChargingModel {
 
     /// Fetches Agile prices from an hour ago to tomorrow night. Does nothing for other tariffs.
     public func refreshPrices() async {
+        await ensureLoaded()
         guard case .agile(let region, _) = settings.tariff else { return }
         loadingPrices = true
         defer { loadingPrices = false }
@@ -137,6 +147,7 @@ public final class ChargingModel {
     /// Feeds a reading of the car in: records charges, works out alerts and what smart charging
     /// wants. Safe to call with the same reading more than once.
     public func process(_ snapshot: VehicleSnapshot, home: LatLon?) async -> Outcome {
+        await ensureLoaded()
         var d = data
         let finished = ChargeLedger.ingest(&d, snapshot: snapshot, settings: settings, home: home, agileSlots: agile, calendar: calendar)
         if d != data {
@@ -158,6 +169,7 @@ public final class ChargingModel {
     // MARK: - Sessions
 
     public func addManual(start: Date, percentAdded: Int, costPounds: Double, note: String?) async {
+        await ensureLoaded()
         let battery = Double(percentAdded) / 100 * settings.usableKWh
         let session = ChargeSession(
             start: start, end: start, startPercent: 0, endPercent: percentAdded,
@@ -169,6 +181,7 @@ public final class ChargingModel {
     }
 
     public func delete(_ id: String) async {
+        await ensureLoaded()
         data.sessions.removeAll { $0.id == id }
         await dataStore.save(data)
     }

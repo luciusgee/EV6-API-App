@@ -10,6 +10,7 @@ final class AppServices {
     let container: AppContainer
     let car: CarModel
     let rules: RulesModel
+    let charging: ChargingModel
     let obd = OBDService()
     private var prepared = false
 
@@ -32,9 +33,14 @@ final class AppServices {
         self.container = container
         self.car = car
         self.rules = RulesModel(container: container)
+        self.charging = ChargingModel(directory: support.appendingPathComponent("EV6Precondition", isDirectory: true), transport: URLSessionTransport())
         notifier.onStop = {
             await car.stop()
         }
+        notifier.onStartCharging = {
+            await ChargingCoordinator.shared.startChargingFromReminder()
+        }
+        ChargingCoordinator.shared.registerBackgroundRefresh()
         let engine = container.engine
         // Created now, not later: iOS relaunches the app for a crossed boundary and delivers it at once.
         GeofenceMonitor.shared.onEvent = { event, at in
@@ -55,6 +61,7 @@ final class AppServices {
         prepared = true
         notifier.register()
         await car.load()
+        await charging.load()
         // The fake car was a development aid; the app only talks to the real car now.
         if car.settings.fakeMode {
             await car.updateSettings { $0.fakeMode = false }
@@ -64,6 +71,11 @@ final class AppServices {
         if await container.engine.refreshCarPositionIfDue() {
             await car.load()
             await rules.load()
+        }
+        charging.replan(soc: car.snapshot?.socPercent)
+        ChargingCoordinator.shared.scheduleBackgroundRefresh()
+        if charging.pricesStale {
+            Task { await charging.refreshPrices() }
         }
     }
 }

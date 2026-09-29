@@ -2,11 +2,22 @@ import Charts
 import PreconditionKit
 import SwiftUI
 
-/// The last battery report, kept on the phone.
+/// One point on the battery-health chart, saved with every read.
+struct HealthPoint: Codable, Equatable, Identifiable {
+    var takenAt: Date
+    var sohPercent: Double?
+    var cellSpreadMV: Double?
+    var odometerKm: Double?
+    var id: Date { takenAt }
+}
+
+/// The last battery report, and every read's headline numbers, kept on the phone.
 @MainActor
 @Observable
 final class BatteryReportStore {
     private(set) var report: BatteryReport?
+    private(set) var history: [HealthPoint] = []
+    private let historyStore: JSONFileStore<[HealthPoint]>
     private(set) var problems: [String] = []
     private(set) var progress: BatteryScanner.Progress?
     private(set) var error: String?
@@ -15,19 +26,32 @@ final class BatteryReportStore {
     init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         store = JSONFileStore(url: support.appendingPathComponent("EV6Precondition/battery-report.json"), default: nil)
+        historyStore = JSONFileStore(url: support.appendingPathComponent("EV6Precondition/battery-history.json"), default: [])
     }
 
     var scanning: Bool { progress != nil }
 
     func load() async {
         report = await store.load()
+        history = await historyStore.load()
+        // Reports read before the history existed.
+        if history.isEmpty, let report {
+            history = [Self.point(report, odometerKm: nil)]
+            await historyStore.save(history)
+        }
+    }
+
+    static func point(_ r: BatteryReport, odometerKm: Double?) -> HealthPoint {
+        var spread: Double?
+        if let high = r.cellMaxVolts, let low = r.cellMinVolts { spread = (high - low) * 1000 }
+        return HealthPoint(takenAt: r.takenAt, sohPercent: r.sohPercent, cellSpreadMV: spread, odometerKm: odometerKm)
     }
 
     private func setProgress(_ p: BatteryScanner.Progress) {
         progress = p
     }
 
-    func scan(_ elm: ELM327) async {
+    func scan(_ elm: ELM327, odometerKm: Double? = nil) async {
         guard !scanning else { return }
         error = nil
         problems = []
@@ -38,6 +62,9 @@ final class BatteryReportStore {
             report = result
             problems = issues
             await store.save(result)
+            history.append(Self.point(result, odometerKm: odometerKm))
+            history.sort { $0.takenAt < $1.takenAt }
+            await historyStore.save(history)
         } catch {
             self.error = (error as? OBDError)?.description ?? error.localizedDescription
         }
@@ -61,7 +88,7 @@ struct BatteryHealthView: View {
 
             Section {
                 Button {
-                    if let elm = obd.elm { Task { await reports.scan(elm) } }
+                    if let elm = obd.elm { Task { await reports.scan(elm, odometerKm: car.snapshot?.details?.odometerKm) } }
                 } label: {
                     HStack {
                         Label("Read Battery", systemImage: "waveform.path.ecg")
@@ -88,6 +115,10 @@ struct BatteryHealthView: View {
             if let report = reports.report {
                 ReportSections(report: report, problems: reports.problems, miles: car.settings.useMiles)
             }
+
+            if reports.history.filter({ $0.sohPercent != nil }).count >= 2 {
+                HealthHistorySection(history: reports.history)
+            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Battery Health")
@@ -97,6 +128,42 @@ struct BatteryHealthView: View {
         }
         .sheet(isPresented: $showingAdapters) {
             AdapterPicker(link: obd.link)
+        }
+    }
+}
+
+// MARK: - History
+
+/// State of health and cell balance over time: the numbers that matter for the battery's life and
+/// the car's resale value.
+private struct HealthHistorySection: View {
+    let history: [HealthPoint]
+
+    private var soh: [HealthPoint] { history.filter { $0.sohPercent != nil } }
+
+    var body: some View {
+        Section {
+            Chart(soh) { p in
+                LineMark(x: .value("Date", p.takenAt), y: .value("SOH", p.sohPercent ?? 0))
+                    .interpolationMethod(.monotone)
+                PointMark(x: .value("Date", p.takenAt), y: .value("SOH", p.sohPercent ?? 0))
+                    .symbolSize(24)
+            }
+            .chartYScale(domain: .automatic(includesZero: false))
+            .chartYAxisLabel("SOH %")
+            .frame(height: 180)
+            .padding(.vertical, 6)
+            if let first = soh.first?.sohPercent, let last = soh.last?.sohPercent {
+                LabeledContent("Change since first read", value: String(format: "%+.1f%%", last - first))
+            }
+            let spreads = history.compactMap(\.cellSpreadMV)
+            if let latest = spreads.last {
+                LabeledContent("Cell spread, latest", value: String(format: "%.0f mV", latest))
+            }
+        } header: {
+            Text("History")
+        } footer: {
+            Text("Every read is kept. SOH changes slowly: read every month or so to see the trend. A cell spread that keeps growing past about 50 mV is worth a dealer check.")
         }
     }
 }

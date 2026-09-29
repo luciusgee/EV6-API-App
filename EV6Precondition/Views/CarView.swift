@@ -5,6 +5,7 @@ import SwiftUI
 struct CarView: View {
     @Environment(CarModel.self) private var model
     @Environment(RulesModel.self) private var rules
+    @Environment(ChargingModel.self) private var charging
     @AppStorage(CarPaint.storageKey) private var paint: CarPaint = .runwayRed
     @State private var target: Double?
     @State private var confirmUnlock = false
@@ -208,6 +209,21 @@ struct CarView: View {
 
     private var vehicleSection: some View {
         Section {
+            NavigationLink {
+                ChargingView()
+            } label: {
+                LabeledContent {
+                    Text(charging.plan.map { "\($0.start.formatted(date: .omitted, time: .shortened))" }
+                        ?? charging.monthly.first.map { DisplayText.money(pence: $0.totals.costPence) } ?? "")
+                } label: {
+                    Label("Charging & costs", systemImage: "bolt.batteryblock")
+                }
+            }
+            NavigationLink {
+                ChargersView(near: snapshot?.parkingPosition)
+            } label: {
+                Label("Chargers nearby", systemImage: "ev.charger")
+            }
             NavigationLink {
                 EnergyView()
             } label: {

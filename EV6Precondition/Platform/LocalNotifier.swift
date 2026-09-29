@@ -60,6 +60,21 @@ final class LocalNotifier: NSObject, Notifier, UNUserNotificationCenterDelegate,
         await post(title: alert.title, text: alert.body, category: nil)
     }
 
+    /// The evening "not plugged in yet" reminder; replaces any earlier one. Nil cancels it.
+    func schedulePlugReminder(at date: Date?, title: String, text: String) async {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["plug-reminder"])
+        guard let date, date > Date() else { return }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = text
+        content.sound = .default
+        let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let request = UNNotificationRequest(identifier: "plug-reminder", content: content,
+                                            trigger: UNCalendarNotificationTrigger(dateMatching: comps, repeats: false))
+        try? await center.add(request)
+    }
+
     /// The reminder at the start of the cheapest charging window; replaces any earlier one.
     func scheduleSmartReminder(at date: Date?, title: String, text: String) async {
         let center = UNUserNotificationCenter.current()

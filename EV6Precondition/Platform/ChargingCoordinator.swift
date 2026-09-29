@@ -37,6 +37,13 @@ final class ChargingCoordinator {
         if let start = charging.plan?.start, start > Date() {
             earliest = min(earliest, start.addingTimeInterval(60))
         }
+        if alerts.backgroundChecks, let snapshot = AppServices.shared.car.snapshot, snapshot.pluggedIn == true,
+           snapshot.chargingState != .charging, let window = snapshot.details?.offPeak {
+            // Just after the off-peak window should have started, to catch a charger that never did.
+            let startsAt = Calendar.current.nextDate(after: Date(), matching: DateComponents(hour: window.start.hour, minute: window.start.minute),
+                                                     matchingPolicy: .nextTime)
+            if let startsAt { earliest = min(earliest, startsAt.addingTimeInterval(25 * 60)) }
+        }
         let request = BGAppRefreshTaskRequest(identifier: Self.refreshTaskID)
         request.earliestBeginDate = earliest
         try? BGTaskScheduler.shared.submit(request)
@@ -68,6 +75,7 @@ final class ChargingCoordinator {
             await services.notifier.alert(alert)
         }
         await act(outcome.decision)
+        await rebookPlugReminder()
         await remindAtWindowStart()
         scheduleBackgroundRefresh()
     }
@@ -106,6 +114,16 @@ final class ChargingCoordinator {
             text: String(format: "%.1f kWh to %d%% for about %@ (%.1fp/kWh). The app starts it if it can; tap Start Charging if it hasn't.",
                          plan.kWh, plan.targetPercent, cost, plan.averagePence)
         )
+    }
+
+    /// Books tonight's (or tomorrow's) "not plugged in yet" reminder from the latest reading.
+    func rebookPlugReminder() async {
+        let services = AppServices.shared
+        let reminder = services.charging.settings.alerts.plugReminder
+        let snapshot = services.car.snapshot
+        let at = reminder.next(after: Date(), snapshot: snapshot)
+        let words = PlugReminder.message(snapshot: snapshot, now: Date())
+        await services.notifier.schedulePlugReminder(at: at, title: words.title, text: words.body)
     }
 
     /// From the reminder's button.

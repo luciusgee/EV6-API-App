@@ -76,6 +76,9 @@ public enum Guide {
             GuideStep("charging.offPeak", "Off-peak window",
                       "The car's own charging window, like the 23:00–06:00 you set in the Kia app. Change the times, or make it charge only in the window, and send it to the car. Your departure times aren't touched. It asks for your Kia Connect PIN the first time.",
                       symbol: "moon.stars", tab: .car, screen: .offPeak),
+            GuideStep("charging.plugAlerts", "Plugged in? Charging?",
+                      "When you plug in, you get a note saying when it'll charge (\"All set for tomorrow\"). If it's plugged in but hasn't started 20 minutes into the off-peak window, you're told, in case the charger wasn't confirmed in its app. And at 21:00, if it isn't plugged in, a reminder you can ignore. Change the time in Settings › Alerts.",
+                      symbol: "powerplug.fill", tab: .settings, screen: .alerts),
             GuideStep("charging.chargers", "Chargers nearby",
                       "Chargers around the car with speeds, connectors, prices and drivers' check-ins. With a Google key, how many are free right now and reviews.",
                       symbol: "ev.charger", tab: .car, screen: .chargers),
@@ -148,6 +151,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
+        GuideRelease(number: 6, title: "Plug-in checks", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 5, title: "Food on the way, and this guide", stepIds: ["trips.food", "trips.saved", "settings.guide"]),
         GuideRelease(number: 4, title: "Traffic ahead", stepIds: ["trips.traffic"]),
         GuideRelease(number: 3, title: "Commute", stepIds: ["trips.commute", "trips.commuteAuto"]),

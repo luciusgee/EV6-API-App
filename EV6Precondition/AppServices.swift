@@ -98,6 +98,7 @@ final class AppServices {
         }
         charging.replan(soc: car.snapshot?.socPercent)
         ChargingCoordinator.shared.scheduleBackgroundRefresh()
+        Task { await ChargingCoordinator.shared.rebookPlugReminder() }
         Task { await AskCoordinator.shared.rebook() }
         if charging.pricesStale {
             Task { await charging.refreshPrices() }

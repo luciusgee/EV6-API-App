@@ -1,12 +1,14 @@
 import Foundation
 
 public enum CarAlertKind: String, Codable, CaseIterable, Sendable, Identifiable {
-    case chargingStopped, chargeComplete, leftUnlocked, windowOpen, lowAuxBattery, tyrePressure, lowCharge
+    case pluggedIn, notCharging, chargingStopped, chargeComplete, leftUnlocked, windowOpen, lowAuxBattery, tyrePressure, lowCharge
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
+        case .pluggedIn: return "Plugged in"
+        case .notCharging: return "Not charging in the off-peak window"
         case .chargingStopped: return "Charging stopped early"
         case .chargeComplete: return "Charge complete"
         case .leftUnlocked: return "Left unlocked"
@@ -31,19 +33,95 @@ public struct AlertSettings: Codable, Equatable, Sendable {
     /// Read the car in the background every so often to catch these (uses Kia requests).
     public var backgroundChecks: Bool
     public var backgroundEveryHours: Int
+    /// The evening "not plugged in yet" reminder.
+    public var plugReminder: PlugReminder
 
     public init(
         enabled: Set<CarAlertKind> = Set(CarAlertKind.allCases),
         lowChargePercent: Int = 20,
         lowAuxPercent: Int = 70,
         backgroundChecks: Bool = true,
-        backgroundEveryHours: Int = 2
+        backgroundEveryHours: Int = 2,
+        plugReminder: PlugReminder = PlugReminder()
     ) {
         self.enabled = enabled
         self.lowChargePercent = lowChargePercent
         self.lowAuxPercent = lowAuxPercent
         self.backgroundChecks = backgroundChecks
         self.backgroundEveryHours = backgroundEveryHours
+        self.plugReminder = plugReminder
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, lowChargePercent, lowAuxPercent, backgroundChecks, backgroundEveryHours, plugReminder, knownKinds
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = AlertSettings()
+        // Kinds added since these settings were saved start switched on.
+        let known = try c.decodeIfPresent(Set<CarAlertKind>.self, forKey: .knownKinds)
+            ?? [.chargingStopped, .chargeComplete, .leftUnlocked, .windowOpen, .lowAuxBattery, .tyrePressure, .lowCharge]
+        let saved = try c.decodeIfPresent(Set<CarAlertKind>.self, forKey: .enabled) ?? d.enabled
+        enabled = saved.union(Set(CarAlertKind.allCases).subtracting(known))
+        lowChargePercent = try c.decodeIfPresent(Int.self, forKey: .lowChargePercent) ?? d.lowChargePercent
+        lowAuxPercent = try c.decodeIfPresent(Int.self, forKey: .lowAuxPercent) ?? d.lowAuxPercent
+        backgroundChecks = try c.decodeIfPresent(Bool.self, forKey: .backgroundChecks) ?? d.backgroundChecks
+        backgroundEveryHours = try c.decodeIfPresent(Int.self, forKey: .backgroundEveryHours) ?? d.backgroundEveryHours
+        plugReminder = try c.decodeIfPresent(PlugReminder.self, forKey: .plugReminder) ?? d.plugReminder
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(lowChargePercent, forKey: .lowChargePercent)
+        try c.encode(lowAuxPercent, forKey: .lowAuxPercent)
+        try c.encode(backgroundChecks, forKey: .backgroundChecks)
+        try c.encode(backgroundEveryHours, forKey: .backgroundEveryHours)
+        try c.encode(plugReminder, forKey: .plugReminder)
+        try c.encode(Set(CarAlertKind.allCases), forKey: .knownKinds)
+    }
+}
+
+/// "Not plugged in yet": a reminder at a set time each evening, skipped when the car is already
+/// plugged in or has plenty of charge.
+public struct PlugReminder: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    public var at: ClockTime
+    /// No reminder when the car has at least this much.
+    public var skipAbovePercent: Int
+
+    public init(enabled: Bool = true, at: ClockTime = ClockTime(hour: 21), skipAbovePercent: Int = 90) {
+        self.enabled = enabled
+        self.at = at
+        self.skipAbovePercent = skipAbovePercent
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = PlugReminder()
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
+        at = try c.decodeIfPresent(ClockTime.self, forKey: .at) ?? d.at
+        skipAbovePercent = try c.decodeIfPresent(Int.self, forKey: .skipAbovePercent) ?? d.skipAbovePercent
+    }
+
+    /// When to remind next, given the latest reading: today at `at` unless it's passed or the car is
+    /// already sorted (plugged in, seen since the morning, or charged enough), else tomorrow.
+    public func next(after now: Date, snapshot: VehicleSnapshot?, calendar: Calendar = .current) -> Date? {
+        guard enabled else { return nil }
+        guard let today = calendar.date(bySettingHour: at.hour, minute: at.minute, second: 0, of: now) else { return nil }
+        let morning = calendar.date(bySettingHour: 6, minute: 0, second: 0, of: now) ?? now
+        let reported = snapshot.map { $0.carCapturedAt ?? $0.fetchedAt }
+        let pluggedToday = snapshot?.pluggedIn == true && (reported ?? .distantPast) >= morning
+        let full = (snapshot?.socPercent ?? 0) >= skipAbovePercent
+        if today > now && !pluggedToday && !full { return today }
+        return calendar.date(byAdding: .day, value: 1, to: today)
+    }
+
+    /// The reminder's words.
+    public static func message(snapshot: VehicleSnapshot?, now: Date) -> (title: String, body: String) {
+        let at = snapshot?.socPercent.map { "It's at \($0)%. " } ?? ""
+        return ("EV6 isn't plugged in yet", at + "Need to charge tonight? Plug in, and confirm the charger in its app if it asks.")
     }
 }
 
@@ -61,12 +139,14 @@ public enum AlertEngine {
         current s: VehicleSnapshot,
         state: inout AlertState,
         settings: AlertSettings,
-        now: Date
+        now: Date,
+        calendar: Calendar = .current
     ) -> [CarAlert] {
         let reportedAt = s.carCapturedAt ?? s.fetchedAt
-        // The same report again: nothing new to say.
-        if let last = state.lastSnapshotAt, reportedAt <= last { return [] }
-        state.lastSnapshotAt = reportedAt
+        // The same report again: no new changes, though lasting conditions (like not charging by now)
+        // are still checked.
+        let isNew = state.lastSnapshotAt.map { reportedAt > $0 } ?? true
+        if isNew { state.lastSnapshotAt = reportedAt }
 
         var out: [CarAlert] = []
         let soc = s.socPercent
@@ -74,7 +154,7 @@ public enum AlertEngine {
         let details = s.details
 
         // Changes: only when the previous reading showed charging.
-        if let previous, previous.chargingState == .charging, s.chargingState != .charging, let soc {
+        if isNew, let previous, previous.chargingState == .charging, s.chargingState != .charging, let soc {
             let limit = details?.chargeLimitAC ?? 100
             if soc >= limit - 2 {
                 out.append(CarAlert(kind: .chargeComplete, title: "EV6 charged to \(soc)%", body: "Charging has finished."))
@@ -82,6 +162,11 @@ public enum AlertEngine {
                 out.append(CarAlert(kind: .chargingStopped, title: "EV6 stopped charging at \(soc)%",
                                     body: "It's still plugged in but not charging, below its \(limit)% limit."))
             }
+        }
+
+        // Plugged in: say so, and what happens next.
+        if isNew, let previous, previous.pluggedIn == false, s.pluggedIn == true {
+            out.append(CarAlert(kind: .pluggedIn, title: "EV6 plugged in\(soc.map { " at \($0)%" } ?? "")", body: pluggedInBody(s)))
         }
 
         // Conditions: said once, then again only after they've cleared.
@@ -106,11 +191,36 @@ public enum AlertEngine {
         }
         condition(.tyrePressure, details?.tyreWarning == true,
                   "EV6 tyre pressure warning", (details?.tyreWarnings ?? []).isEmpty ? "Check the tyres." : "Check: \((details?.tyreWarnings ?? []).joined(separator: ", ")).")
+        if let window = details?.offPeak, let soc {
+            let limit = details?.chargeLimitAC ?? 100
+            condition(.notCharging, s.pluggedIn == true && s.chargingState != .charging && soc < limit - 2 && Self.lateInWindow(window, now: now, calendar: calendar),
+                      "EV6 plugged in but not charging",
+                      "It's past \(window.start.text) and it hasn't started. If your charger needs confirming in its app, do that now.")
+        }
         if let soc {
             condition(.lowCharge, soc < settings.lowChargePercent && s.pluggedIn != true,
                       "EV6 at \(soc)%", "Charge is below \(settings.lowChargePercent)% and it isn't plugged in.")
         }
         return out.filter { settings.enabled.contains($0.kind) }
+    }
+
+    /// "It'll charge 23:00–06:00 to 80%. All set for tomorrow."
+    static func pluggedInBody(_ s: VehicleSnapshot) -> String {
+        let limit = s.details?.chargeLimitAC.map { " to \($0)%" } ?? ""
+        if s.chargingState == .charging { return "Charging now\(limit)." }
+        if let w = s.details?.offPeak {
+            return "It'll charge in the off-peak window, \(w.text)\(limit). All set for tomorrow."
+        }
+        return "Not charging yet."
+    }
+
+    /// At least 20 minutes into the off-peak window, and not past its end.
+    static func lateInWindow(_ w: OffPeakWindow, now: Date, calendar: Calendar = .current) -> Bool {
+        let c = calendar.dateComponents([.hour, .minute], from: now)
+        let m = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+        let since = (m - w.start.minutes + 1440) % 1440
+        let length = (w.end.minutes - w.start.minutes + 1440) % 1440
+        return since >= 20 && since < length
     }
 
     private static func clock(_ date: Date) -> String {

@@ -7,6 +7,11 @@ import SwiftUI
 struct RoutePlannerView: View {
     @Environment(CarModel.self) private var car
     @Environment(ChargingModel.self) private var charging
+    @Environment(TripsModel.self) private var trips
+    @State private var food = FoodFinder()
+    @State private var savingTrip = false
+    @State private var tripName = ""
+    @State private var savedNote: String?
     @State private var search = DestinationSearch()
     @State private var destination: MKMapItem?
     @State private var trip = TripSettings()
@@ -34,6 +39,9 @@ struct RoutePlannerView: View {
     var body: some View {
         List {
             destinationSection
+            if destination == nil {
+                savedTripsSection
+            }
             if destination != nil {
                 batterySection
                 if let plan, let found {
@@ -49,6 +57,14 @@ struct RoutePlannerView: View {
         }
         .onChange(of: trip) { _, _ in replan() }
         .onChange(of: search.query) { _, _ in search.update() }
+        .task(id: plan?.stops.map(\.id)) {
+            if let plan { await food.load(plan.stops.map(\.charger)) }
+        }
+        .alert("Save trip", isPresented: $savingTrip) {
+            TextField("Name", text: $tripName)
+            Button("Save") { Task { await saveTrip() } }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     // MARK: Destination
@@ -210,6 +226,25 @@ struct RoutePlannerView: View {
                     .foregroundStyle(.secondary)
                 }
                 }
+                NavigationLink {
+                    StopChoiceView(
+                        options: stopOptions(for: i, plan, found),
+                        current: stop.charger.id,
+                        leaving: leaving,
+                        food: food,
+                        chains: trips.chains,
+                        sites: found.sites,
+                        miles: miles
+                    ) { picked in
+                        let others = Set(stopOptions(for: i, plan, found).map(\.id))
+                        preferred.subtract(others)
+                        preferred.insert(picked)
+                        replan()
+                    }
+                } label: {
+                    FoodLine(names: food.food(at: stop.charger), loading: food.loading.contains(stop.charger.id), chains: trips.chains,
+                             arrive: arrival(atMinutes: minutesIn(stop: i, plan, found)))
+                }
             }
             legRow(icon: "mappin.circle.fill", tint: .red, title: destination?.name ?? "Destination",
                    detail: "Arrive with \(Int(plan.arrivePercent.rounded()))%", trailing: "")
@@ -240,6 +275,103 @@ struct RoutePlannerView: View {
                 Label(plan.stops.isEmpty ? "Directions in Apple Maps" : "Directions to the first stop", systemImage: "location.fill")
             }
             chargeForTripRow(plan)
+        }
+
+        Section {
+            Button {
+                tripName = defaultTripName
+                savingTrip = true
+            } label: {
+                Label("Save this trip", systemImage: "bookmark")
+            }
+            Button {
+                Task {
+                    if let t = savedTrip(name: defaultTripName) { await car.send(.sendToCar(t.navPoints)) }
+                }
+            } label: {
+                HStack {
+                    Label("Send to the car now", systemImage: "car.side.arrowtriangle.up.fill")
+                    if car.busy != nil { Spacer(); ProgressView() }
+                }
+            }
+            .disabled(car.busy != nil)
+            if let savedNote { Text(savedNote).font(.footnote).foregroundStyle(.green) }
+            if let message = car.message { Text(message).font(.footnote).foregroundStyle(.secondary) }
+        } footer: {
+            Text("Sends the charging stops and the destination to the car's nav. Needs your Kia Connect PIN.")
+        }
+    }
+
+    // MARK: Food and saved trips
+
+    private func stopOptions(for i: Int, _ plan: TripPlan, _ found: RouteService.Found) -> [StopOption] {
+        RoutePlanner.stopOptions(for: i, in: plan, distanceKm: found.route.distance / 1000, driveMinutes: found.route.expectedTravelTime / 60,
+                                 chargers: found.chargers, trip: trip, model: consumptionModel)
+    }
+
+    private func minutesIn(stop i: Int, _ plan: TripPlan, _ found: RouteService.Found) -> Double {
+        let perKm = found.route.distance > 0 ? (found.route.expectedTravelTime / 60) / (found.route.distance / 1000) : 1
+        let earlier = plan.stops[..<i].map { $0.chargeMinutes + 5 }.reduce(0, +)
+        return plan.stops[i].charger.alongKm * perKm + earlier
+    }
+
+    private func arrival(atMinutes m: Double) -> String {
+        leaving.addingTimeInterval(m * 60).formatted(date: .omitted, time: .shortened)
+    }
+
+    private var defaultTripName: String {
+        let day = leaving.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+        return "\(destination?.name ?? "Trip") · \(day)"
+    }
+
+    private func savedTrip(name: String) -> SavedTrip? {
+        guard let plan, let destination else { return nil }
+        let d = destination.placemark.coordinate
+        let stops = plan.stops.map { s in
+            SavedTrip.Stop(
+                name: s.charger.name, position: s.charger.position, kW: s.charger.powerGuessed ? nil : s.charger.powerKW,
+                chargeMinutes: s.chargeMinutes,
+                food: FoodMatch.chains(at: food.food(at: s.charger) ?? [], from: trips.chains).map(\.name)
+            )
+        }
+        return SavedTrip(name: name, destination: NavPoint(name: destination.name ?? "Destination", position: LatLon(lat: d.latitude, lon: d.longitude),
+                                                           address: destination.placemark.title ?? ""),
+                         stops: stops, leaving: leaving)
+    }
+
+    private func saveTrip() async {
+        guard let t = savedTrip(name: tripName.isEmpty ? defaultTripName : tripName) else { return }
+        await trips.save(t)
+        savedNote = "Saved. It's under Plan a trip, ready to send to the car."
+    }
+
+    @ViewBuilder
+    private var savedTripsSection: some View {
+        Section {
+            ForEach(trips.trips) { t in
+                NavigationLink {
+                    SavedTripView(trip: t)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(t.name)
+                        Text(t.stops.isEmpty ? "No stops" : t.stops.map { s in s.food.first.map { "\(s.name) (\($0))" } ?? s.name }.joined(separator: " → "))
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+            }
+            .onDelete { idx in
+                let ids = idx.map { trips.trips[$0].id }
+                Task { for id in ids { await trips.delete(id) } }
+            }
+            NavigationLink {
+                FoodChainsView()
+            } label: {
+                Label("Food I look for", systemImage: "fork.knife")
+            }
+        } header: {
+            Text(trips.trips.isEmpty ? "Food" : "Saved trips")
+        } footer: {
+            Text("Each charging stop shows which of your food places are there, and you can switch stops to eat where you like.")
         }
     }
 

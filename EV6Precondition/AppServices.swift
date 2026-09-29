@@ -13,6 +13,7 @@ final class AppServices {
     let charging: ChargingModel
     let presence: PresenceModel
     let commute: CommuteModel
+    let trips: TripsModel
     let obd = OBDService()
     private var prepared = false
 
@@ -43,6 +44,7 @@ final class AppServices {
             return AppleDriveTimer()
         }
         self.commute = commute
+        self.trips = TripsModel(directory: support.appendingPathComponent("EV6Precondition", isDirectory: true))
         self.charging = ChargingModel(directory: support.appendingPathComponent("EV6Precondition", isDirectory: true), transport: URLSessionTransport())
         notifier.onStop = {
             await car.stop()
@@ -83,6 +85,7 @@ final class AppServices {
         await charging.load()
         await presence.load()
         await commute.load()
+        await trips.load()
         // The fake car was a development aid; the app only talks to the real car now.
         if car.settings.fakeMode {
             await car.updateSettings { $0.fakeMode = false }

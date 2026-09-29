@@ -1,0 +1,241 @@
+import MapKit
+import PreconditionKit
+import SwiftUI
+
+/// "Burger King · Subway" under a charging stop, your chains first.
+struct FoodLine: View {
+    let names: [String]?
+    let loading: Bool
+    let chains: [FoodChain]
+    var arrive: String?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "fork.knife").foregroundStyle(matched.isEmpty ? Color.secondary : .green).frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                if loading && names == nil {
+                    Text("Looking for food…").foregroundStyle(.secondary)
+                } else if !matched.isEmpty {
+                    Text(matched.map(\.name).joined(separator: " · ")).foregroundStyle(.primary)
+                } else if let names, !names.isEmpty {
+                    Text("None of your places. \(names.prefix(3).joined(separator: ", "))").foregroundStyle(.secondary).lineLimit(1)
+                } else {
+                    Text("No food found nearby").foregroundStyle(.secondary)
+                }
+                Text([arrive.map { "Around \($0)" }, "Change stop"].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .font(.subheadline)
+    }
+
+    private var matched: [FoodChain] { FoodMatch.chains(at: names ?? [], from: chains) }
+}
+
+/// The other chargers you could use for one stop, with what there is to eat at each.
+struct StopChoiceView: View {
+    let options: [StopOption]
+    let current: String
+    let leaving: Date
+    let food: FoodFinder
+    let chains: [FoodChain]
+    let sites: [String: ChargeSite]
+    let miles: Bool
+    let onPick: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var onlyWithFood = true
+
+    private var shown: [StopOption] {
+        guard onlyWithFood else { return options }
+        return options.filter { o in
+            // Keep ones still loading, and the current stop.
+            o.id == current || food.food(at: o.charger) == nil || !FoodMatch.chains(at: food.food(at: o.charger) ?? [], from: chains).isEmpty
+        }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Toggle("Only stops with my food", isOn: $onlyWithFood)
+            }
+            Section {
+                if shown.isEmpty {
+                    Text("None of the chargers in reach have your food places. Turn off the filter to see them all.").foregroundStyle(.secondary)
+                }
+                ForEach(shown) { o in
+                    Button {
+                        onPick(o.id)
+                        dismiss()
+                    } label: {
+                        row(o)
+                    }
+                }
+            } header: {
+                Text("Chargers in reach for this stop")
+            } footer: {
+                Text("Food within a short walk, from Apple Maps. Times assume you leave at \(leaving.formatted(date: .omitted, time: .shortened)).")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Charge and eat")
+        .task { await food.load(options.prefix(30).map(\.charger)) }
+    }
+
+    private func row(_ o: StopOption) -> some View {
+        let names = food.food(at: o.charger)
+        let matched = FoodMatch.chains(at: names ?? [], from: chains)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: o.id == current ? "checkmark.circle.fill" : "bolt.circle")
+                    .foregroundStyle(o.id == current ? .green : .secondary)
+                Text(o.charger.name).foregroundStyle(.primary).lineLimit(1)
+                Spacer()
+                Text(leaving.addingTimeInterval(o.minutesIn * 60).formatted(date: .omitted, time: .shortened))
+                    .font(.subheadline.weight(.semibold)).monospacedDigit().foregroundStyle(.primary)
+            }
+            Text([
+                "\(DisplayText.distance(km: o.charger.alongKm, miles: miles)) in",
+                "arrive \(Int(o.arrivePercent.rounded()))%",
+                o.charger.powerGuessed ? "~\(Int(o.charger.powerKW)) kW" : "\(Int(o.charger.powerKW)) kW",
+                sites[o.id].flatMap { $0.rapidCount > 0 ? "\($0.rapidCount) rapid" : nil },
+            ].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary)
+            if names == nil {
+                Text("Looking for food…").font(.caption).foregroundStyle(.secondary)
+            } else if matched.isEmpty {
+                Text(names!.isEmpty ? "No food nearby" : "Other food: \(names!.prefix(3).joined(separator: ", "))")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            } else {
+                ForEach(matched) { chain in
+                    Label {
+                        Text(chain.name).font(.caption.weight(.semibold)) + Text(chain.vegan.isEmpty ? "" : "  \(chain.vegan)").font(.caption)
+                    } icon: {
+                        Image(systemName: "leaf.fill").foregroundStyle(.green)
+                    }
+                    .foregroundStyle(.primary)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// A saved trip: its stops and food, ready to send to the car.
+struct SavedTripView: View {
+    let trip: SavedTrip
+    @Environment(CarModel.self) private var car
+    @Environment(TripsModel.self) private var trips
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        List {
+            Section {
+                if let leaving = trip.leaving {
+                    LabeledContent("Leaving", value: leaving.formatted(date: .abbreviated, time: .shortened))
+                }
+                ForEach(Array(trip.stops.enumerated()), id: \.offset) { i, stop in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(i + 1). \(stop.name)").font(.body.weight(.medium))
+                        Text([stop.kW.map { "\(Int($0)) kW" }, stop.chargeMinutes.map { "about \(max(1, Int($0.rounded()))) min charging" }]
+                            .compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary)
+                        if !stop.food.isEmpty {
+                            Label(stop.food.joined(separator: " · "), systemImage: "leaf.fill")
+                                .font(.caption).foregroundStyle(.green)
+                        }
+                    }
+                }
+                Label(trip.destination.name, systemImage: "mappin.circle.fill").foregroundStyle(.red)
+            }
+            Section {
+                Button {
+                    Task { await car.send(.sendToCar(trip.navPoints)) }
+                } label: {
+                    HStack {
+                        Label("Send to the car", systemImage: "car.side.arrowtriangle.up.fill")
+                        if car.busy != nil { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(car.busy != nil)
+                if let url = googleMapsURL {
+                    Link(destination: url) { Label("Open in Google Maps", systemImage: "map") }
+                }
+                if let message = car.message { Text(message).font(.footnote).foregroundStyle(.secondary) }
+            } footer: {
+                Text("Sends the stops and the destination to the car's nav. Needs your Kia Connect PIN.")
+            }
+            Section {
+                Button("Delete trip", role: .destructive) {
+                    Task {
+                        await trips.delete(trip.id)
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle(trip.name)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var googleMapsURL: URL? {
+        var c = URLComponents(string: "https://www.google.com/maps/dir/")!
+        var items = [
+            URLQueryItem(name: "api", value: "1"),
+            URLQueryItem(name: "destination", value: "\(trip.destination.position.lat),\(trip.destination.position.lon)"),
+            URLQueryItem(name: "travelmode", value: "driving"),
+        ]
+        if !trip.stops.isEmpty {
+            items.append(URLQueryItem(name: "waypoints", value: trip.stops.map { "\($0.position.lat),\($0.position.lon)" }.joined(separator: "|")))
+        }
+        c.queryItems = items
+        return c.url
+    }
+}
+
+/// The food places you look for, favourites first.
+struct FoodChainsView: View {
+    @Environment(TripsModel.self) private var trips
+    @State private var newName = ""
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(trips.chains) { chain in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(chain.name)
+                        if !chain.vegan.isEmpty { Text(chain.vegan).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+                .onMove { from, to in
+                    var list = trips.chains
+                    list.move(fromOffsets: from, toOffset: to)
+                    Task { await trips.setChains(list) }
+                }
+                .onDelete { idx in
+                    var list = trips.chains
+                    list.remove(atOffsets: idx)
+                    Task { await trips.setChains(list) }
+                }
+            } footer: {
+                Text("Drag to put your favourites first; they're listed first at each stop. Swipe to remove one.")
+            }
+            Section {
+                HStack {
+                    TextField("Add a place, e.g. Five Guys", text: $newName)
+                    Button("Add") {
+                        let name = newName.trimmingCharacters(in: .whitespaces)
+                        guard !name.isEmpty else { return }
+                        Task { await trips.setChains(trips.chains + [FoodChain(name: name)]) }
+                        newName = ""
+                    }
+                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                Button("Reset to the vegan list") { Task { await trips.setChains(FoodChain.ukVegan) } }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Food I look for")
+        .toolbar { EditButton() }
+    }
+}

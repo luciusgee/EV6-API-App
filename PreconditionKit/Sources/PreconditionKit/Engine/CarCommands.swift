@@ -209,6 +209,11 @@ extension PreconditionEngine {
         s.details = details
     }
 
+    /// One day of the car's trips, for time at places.
+    public func trips(on day: CalendarDay, kind: RequestKind) async -> ApiResult<[CarTrip]> {
+        await mutex.withLock { await client.trips(on: day, kind: kind) }
+    }
+
     /// Energy use for the Energy screen: two requests, one manual budget slot.
     public func drivingHistory() async -> ApiResult<DrivingHistory> {
         await mutex.withLock {

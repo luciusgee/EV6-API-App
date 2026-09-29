@@ -53,6 +53,8 @@ struct TimeAtPlacesView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Time at Places")
+        .task { await presence.refreshCarTrips() }
+        .refreshable { await presence.refreshCarTrips() }
         .toolbar {
             if !trackedPlaces.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -88,10 +90,26 @@ struct TimeAtPlacesView: View {
                     Label(place.name, systemImage: "mappin.circle")
                 }
             }
+            Picker("Using", selection: Binding(
+                get: { presence.log.mode },
+                set: { mode in Task { await presence.setMode(mode); await presence.refreshCarTrips() } }
+            )) {
+                Text("The car").tag(PresenceLog.Mode.car)
+                Text("iPhone").tag(PresenceLog.Mode.phone)
+            }
+            .pickerStyle(.segmented)
+            if presence.loadingTrips {
+                HStack { ProgressView(); Text("Getting the car's trips…").foregroundStyle(.secondary) }
+            }
+            if let problem = presence.problem {
+                Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.subheadline)
+            }
         } header: {
             Text("Track time at")
         } footer: {
-            Text("Logs when you arrive and leave, using your iPhone's location, even with the app closed. Needs location set to Always. Nothing is logged anywhere else, and it stays on your phone.")
+            Text(presence.log.mode == .car
+                 ? "From the car's trip log: it arrived when a drive ended and left when the next began, placed by where it was parked. Each day of trips is one Kia request. It stays on your phone."
+                 : "From your iPhone's location, even with the app closed. Needs location set to Always. It stays on your phone.")
         }
     }
 

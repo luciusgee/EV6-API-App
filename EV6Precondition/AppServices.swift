@@ -62,7 +62,12 @@ final class AppServices {
                 await presence.arrived(placeId, at: arrived, source: source)
             }
         }
-        presence.onTrackedChange = { GeofenceMonitor.shared.track($0) }
+        // The phone's location is only watched when time is tracked by iPhone, not by the car.
+        presence.onTrackedChange = { _ in GeofenceMonitor.shared.track(presence.watchesPhone ? presence.tracked : []) }
+        let engine2 = container.engine
+        presence.fetchTrips = { day, kind in await engine2.trips(on: day, kind: kind) }
+        let rulesModel = rules
+        presence.places = { rulesModel.places }
         // Now, not later: the Watch can wake the app in the background with a command.
         GlanceSync.shared.start(car: car)
     }
@@ -75,7 +80,7 @@ final class AppServices {
         await car.load()
         await charging.load()
         await presence.load()
-        GeofenceMonitor.shared.track(presence.tracked)
+        GeofenceMonitor.shared.track(presence.watchesPhone ? presence.tracked : [])
         // The fake car was a development aid; the app only talks to the real car now.
         if car.settings.fakeMode {
             await car.updateSettings { $0.fakeMode = false }

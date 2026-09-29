@@ -9,6 +9,8 @@ public struct Visit: Codable, Equatable, Identifiable, Sendable {
         case visit
         /// Added or corrected by hand.
         case manual
+        /// Worked out from the car's trips and where it was parked.
+        case car
     }
 
     public var id: String
@@ -29,18 +31,50 @@ public struct Visit: Codable, Equatable, Identifiable, Sendable {
 
 /// Every stay at the places you track time at.
 public struct PresenceLog: Codable, Equatable, Sendable {
+    /// Whose comings and goings count: the car's (from its trip log) or your iPhone's.
+    public enum Mode: String, Codable, CaseIterable, Sendable {
+        case car, phone
+    }
+
     public var visits: [Visit] = []
     public var trackedPlaceIds: Set<String> = []
+    public var mode: Mode = .car
 
     public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        visits = try c.decodeIfPresent([Visit].self, forKey: .visits) ?? []
+        trackedPlaceIds = try c.decodeIfPresent(Set<String>.self, forKey: .trackedPlaceIds) ?? []
+        mode = try c.decodeIfPresent(Mode.self, forKey: .mode) ?? .car
+    }
+
+    /// The stays that count in the current mode; hand-made ones always do.
+    public var counted: [Visit] {
+        visits.filter { v in
+            switch v.source {
+            case .manual: return true
+            case .car: return mode == .car
+            case .boundary, .visit: return mode == .phone
+            }
+        }
+    }
+
+    /// Replaces the car's stays with a freshly worked-out set.
+    public mutating func replaceCarStays(_ stays: [Visit]) {
+        visits.removeAll { $0.source == .car }
+        visits.append(contentsOf: stays)
+        visits.sort { $0.arrived < $1.arrived }
+    }
 
     /// Leaving and coming back within this long counts as one stay (a walk to the shop, GPS drift).
     public static let mergeGap: TimeInterval = 10 * 60
     /// A stay with no departure after this long is assumed to have ended (a missed exit).
     public static let maxOpen: TimeInterval = 16 * 3600
 
+    /// The phone's open stay at a place.
     public func open(_ placeId: String) -> Visit? {
-        visits.last { $0.placeId == placeId && $0.left == nil }
+        visits.last { $0.placeId == placeId && $0.left == nil && $0.source != .car }
     }
 
     public mutating func arrive(_ placeId: String, at: Date, source: Visit.Source) {
@@ -51,11 +85,11 @@ public struct PresenceLog: Codable, Equatable, Sendable {
             return
         }
         // Being somewhere else ends any other stay.
-        for i in visits.indices where visits[i].left == nil && visits[i].placeId != placeId {
+        for i in visits.indices where visits[i].left == nil && visits[i].placeId != placeId && visits[i].source != .car {
             visits[i].left = max(visits[i].arrived, at)
         }
         // Back within the gap: carry on the last stay.
-        if let i = visits.lastIndex(where: { $0.placeId == placeId }), let left = visits[i].left,
+        if let i = visits.lastIndex(where: { $0.placeId == placeId && $0.source != .car }), let left = visits[i].left,
            at >= left, at.timeIntervalSince(left) <= Self.mergeGap {
             visits[i].left = nil
             return
@@ -72,7 +106,7 @@ public struct PresenceLog: Codable, Equatable, Sendable {
             return
         }
         // A departure we have no arrival for: only a visit report knows when it started.
-        if let arrivedAt, arrivedAt < at, !visits.contains(where: { $0.placeId == placeId && $0.arrived <= at && ($0.left ?? .distantFuture) >= arrivedAt }) {
+        if let arrivedAt, arrivedAt < at, !visits.contains(where: { $0.placeId == placeId && $0.source != .car && $0.arrived <= at && ($0.left ?? .distantFuture) >= arrivedAt }) {
             visits.append(Visit(placeId: placeId, arrived: arrivedAt, left: at, source: source))
             visits.sort { $0.arrived < $1.arrived }
         }
@@ -86,7 +120,7 @@ public struct PresenceLog: Codable, Equatable, Sendable {
 
     /// Seconds at `placeId` within [from, to).
     public func seconds(at placeId: String, from: Date, to: Date, now: Date) -> TimeInterval {
-        visits.filter { $0.placeId == placeId }.reduce(0) { sum, v in
+        counted.filter { $0.placeId == placeId }.reduce(0) { sum, v in
             let start = max(v.arrived, from)
             let end = min(Self.end(of: v, now: now), to)
             return sum + max(0, end.timeIntervalSince(start))
@@ -108,7 +142,7 @@ public struct PresenceLog: Codable, Equatable, Sendable {
     /// Days from `from` to `to`, newest first; stays across midnight are split between the days.
     public func days(from: Date, to: Date, placeIds: Set<String>? = nil, now: Date, calendar: Calendar = .current) -> [DayRow] {
         var rows: [String: DayRow] = [:]
-        for v in visits where placeIds?.contains(v.placeId) ?? true {
+        for v in counted where placeIds?.contains(v.placeId) ?? true {
             var start = max(v.arrived, from)
             let end = min(Self.end(of: v, now: now), to)
             while start < end {

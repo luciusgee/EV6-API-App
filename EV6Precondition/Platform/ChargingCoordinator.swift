@@ -47,6 +47,8 @@ final class ChargingCoordinator {
         await services.prepare()
         scheduleBackgroundRefresh()
         if services.charging.pricesStale { await services.charging.refreshPrices() }
+        // Time at places by car: today's trips, one request at most.
+        await services.presence.refreshCarTrips(days: 2, maxRequests: 1, kind: .automation)
         // An automation request: it leaves the reserve for the owner's own taps.
         _ = await services.container.vehicles.fetch(.automation)
         await services.car.load()
@@ -58,6 +60,7 @@ final class ChargingCoordinator {
         guard snapshot.fetchedAt != lastProcessed else { return }
         lastProcessed = snapshot.fetchedAt
         let services = AppServices.shared
+        await services.presence.sawCar(snapshot)
         let outcome = await services.charging.process(snapshot, home: home)
         for alert in outcome.alerts {
             await services.notifier.alert(alert)

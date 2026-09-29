@@ -196,6 +196,16 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
         }
     }
 
+    public func trips(on day: CalendarDay, kind: RequestKind) async -> ApiResult<[CarTrip]> {
+        await call(kind) { s, _ in
+            let id = try Self.vehicleId(s)
+            let url = "\(self.config.spa)/vehicles/\(id)/tripinfo"
+            let stamp = String(format: "%04d%02d%02d", day.year, day.month, day.day)
+            let json = try await self.post(url, self.authHeaders(s), ["tripPeriodType": 1, "setTripDay": .string(stamp)])
+            return CarTrip.parseDay(json)
+        }
+    }
+
     /// Clears the stored login, e.g. when the user enters a new token.
     public func reset() async {
         await mutex.withLock { await sessions.save(nil) }

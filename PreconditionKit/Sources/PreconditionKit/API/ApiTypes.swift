@@ -196,6 +196,8 @@ public protocol VehicleAPI: Sendable {
     func commandStatus(_ messageId: String, kind: RequestKind) async -> ApiResult<CommandStatus>
     /// Energy use: lifetime totals and the last 30 days, day by day.
     func drivingHistory(_ kind: RequestKind) async -> ApiResult<DrivingHistory>
+    /// The car's drives on one day: start time, minutes and distance (no route).
+    func trips(on day: CalendarDay, kind: RequestKind) async -> ApiResult<[CarTrip]>
 }
 
 extension VehicleAPI {

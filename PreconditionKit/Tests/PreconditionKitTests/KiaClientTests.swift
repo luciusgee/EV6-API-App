@@ -325,9 +325,9 @@ final class KiaClientTests: XCTestCase {
         _ = await client.startClimate(targetC: 21.3, kind: .manual)
         XCTAssertEqual(body(server.last("/control/temperature"))?["tempCode"], "0FH") // 21.5
         _ = await client.startClimate(targetC: 35, kind: .manual)
-        XCTAssertEqual(body(server.last("/control/temperature"))?["tempCode"], "1FH") // 29.5
+        XCTAssertEqual(body(server.last("/control/temperature"))?["tempCode"], "1AH") // 27.0, the EV6's top
         _ = await client.startClimate(targetC: 5, kind: .manual)
-        XCTAssertEqual(body(server.last("/control/temperature"))?["tempCode"], "00H") // 14.0
+        XCTAssertEqual(body(server.last("/control/temperature"))?["tempCode"], "06H") // 17.0, the EV6's bottom
     }
 
     func testCCS2CarsMapTheNewStatusFormat() async throws {

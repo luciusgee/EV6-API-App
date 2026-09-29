@@ -88,13 +88,7 @@ private struct KiaConnectSection: View {
     @State private var email = ""
     @State private var password = ""
     @State private var signInError: String?
-    @State private var token = ""
-    @State private var pin = ""
-    @State private var vin = ""
-    @State private var showAdvanced = false
-    @FocusState private var vinFocused: Bool
 
-    private static let tokenGuide = URL(string: "https://github.com/Hyundai-Kia-Connect/hyundai_kia_connect_api/discussions/987")!
 
     var body: some View {
         Section {
@@ -139,83 +133,6 @@ private struct KiaConnectSection: View {
             Text("Kia account")
         } footer: {
             Text("The same email and password as the Kia app (Europe). The password is encrypted with Kia's key on this iPhone and only ever sent to Kia; it's kept in the iOS Keychain so the app can sign back in by itself if Kia ends the session. Kia has no public API, so this can stop working whenever Kia changes theirs.")
-        }
-
-        Section {
-            DisclosureGroup("Advanced: refresh token", isExpanded: $showAdvanced) {
-                SecureField(model.hasToken && model.accountEmail == nil ? "Replace refresh token" : "Refresh token", text: $token)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .font(.body.monospaced())
-                if !token.isEmpty && !CarModel.tokenLooksValid(token.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                    Text("Kia tokens are usually 48 capital letters and digits")
-                        .font(.footnote)
-                        .foregroundStyle(.orange)
-                }
-                HStack {
-                    Button("Save token") {
-                        let value = token
-                        token = ""
-                        Task { await model.saveCredentials(token: value) }
-                    }
-                    .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Spacer()
-                    if model.hasToken && model.accountEmail == nil {
-                        Button("Remove", role: .destructive) {
-                            Task { await model.saveCredentials(token: "") }
-                        }
-                    }
-                }
-                .buttonStyle(.borderless)
-                Link("About refresh tokens", destination: Self.tokenGuide)
-            }
-        } footer: {
-            Text("Only if you already have a Kia Connect refresh token. Signing in above is simpler.")
-        }
-
-        Section {
-            SecureField(model.hasPin ? "Replace Kia Connect PIN" : "Kia Connect PIN", text: $pin)
-                .keyboardType(.numberPad)
-            HStack {
-                Button("Save PIN") {
-                    let value = pin
-                    pin = ""
-                    Task { await model.saveCredentials(pin: value) }
-                }
-                .disabled(pin.count < 4 || !model.hasToken)
-                Spacer()
-                if model.hasPin {
-                    Button("Remove", role: .destructive) {
-                        Task { await model.saveCredentials(pin: "") }
-                    }
-                }
-            }
-            .buttonStyle(.borderless)
-        } footer: {
-            Text("Needed for climate commands on 2024-on cars; older EV6s don't use it.")
-        }
-
-        Section {
-            TextField("VIN (optional)", text: $vin)
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-                .focused($vinFocused)
-                .submitLabel(.done)
-                .onSubmit { vinFocused = false }
-                .disabled(!model.hasToken)
-                .onAppear { vin = model.vin }
-                .onChange(of: vinFocused) { _, focused in
-                    // Saved when the field loses focus.
-                    if !focused && vin != model.vin {
-                        let value = vin
-                        Task { await model.saveCredentials(vin: value) }
-                    }
-                }
-                .onChange(of: model.vin) { _, new in
-                    if !vinFocused { vin = new }
-                }
-        } footer: {
-            Text("Only if the account has more than one car; otherwise the first EV is used.")
         }
     }
 }

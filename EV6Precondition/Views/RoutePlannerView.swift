@@ -18,6 +18,9 @@ struct RoutePlannerView: View {
     @State private var outsideC: Double?
     @State private var chargedForTrip: String?
     @State private var camera: MapCameraPosition = .automatic
+    /// Chargers you've picked to stop at.
+    @State private var preferred: Set<String> = []
+    @State private var minKW: Double = 50
 
     private var miles: Bool { car.settings.useMiles }
     @State private var here: CLLocationCoordinate2D?
@@ -180,6 +183,13 @@ struct RoutePlannerView: View {
         Section {
             legRow(icon: "car.fill", tint: .red, title: "Leave", detail: "with \(Int(trip.startPercent))%", trailing: leaving.formatted(date: .omitted, time: .shortened))
             ForEach(Array(plan.stops.enumerated()), id: \.offset) { i, stop in
+                NavigationLink {
+                    if let site = found.sites[stop.charger.id] {
+                        ChargeSiteView(site: site)
+                    } else {
+                        GuessedChargerView(charger: stop.charger)
+                    }
+                } label: {
                 VStack(alignment: .leading, spacing: 6) {
                     legRow(icon: "bolt.fill", tint: .green, title: "\(i + 1). \(stop.charger.name)",
                            detail: "Arrive \(Int(stop.arrivePercent.rounded()))% → charge to \(Int(stop.departPercent.rounded()))%",
@@ -187,14 +197,18 @@ struct RoutePlannerView: View {
                     HStack(spacing: 8) {
                         Text("\(DisplayText.distance(km: stop.charger.alongKm, miles: miles)) in")
                         Text("·")
-                        Text(stop.charger.powerGuessed ? "~\(Int(stop.charger.powerKW)) kW (guessed)" : "\(Int(stop.charger.powerKW)) kW")
-                        Spacer()
-                        Button("Directions") { directions(to: stop.charger) }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                        Text(stop.charger.powerGuessed ? "~\(Int(stop.charger.powerKW)) kW (estimated)" : "\(Int(stop.charger.powerKW)) kW")
+                        if let site = found.sites[stop.charger.id], site.rapidCount > 0 {
+                            Text("·")
+                            Text("\(site.rapidCount) rapid")
+                        }
+                        if preferred.contains(stop.charger.id) {
+                            Image(systemName: "pin.fill").foregroundStyle(.orange)
+                        }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                }
                 }
             }
             legRow(icon: "mappin.circle.fill", tint: .red, title: destination?.name ?? "Destination",
@@ -202,7 +216,16 @@ struct RoutePlannerView: View {
         } header: {
             Text("Route")
         } footer: {
-            Text("Charger speeds are estimated. Set each charger in the car's sat nav so the battery warms up for faster charging.")
+            VStack(alignment: .leading, spacing: 4) {
+                if let problem = found.problem { Text(problem).foregroundStyle(.orange) }
+                Text(found.sites.isEmpty
+                     ? "Charger speeds are estimated. Add a free Open Charge Map key in Settings for real speeds, connectors and check-ins."
+                     : "Tap a stop for its connectors, price and check-ins. Set it in the car's sat nav so the battery warms up for faster charging.")
+            }
+        }
+
+        if !found.sites.isEmpty {
+            allChargersSection(found)
         }
 
         Section {
@@ -217,6 +240,55 @@ struct RoutePlannerView: View {
                 Label(plan.stops.isEmpty ? "Directions in Apple Maps" : "Directions to the first stop", systemImage: "location.fill")
             }
             chargeForTripRow(plan)
+        }
+    }
+
+    /// Every charger along the route, to look at or to plan around.
+    private func allChargersSection(_ found: RouteService.Found) -> some View {
+        let sites = found.chargers
+            .compactMap { c in found.sites[c.id].map { (c, $0) } }
+            .filter { ($0.1.maxKW ?? 0) >= minKW }
+        return Section {
+            Picker("At least", selection: $minKW) {
+                Text("50 kW").tag(50.0)
+                Text("100 kW").tag(100.0)
+                Text("150 kW").tag(150.0)
+            }
+            .pickerStyle(.segmented)
+            if sites.isEmpty {
+                Text("None this fast along the route.").foregroundStyle(.secondary)
+            }
+            ForEach(sites, id: \.0.id) { charger, site in
+                NavigationLink {
+                    ChargeSiteView(site: site)
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(site.name).lineLimit(1)
+                            Text([site.operatorName, "\(DisplayText.distance(km: charger.alongKm, miles: miles)) in"].compactMap { $0 }.joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(site.maxKW.map { "\(Int($0)) kW" } ?? "–").font(.subheadline.weight(.semibold)).monospacedDigit()
+                            Text("\(max(site.rapidCount, 1)) \(site.rapidCount == 1 ? "charger" : "chargers")").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .swipeActions {
+                    Button {
+                        if preferred.contains(charger.id) { preferred.remove(charger.id) } else { preferred.insert(charger.id) }
+                        replan()
+                    } label: {
+                        Label(preferred.contains(charger.id) ? "Don't prefer" : "Stop here", systemImage: "pin")
+                    }
+                    .tint(.orange)
+                }
+            }
+        } header: {
+            Text("Chargers on the route")
+        } footer: {
+            Text("Swipe left on one to plan a stop there. From Open Charge Map.")
         }
     }
 
@@ -307,7 +379,8 @@ struct RoutePlannerView: View {
             driveMinutes: found.route.expectedTravelTime / 60,
             chargers: found.chargers,
             trip: trip,
-            model: consumptionModel
+            model: consumptionModel,
+            prefer: preferred
         )
     }
 
@@ -368,4 +441,30 @@ final class DestinationSearch: NSObject, MKLocalSearchCompleterDelegate {
     }
 
     nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {}
+}
+
+/// A charger found through Apple Maps, without Open Charge Map's details.
+struct GuessedChargerView: View {
+    let charger: RouteCharger
+
+    var body: some View {
+        List {
+            Section {
+                Text(charger.name).font(.headline)
+                LabeledContent("Speed", value: "~\(Int(charger.powerKW)) kW (estimated)")
+            } footer: {
+                Text("Add a free Open Charge Map key in Settings for its connectors, price and drivers' check-ins.")
+            }
+            Section {
+                Button {
+                    let item = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: charger.position.lat, longitude: charger.position.lon)))
+                    item.name = charger.name
+                    item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+                } label: {
+                    Label("Directions in Apple Maps", systemImage: "location.fill")
+                }
+            }
+        }
+        .navigationTitle("Charger")
+    }
 }

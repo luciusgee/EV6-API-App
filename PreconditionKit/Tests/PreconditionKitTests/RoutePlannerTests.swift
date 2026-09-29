@@ -54,6 +54,14 @@ final class RoutePlannerTests: XCTestCase {
         XCTAssertEqual(plan.noStopStartPercent, nil)
     }
 
+    func testAChosenChargerIsUsedWhenItsInReach() throws {
+        let model = ConsumptionModel(baseKWhPer100km: 18, averageKmh: 110, outsideC: 20, marginPercent: 0)
+        let chargers = [charger(100), charger(180, 50, name: "Rapid 180"), charger(230), charger(260, 350), charger(400)]
+        let plan = RoutePlanner.plan(distanceKm: 500, driveMinutes: 300, chargers: chargers, trip: TripSettings(startPercent: 90), model: model, prefer: ["c180"])
+        XCTAssertEqual(plan.stops.first?.charger.id, "c180")
+        XCTAssertFalse(plan.unreachable)
+    }
+
     func testNoChargerInRangeIsUnreachable() {
         let plan = RoutePlanner.plan(distanceKm: 600, driveMinutes: 360, chargers: [charger(450)],
                                      trip: TripSettings(startPercent: 80), model: ConsumptionModel())

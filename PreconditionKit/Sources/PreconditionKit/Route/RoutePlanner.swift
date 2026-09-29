@@ -25,6 +25,15 @@ public struct RouteCharger: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public extension RouteCharger {
+    /// A known site placed on the route: real speed, not a guess.
+    init(site: ChargeSite, alongKm: Double, detourKm: Double) {
+        let who = site.operatorName.map { $0 + " · " } ?? ""
+        self.init(id: site.id, name: who + site.name, position: site.position, alongKm: alongKm, detourKm: detourKm,
+                  powerKW: site.maxKW ?? 50, powerGuessed: site.maxKW == nil)
+    }
+}
+
 /// Guesses a charger's speed from the operator in its name: UK rapid networks are 150 kW or more.
 public enum ChargerPower {
     static let ultraRapid = ["ionity", "gridserve", "electric highway", "instavolt", "osprey", "fastned", "tesla", "supercharger",
@@ -166,7 +175,8 @@ public enum RoutePlanner {
         driveMinutes: Double,
         chargers: [RouteCharger],
         trip: TripSettings,
-        model: ConsumptionModel
+        model: ConsumptionModel,
+        prefer: Set<String> = []
     ) -> TripPlan {
         let per = { (km: Double) in percent(for: km, model: model, usableKWh: trip.usableKWh) }
         let candidates = chargers.filter { $0.alongKm > 1 && $0.alongKm < distanceKm - 1 && $0.powerKW >= 40 }
@@ -191,8 +201,10 @@ public enum RoutePlanner {
                 unreachable = true
                 break
             }
-            // Among those within 25 km of the farthest, the fastest; then the farthest.
-            let pick = reachable.filter { $0.alongKm >= farthest - 25 }
+            // A charger you chose, if one's in reach; else, among those within 25 km of the farthest,
+            // the fastest, then the farthest.
+            let chosen = reachable.filter { prefer.contains($0.id) }.max { $0.alongKm < $1.alongKm }
+            let pick = chosen ?? reachable.filter { $0.alongKm >= farthest - 25 }
                 .max { a, b in a.powerKW == b.powerKW ? a.alongKm < b.alongKm : a.powerKW < b.powerKW }!
             let arrive = soc - per(pick.alongKm - at + pick.detourKm / 2)
             // Enough to finish, else to reach the farthest charger further on, capped.

@@ -30,6 +30,11 @@ enum RouteService {
     struct Found {
         var route: MKRoute
         var chargers: [RouteCharger]
+        /// Full details for chargers from Open Charge Map, by id.
+        var sites: [String: ChargeSite] = [:]
+        /// Where the chargers came from.
+        var source: String = "Apple Maps"
+        var problem: String?
     }
 
     enum Failure: Error, CustomStringConvertible {
@@ -44,8 +49,43 @@ enum RouteService {
         request.transportType = .automobile
         let response = try await MKDirections(request: request).calculate()
         guard let route = response.routes.first else { throw Failure.noRoute }
-        let chargers = await chargersAlong(route)
-        return Found(route: route, chargers: chargers)
+        if let key = ChargerKeys.openChargeMap {
+            do {
+                return try await openChargeMap(route, key: key)
+            } catch {
+                var found = Found(route: route, chargers: await chargersAlong(route))
+                found.problem = (error as? OpenChargeMapClient.Failure)?.description ?? "Couldn't reach Open Charge Map."
+                return found
+            }
+        }
+        return Found(route: route, chargers: await chargersAlong(route))
+    }
+
+    /// Chargers along the route from Open Charge Map, with their real speeds and details.
+    static func openChargeMap(_ route: MKRoute, key: String) async throws -> Found {
+        let pts = points(route)
+        let client = OpenChargeMapClient(transport: URLSessionTransport(), key: key)
+        let sites = try await client.along(pts.map { LatLon(lat: $0.0.latitude, lon: $0.0.longitude) }, radiusKm: 3, minKW: 40)
+        var chargers: [RouteCharger] = []
+        var byId: [String: ChargeSite] = [:]
+        for site in sites where site.operational != false {
+            let (km, off) = place(site.position, on: pts)
+            guard off < 5000 else { continue }
+            chargers.append(RouteCharger(site: site, alongKm: km, detourKm: off / 1000 * 2 * 1.3))
+            byId[site.id] = site
+        }
+        return Found(route: route, chargers: chargers.sorted { $0.alongKm < $1.alongKm }, sites: byId, source: "Open Charge Map")
+    }
+
+    /// Distance along the route of the nearest route point, and how far off the route it is (m).
+    static func place(_ p: LatLon, on pts: [(CLLocationCoordinate2D, Double)]) -> (km: Double, offM: Double) {
+        let here = CLLocation(latitude: p.lat, longitude: p.lon)
+        var best = (off: Double.infinity, km: 0.0)
+        for (c, km) in pts {
+            let d = here.distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
+            if d < best.off { best = (d, km) }
+        }
+        return (best.km, best.off)
     }
 
     /// Route points with the distance from the start to each, in km.

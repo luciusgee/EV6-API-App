@@ -26,6 +26,7 @@ struct SettingsView: View {
                         Label("Activity log", systemImage: "list.bullet.clipboard")
                     }
                 }
+                ChargerDataSection()
                 PermissionsSection()
                 Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
@@ -148,6 +149,38 @@ private struct SafetySection: View {
             get: { model.settings[keyPath: keyPath] },
             set: { value in Task { await model.updateSettings { $0[keyPath: keyPath] = value } } }
         )
+    }
+}
+
+// MARK: - Charger data
+
+/// Keys for charger details: Open Charge Map (free) and Google Places (live availability, reviews).
+private struct ChargerDataSection: View {
+    @State private var ocm = ChargerKeys.openChargeMap ?? ""
+    @State private var google = ChargerKeys.google ?? ""
+
+    var body: some View {
+        Section {
+            SecureField("Open Charge Map key", text: $ocm)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .onSubmit { ChargerKeys.openChargeMap = ocm.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .onChange(of: ocm) { _, v in ChargerKeys.openChargeMap = v.trimmingCharacters(in: .whitespacesAndNewlines) }
+            Link(destination: URL(string: "https://openchargemap.org/site/loginprovider/beginlogin")!) {
+                Label("Get a free key (My profile › API keys)", systemImage: "key")
+            }
+            SecureField("Google key (optional)", text: $google)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .onChange(of: google) { _, v in ChargerKeys.google = v.trimmingCharacters(in: .whitespacesAndNewlines) }
+            Link(destination: URL(string: "https://console.cloud.google.com/google/maps-apis/api-list")!) {
+                Label("Google key: enable Places API (New)", systemImage: "key")
+            }
+        } header: {
+            Text("Charger data")
+        } footer: {
+            Text("Open Charge Map adds real charger speeds, connectors, prices and drivers' check-ins. Google adds live availability and reviews, and may charge after its free allowance. Keys stay in the iPhone Keychain.")
+        }
     }
 }
 

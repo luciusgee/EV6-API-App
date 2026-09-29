@@ -81,3 +81,18 @@ actor KeychainSessionStore: KiaSessionStore {
         keychain.setValue(session, for: account)
     }
 }
+
+/// API keys the owner adds for charger data: Open Charge Map (free) and Google Places (optional).
+enum ChargerKeys {
+    private static let keychain = Keychain(service: "EV6Precondition.keys")
+
+    static var openChargeMap: String? {
+        get { keychain.data(for: "openchargemap").map { String(decoding: $0, as: UTF8.self) }.flatMap { $0.isEmpty ? nil : $0 } }
+        set { keychain.set(newValue.flatMap { $0.isEmpty ? nil : Data($0.utf8) }, for: "openchargemap") }
+    }
+
+    static var google: String? {
+        get { keychain.data(for: "google").map { String(decoding: $0, as: UTF8.self) }.flatMap { $0.isEmpty ? nil : $0 } }
+        set { keychain.set(newValue.flatMap { $0.isEmpty ? nil : Data($0.utf8) }, for: "google") }
+    }
+}

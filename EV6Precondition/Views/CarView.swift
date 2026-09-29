@@ -22,6 +22,10 @@ struct CarView: View {
                     Section { BannerRow(banner: banner) }
                 }
 
+                if model.busy == .refreshing {
+                    Section { RefreshingRow(waking: model.waking, since: model.refreshStartedAt ?? .now) }
+                }
+
                 Section {
                     HeroCard(snapshot: snapshot, paint: paint, miles: model.settings.useMiles)
                         .listRowInsets(EdgeInsets())
@@ -446,6 +450,32 @@ private struct HeroCard: View {
     private var accessibilityText: String {
         guard let soc else { return "Battery unknown" }
         return "Battery \(soc) percent" + (snapshot?.rangeKm.map { ", \(DisplayText.distance(km: Double($0), miles: miles)) range" } ?? "")
+    }
+}
+
+/// Shown while the app reads the car, so a full refresh (which can take half a minute) is obvious.
+private struct RefreshingRow: View {
+    let waking: Bool
+    let since: Date
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(waking ? "Waking the car…" : "Refreshing…").font(.headline)
+                TimelineView(.periodic(from: since, by: 1)) { context in
+                    let seconds = max(0, Int(context.date.timeIntervalSince(since)))
+                    Text(waking
+                         ? "Asking the car for fresh figures. This can take up to 30 seconds · \(seconds) s"
+                         : "Reading the latest from Kia · \(seconds) s")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+        }
+        .padding(.vertical, 2)
+        .transition(.opacity)
     }
 }
 

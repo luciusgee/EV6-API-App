@@ -36,6 +36,9 @@ public final class CarModel {
     public private(set) var hasPin = false
     public private(set) var vin = ""
     public private(set) var busy: Busy?
+    /// While refreshing: when it started, and whether the car is being woken for it.
+    public private(set) var refreshStartedAt: Date?
+    public private(set) var waking = false
     public private(set) var fakeCar = FakeCarState()
     /// The last driving history fetched (cached on disk).
     public private(set) var energy: DrivingHistory?
@@ -95,8 +98,18 @@ public final class CarModel {
     public func refresh(wake: Bool = false) async {
         guard busy == nil else { return }
         busy = .refreshing
+        waking = wake
+        refreshStartedAt = now
+        defer {
+            waking = false
+            refreshStartedAt = nil
+        }
         let result = await container.engine.refreshVehicle(wake: wake)
-        if let error = result.error { message = "Refresh failed: \(error.message)" }
+        if let error = result.error {
+            message = "Refresh failed: \(error.message)"
+        } else if wake {
+            message = "✓ Fresh from the car."
+        }
         busy = nil
         await reloadState()
     }

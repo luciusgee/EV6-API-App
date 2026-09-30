@@ -36,6 +36,8 @@ struct RoutePlannerView: View {
     /// Chargers you've picked to stop at.
     @State private var preferred: Set<String> = []
     @State private var minKW: Double = 50
+    /// The leg whose chargers are being found after picking another way to go.
+    @State private var switchingLeg: Int?
 
     private var miles: Bool { car.settings.useMiles }
     @State private var here: CLLocationCoordinate2D?
@@ -228,11 +230,13 @@ struct RoutePlannerView: View {
             Spacer()
             if i < places.count - 1, i < stays.count {
                 Menu {
+                    Button("Just passing through") { stays[i] = 0 }
                     ForEach([15.0, 30, 45, 60, 90, 120, 180, 240, 360, 480], id: \.self) { m in
                         Button("Stay \(DisplayText.duration(minutes: Int(m)))") { stays[i] = m }
                     }
                 } label: {
-                    Text("Stay \(DisplayText.duration(minutes: Int(stays[i])))").font(.subheadline).monospacedDigit()
+                    Text(stays[i] == 0 ? "Passing through" : "Stay \(DisplayText.duration(minutes: Int(stays[i])))")
+                        .font(.subheadline).monospacedDigit()
                 }
             }
         }
@@ -324,6 +328,10 @@ struct RoutePlannerView: View {
         let distanceKm = legs.map(\.plan.distanceKm).reduce(0, +)
         Section {
             Map(position: $camera) {
+                // The other ways Apple Maps suggests, faintly, under the one chosen.
+                ForEach(Array(found.flatMap { f in f.alternatives.filter { $0 !== f.route } }.enumerated()), id: \.offset) { _, r in
+                    MapPolyline(r.polyline).stroke(.gray.opacity(0.6), lineWidth: 4)
+                }
                 ForEach(Array(found.enumerated()), id: \.offset) { _, f in
                     MapPolyline(f.route.polyline).stroke(.blue, lineWidth: 5)
                 }
@@ -363,6 +371,12 @@ struct RoutePlannerView: View {
             Text("\(DisplayText.distance(km: distanceKm, miles: miles)) · \(DisplayText.duration(minutes: Int(driveMinutes.rounded()))) driving, \(DisplayText.duration(minutes: Int(chargeMinutes.rounded()))) charging" + (places.count > 1 ? ", plus your time at each place." : "."))
         }
 
+        ForEach(Array(found.enumerated()), id: \.offset) { l, f in
+            if f.alternatives.count > 1 {
+                whichWay(leg: l, f)
+            }
+        }
+
         Section {
             legRow(icon: fixedStart ? "circle.circle.fill" : "car.fill", tint: fixedStart ? .blue : .red,
                    title: "Leave \(fixedStart ? startName : "")".trimmingCharacters(in: .whitespaces),
@@ -376,7 +390,9 @@ struct RoutePlannerView: View {
                 let stay = !isLast && l < stays.count ? stays[l] : 0
                 legRow(icon: isLast ? "mappin.circle.fill" : "\(l + 1).circle.fill", tint: isLast ? .red : .orange,
                        title: place?.name ?? "Destination",
-                       detail: "Arrive with \(Int(leg.plan.arrivePercent.rounded()))%" + (isLast ? "" : " · leave \(time(leg.endMinutes + stay))"),
+                       detail: !isLast && stay == 0
+                           ? "Through here with \(Int(leg.plan.arrivePercent.rounded()))%"
+                           : "Arrive with \(Int(leg.plan.arrivePercent.rounded()))%" + (isLast ? "" : " · leave \(time(leg.endMinutes + stay))"),
                        trailing: time(leg.endMinutes))
             }
         } header: {
@@ -457,6 +473,55 @@ struct RoutePlannerView: View {
                 allChargersSection(f, to: places.count > 1 && places.indices.contains(l) ? places[l].name : nil)
             }
         }
+    }
+
+    /// Apple Maps' ways to go for one leg; chargers are found along the one picked.
+    private func whichWay(leg l: Int, _ f: RouteService.Found) -> some View {
+        let fastest = f.alternatives.map(\.expectedTravelTime).min() ?? 0
+        return Section {
+            ForEach(Array(f.alternatives.enumerated()), id: \.offset) { _, r in
+                Button {
+                    Task { await pickRoute(r, leg: l) }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: r === f.route ? "checkmark.circle.fill" : "circle")
+                            .font(.title3)
+                            .foregroundStyle(r === f.route ? Color.accentColor : Color.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(r.name.isEmpty ? "Another way" : "Via \(r.name)").foregroundStyle(.primary)
+                            let slower = Int(((r.expectedTravelTime - fastest) / 60).rounded())
+                            Text([DisplayText.duration(minutes: Int((r.expectedTravelTime / 60).rounded())),
+                                  DisplayText.distance(km: r.distance / 1000, miles: miles),
+                                  slower > 0 ? "\(slower) min slower" : "quickest"].joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(switchingLeg != nil)
+            }
+            if switchingLeg == l {
+                HStack { ProgressView(); Text("Finding chargers along that way…").foregroundStyle(.secondary) }
+            }
+        } header: {
+            Text(places.count > 1 && places.indices.contains(l) ? "Which way to \(places[l].name ?? "there")?" : "Which way?")
+        } footer: {
+            Text("Pick the roads you'd take; chargers are found along them. For a road it doesn't offer, add a place on it (like a services) and set it to Just passing through.")
+        }
+    }
+
+    private func pickRoute(_ r: MKRoute, leg l: Int) async {
+        guard found.indices.contains(l), found[l].route !== r else { return }
+        switchingLeg = l
+        defer { switchingLeg = nil }
+        var f = await RouteService.chargers(on: r)
+        guard found.indices.contains(l) else { return }
+        f.alternatives = found[l].alternatives
+        found[l] = f
+        preferred = []
+        replan()
     }
 
     private func stopRow(leg l: Int, stop i: Int) -> some View {

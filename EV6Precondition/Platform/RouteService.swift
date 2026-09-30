@@ -35,6 +35,8 @@ enum RouteService {
         /// Where the chargers came from.
         var source: String = "Apple Maps"
         var problem: String?
+        /// Other ways Apple Maps suggests, fastest first, including `route`.
+        var alternatives: [MKRoute] = []
     }
 
     enum Failure: Error, CustomStringConvertible {
@@ -47,8 +49,17 @@ enum RouteService {
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: from))
         request.destination = destination
         request.transportType = .automobile
+        request.requestsAlternateRoutes = true
         let response = try await MKDirections(request: request).calculate()
-        guard let route = response.routes.first else { throw Failure.noRoute }
+        let routes = response.routes.sorted { $0.expectedTravelTime < $1.expectedTravelTime }
+        guard let route = routes.first else { throw Failure.noRoute }
+        var found = await chargers(on: route)
+        found.alternatives = routes
+        return found
+    }
+
+    /// The chargers along one route (after picking another way to go).
+    static func chargers(on route: MKRoute) async -> Found {
         if let key = ChargerKeys.openChargeMap {
             do {
                 return try await openChargeMap(route, key: key)
@@ -105,21 +116,21 @@ enum RouteService {
         return out
     }
 
-    /// Searches around points every ~25 km along the route (Apple Maps' EV-charger category), then
-    /// places each charger at its nearest point on the route.
+    /// Searches in overlapping circles all the way along the route (Apple Maps' EV-charger category),
+    /// then places each charger at its nearest point on the route. The circles overlap so nothing on
+    /// the road, like motorway services, falls in a gap between them.
     static func chargersAlong(_ route: MKRoute) async -> [RouteCharger] {
         let pts = points(route)
         guard let total = pts.last?.1, total > 0 else { return [] }
+        // Every 7 km, or further apart on long trips to stay near 50 searches, with circles wide
+        // enough to overlap.
+        let spacing = max(7.0, total / 50)
+        let radius = spacing * 1000 * 0.75
         var samples: [CLLocationCoordinate2D] = []
-        var next = 20.0
+        var next = min(5.0, total / 2)
         for (c, km) in pts where km >= next {
             samples.append(c)
-            next += 25
-        }
-        // Keep the number of searches sensible on very long trips.
-        if samples.count > 40 {
-            let stride = Double(samples.count) / 40
-            samples = (0..<40).map { samples[Int(Double($0) * stride)] }
+            next += spacing
         }
         var items: [MKMapItem] = []
         await withTaskGroup(of: [MKMapItem].self) { group in
@@ -127,7 +138,7 @@ enum RouteService {
                 group.addTask {
                     // Apple Maps throttles bursts: spread the searches out a little.
                     try? await Task.sleep(for: .milliseconds(120 * (i % 8)))
-                    return await ChargerSearch.near(centre, radius: 4000)
+                    return await ChargerSearch.near(centre, radius: radius)
                 }
             }
             for await found in group { items.append(contentsOf: found) }

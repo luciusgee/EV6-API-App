@@ -1,3 +1,4 @@
+import MapKit
 import MessageUI
 import PreconditionKit
 import SwiftUI
@@ -273,18 +274,31 @@ struct CommuteEditView: View {
                         .submitLabel(.done)
                 }
                 Section {
-                    ForEach($commute.routes) { $route in
-                        let i = commute.routes.firstIndex { $0.id == route.id } ?? 0
-                        HStack {
-                            Text("\(i + 1)").monospacedDigit().foregroundStyle(.secondary).frame(width: 20)
-                            TextField("Name", text: $route.name)
-                                .submitLabel(.done)
-                            Spacer()
-                            Text("\(max(0, route.points.count - 2)) via").font(.caption).foregroundStyle(.secondary)
-                        }
-                        .contextMenu {
-                            if i > 0 { Button("Move up") { commute.routes.swapAt(i, i - 1) } }
-                            if i < commute.routes.count - 1 { Button("Move down") { commute.routes.swapAt(i, i + 1) } }
+                    ForEach(Array(commute.routes.enumerated()), id: \.element.id) { i, route in
+                        NavigationLink {
+                            CommuteRouteEditView(
+                                route: route,
+                                position: i,
+                                count: commute.routes.count,
+                                onChange: { changed in
+                                    if let at = commute.routes.firstIndex(where: { $0.id == changed.id }) { commute.routes[at] = changed }
+                                },
+                                onMove: { offset in
+                                    guard let at = commute.routes.firstIndex(where: { $0.id == route.id }) else { return }
+                                    let to = min(max(0, at + offset), commute.routes.count - 1)
+                                    let r = commute.routes.remove(at: at)
+                                    commute.routes.insert(r, at: to)
+                                },
+                                onDelete: { commute.routes.removeAll { $0.id == route.id } }
+                            )
+                        } label: {
+                            HStack {
+                                Text("\(i + 1)").monospacedDigit().foregroundStyle(.secondary).frame(width: 20)
+                                Text(route.name)
+                                if i == 0 { Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow) }
+                                Spacer()
+                                Text("\(max(0, route.points.count - 2)) via").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }
                     .onDelete { commute.routes.remove(atOffsets: $0) }
@@ -292,7 +306,7 @@ struct CommuteEditView: View {
                 } header: {
                     Text("Routes, favourite first")
                 } footer: {
-                    Text("Press and hold a route to move it. The first is used unless another is more than \(commute.toleranceMinutes) min quicker.")
+                    Text("Tap a route to rename it, change its link or move it. The first (★) is used unless another is more than \(commute.toleranceMinutes) min quicker.")
                 }
                 Section {
                     TextField("Name, e.g. M1 and A14", text: $newName)
@@ -377,6 +391,113 @@ struct CommuteEditView: View {
             commute.routes.append(CommuteRoute(name: name.isEmpty ? "Route \(commute.routes.count + 1)" : name,
                                                link: newLink.trimmingCharacters(in: .whitespacesAndNewlines), points: points))
             newName = ""
+            newLink = ""
+        } catch let failure as GoogleMapsLink.Failure {
+            problem = failure.description
+        } catch {
+            problem = "Couldn't open the link: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// One commute route: its name, where it goes, its link, and its place in the order.
+struct CommuteRouteEditView: View {
+    @State var route: CommuteRoute
+    let position: Int
+    let count: Int
+    let onChange: (CommuteRoute) -> Void
+    let onMove: (Int) -> Void
+    let onDelete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var newLink = ""
+    @State private var replacing = false
+    @State private var problem: String?
+    @State private var confirmDelete = false
+
+    var body: some View {
+        Form {
+            Section("Name") {
+                TextField("Name", text: $route.name)
+                    .submitLabel(.done)
+            }
+            if route.points.count >= 2 {
+                Section {
+                    Map(initialPosition: .automatic) {
+                        MapPolyline(coordinates: coords).stroke(.blue, lineWidth: 4)
+                        ForEach(Array(coords.enumerated()), id: \.offset) { i, c in
+                            if i == 0 {
+                                Marker("Start", systemImage: "circle.fill", coordinate: c).tint(.blue)
+                            } else if i == coords.count - 1 {
+                                Marker("End", coordinate: c).tint(.red)
+                            } else {
+                                Marker("Via \(i)", systemImage: "arrow.triangle.turn.up.right.diamond.fill", coordinate: c).tint(.orange)
+                            }
+                        }
+                    }
+                    .frame(height: 220)
+                    .listRowInsets(EdgeInsets())
+                    if let url = URL(string: route.link) {
+                        Link(destination: url) { Label("Open in Google Maps", systemImage: "map") }
+                    }
+                } footer: {
+                    Text("Straight lines between the start, the points it goes through, and the end. Traffic checks follow the roads through those points.")
+                }
+            }
+            Section {
+                TextField("New Google Maps link", text: $newLink, axis: .vertical)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button {
+                    Task { await replace() }
+                } label: {
+                    HStack {
+                        Text("Use this link")
+                        if replacing { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(newLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replacing)
+                if let problem { Text(problem).font(.caption).foregroundStyle(.red) }
+            } header: {
+                Text("Change the route")
+            } footer: {
+                Text("Drag the route in Google Maps the way you drive it, share it, and paste the link here.")
+            }
+            Section {
+                if position > 0 {
+                    Button { onMove(-position); dismiss() } label: { Label("Make favourite", systemImage: "star") }
+                    Button { onMove(-1); dismiss() } label: { Label("Move up", systemImage: "arrow.up") }
+                }
+                if position < count - 1 {
+                    Button { onMove(1); dismiss() } label: { Label("Move down", systemImage: "arrow.down") }
+                }
+                Button(role: .destructive) { confirmDelete = true } label: { Label("Delete route", systemImage: "trash") }
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle(route.name.isEmpty ? "Route" : route.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: route) { _, r in onChange(r) }
+        .confirmationDialog("Delete this route?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                onDelete()
+                dismiss()
+            }
+        }
+    }
+
+    private var coords: [CLLocationCoordinate2D] {
+        route.points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+    }
+
+    private func replace() async {
+        replacing = true
+        defer { replacing = false }
+        problem = nil
+        let link = newLink.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            route.points = try await MapsLinkExpander.points(from: link)
+            route.link = link
             newLink = ""
         } catch let failure as GoogleMapsLink.Failure {
             problem = failure.description

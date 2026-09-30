@@ -415,8 +415,8 @@ private struct ActionSection: View {
             .pickerStyle(.segmented)
             if case .startClimate(let target) = action {
                 RoundStepper("Target", value: Binding(get: { target }, set: { action = .startClimate(targetC: $0) }), in: RuleValidator.minTargetC...RuleValidator.maxTargetC, step: 0.5) { _ in Describe.temp(target) }
-                Toggle("Heated wheel, mirrors and rear window", isOn: extra(\.heatedExtras))
-                Toggle("Defrost the windscreen", isOn: extra(\.defrost))
+                Toggle("Heated wheel & mirrors", isOn: extra(\.heatedExtras))
+                Toggle("Windscreen defrost", isOn: extra(\.defrost))
             }
         }
     }

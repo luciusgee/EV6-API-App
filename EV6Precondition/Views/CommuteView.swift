@@ -16,13 +16,6 @@ struct CommuteView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            if !model.commutes.isEmpty {
-                Section {
-                    QuickCommuteButton()
-                } footer: {
-                    Text("Picks the commute that starts where you are: at home it checks the way to work, at work the way home.")
-                }
-            }
             ForEach(model.commutes) { commute in
                 NavigationLink {
                     CommuteDetailView(id: commute.id)
@@ -63,7 +56,7 @@ struct CommuteView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Commute")
+        .navigationTitle("Commutes")
         .sheet(isPresented: $adding) {
             CommuteEditView(commute: Commute(name: model.commutes.isEmpty ? "Home" : "Work"), isNew: true)
         }

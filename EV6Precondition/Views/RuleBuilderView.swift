@@ -159,10 +159,10 @@ struct RuleBuilderView: View {
             Section {
                 RoundStepper("Temperature", value: $b.warmC, in: RuleValidator.minTargetC...RuleValidator.maxTargetC, step: 0.5, tint: .orange) { tempText($0) }
                 Toggle(isOn: $b.heatedExtras) {
-                    Label("Heated steering wheel, mirrors and rear window", systemImage: "steeringwheel")
+                    Label("Heated wheel & mirrors", systemImage: "steeringwheel")
                 }
                 Toggle(isOn: $b.defrost) {
-                    Label("Defrost the windscreen", systemImage: "windshield.front.and.heat.waves")
+                    Label("Windscreen defrost", systemImage: "windshield.front.and.heat.waves")
                 }
             }
         case .cool:

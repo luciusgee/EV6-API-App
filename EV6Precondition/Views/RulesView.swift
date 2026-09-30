@@ -9,7 +9,7 @@ struct RulesView: View {
     @State private var editing: EditorItem?
     @State private var showImporter = false
     @State private var showScheduleHelp = false
-    @State private var composing = false
+    @State private var building = false
     @AppStorage("dismissedSuggestions") private var dismissed = ""
 
     private var suggestions: [Suggestion] {
@@ -61,7 +61,7 @@ struct RulesView: View {
                         } description: {
                             Text("A rule warms or cools the car by itself: at a time, when you leave or arrive somewhere, or when it's cold.")
                         } actions: {
-                            Button("Make a rule") { composing = true }
+                            Button("Make a rule") { building = true }
                                 .buttonStyle(.borderedProminent)
                                 .foregroundStyle(Color.onAccent)
                             Menu("Choose a template") {
@@ -131,15 +131,13 @@ struct RulesView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        composing = true
-                    } label: {
-                        Label("New rule", systemImage: "plus")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Section("Templates") {
+                        Button {
+                            building = true
+                        } label: {
+                            Label("Make a rule", systemImage: "wand.and.stars")
+                        }
+                        Section("Or start from a template") {
                             ForEach(Templates.all, id: \.title) { template in
                                 Button(template.title) {
                                     editing = EditorItem(rule: model.newRule(from: template), isNew: true)
@@ -150,14 +148,14 @@ struct RulesView: View {
                             editing = EditorItem(rule: model.blankRule(), isNew: true)
                         }
                     } label: {
-                        Label("Templates", systemImage: "square.grid.2x2")
+                        Label("New rule", systemImage: "plus")
                     }
                 }
             }
             .sheet(item: $editing) { item in
                 RuleEditorView(rule: item.rule, isNew: item.isNew)
             }
-            .sheet(isPresented: $composing) {
+            .sheet(isPresented: $building) {
                 RuleBuilderView()
             }
             .sheet(isPresented: $showScheduleHelp) {

@@ -66,7 +66,7 @@ public enum Guide {
                       "Climate, locks, charging and the charge limit. After you tap one, the tile waits until the car confirms it did it, like the Kia app.",
                       symbol: "square.grid.2x2", tab: .car),
             GuideStep("car.climate", "Climate",
-                      "Scroll down to Climate. Slide to pick 17–27 °C (the EV6 won't take anything outside that). It's used by the Climate tile, widgets, Siri and the Watch. Climate runs for 15 minutes. Turn on defrost and the heated wheel and mirrors here, and Don't start charging stops climate kicking off a charge while you're plugged in.",
+                      "Scroll down to Climate. Slide to pick 17–27 °C (the EV6 won't take anything outside that). It's used by the Climate tile, widgets, Siri and the Watch. Climate runs for 15 minutes. Turn on defrost and the heated wheel and mirrors here, and Keep the charger off stops climate kicking off a charge while you're plugged in.",
                       symbol: "thermometer.medium", tab: .car),
             GuideStep("car.liveActivity", "On the Lock Screen",
                       "While climate runs or the car charges, a Live Activity shows the countdown or progress on the Lock Screen and in the Dynamic Island.",
@@ -91,7 +91,7 @@ public enum Guide {
         ]),
         GuideSection(id: "trips", title: "Trips", symbol: "map.fill", steps: [
             GuideStep("trips.tab", "The Trips tab",
-                      "Everything for a drive is here: Where to? to plan a trip, Traffic ahead, your commutes with their latest check, saved trips, and time at places.",
+                      "Everything for a drive is here: Where to? to plan a trip, your commutes with their latest check (and Traffic on another drive), saved trips, and time at places.",
                       symbol: "map.fill", tab: .trips),
             GuideStep("trips.plan", "Plan a trip",
                       "Trips tab › Where to? Start from the car, you or anywhere, and add as many places as you like, with how long you'll stay at each. And back again plans the drive home too. It plans the charging stops and what you'll arrive with at each place, and can set smart charging so you leave with enough.",
@@ -105,8 +105,8 @@ public enum Guide {
             GuideStep("trips.saved", "Save it, send it to the car",
                       "At the bottom of a planned trip, Save keeps it in the Trips tab, and Send to the car puts the stops and destination in the car's sat nav, now or whenever you're ready.",
                       symbol: "car.side.arrowtriangle.up.fill", tab: .trips, screen: .planTrip),
-            GuideStep("trips.traffic", "Traffic ahead",
-                      "On the move, pick where you're heading (the last place sent to the car is already there). It shows the traffic on the rest of the drive and other ways to go. Choose one and send it to the car. Kia doesn't share where the car's sat nav is going, so it's picked here.",
+            GuideStep("trips.traffic", "Traffic on another drive",
+                      "Under Commute. On the move, pick where you're heading (the last place sent to the car is already there). It shows the traffic on the rest of the drive and other ways to go. Choose one and send it to the car. Kia doesn't share where the car's sat nav is going, so it's picked here.",
                       symbol: "road.lanes", tab: .trips, screen: .trafficAhead),
             GuideStep("trips.commute", "Commute",
                       "Add your routes home by pasting their Google Maps links, favourite first. It checks the traffic on all of them, takes your favourite unless another is much quicker, and writes your ETA message (\"I'll be home at 18:38…\") ready to send. Tap a route to rename it, see it on a map, swap its link or move it.",
@@ -120,7 +120,7 @@ public enum Guide {
         ]),
         GuideSection(id: "rules", title: "Rules", symbol: "list.bullet.rectangle", steps: [
             GuideStep("rules.intro", "Rules",
-                      "Rules warm or cool the car by themselves. Tap + and answer four quick questions: when, what, only if, and a check. The rule is read back in plain words as you go. Rules can use the weather, your places, the charge and the heated wheel and mirrors.",
+                      "Rules warm or cool the car by themselves. Tap +, then Make a rule, and answer four quick questions: when, what, only if, and a check. The rule is read back in plain words as you go. Rules can use the weather, your places, the charge and the heated wheel and mirrors.",
                       symbol: "list.bullet.rectangle", tab: .rules),
             GuideStep("rules.ask", "Ask first",
                       "A rule can ask instead of just starting. At its time you get a notification to Start now, In 15 min or Not today. It's skipped when the weather means it isn't needed.",
@@ -160,7 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
-        GuideRelease(number: 12, title: "Chargers: detours, how many and how fast, and services on the main road", stepIds: ["trips.food"]),
+        GuideRelease(number: 12, title: "Chargers: detours, how many and how fast, and services on the main road", stepIds: ["trips.food", "trips.traffic", "rules.intro"]),
         GuideRelease(number: 11, title: "A new rule maker, and trips with several stops", stepIds: ["rules.intro", "trips.commuteAuto", "trips.plan", "trips.food", "trips.commute", "charging.hub", "trips.places"]),
         GuideRelease(number: 10, title: "Fewer false plug-in reminders", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 9, title: "A fresh coat of paint", stepIds: ["car.look", "car.refresh", "settings.alerts"]),

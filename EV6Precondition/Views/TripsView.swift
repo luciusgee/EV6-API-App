@@ -20,14 +20,6 @@ struct TripsView: View {
                 }
 
                 Section {
-                    NavigationLink {
-                        TrafficAheadView()
-                    } label: {
-                        Label("Traffic ahead", systemImage: "road.lanes")
-                    }
-                }
-
-                Section {
                     if !commutes.commutes.isEmpty { QuickCommuteButton() }
                     ForEach(commutes.commutes) { c in
                         NavigationLink {
@@ -48,9 +40,14 @@ struct TripsView: View {
                         }
                     }
                     NavigationLink {
+                        TrafficAheadView()
+                    } label: {
+                        Label("Traffic on another drive", systemImage: "road.lanes")
+                    }
+                    NavigationLink {
                         CommuteView()
                     } label: {
-                        Label(commutes.commutes.isEmpty ? "Set up a commute" : "Manage commutes", systemImage: "car.rear.road.lane")
+                        Label(commutes.commutes.isEmpty ? "Set up a commute" : "Edit commutes", systemImage: "car.rear.road.lane")
                     }
                 } header: {
                     Text("Commute")
@@ -105,7 +102,7 @@ private struct SavedTripRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(trip.name)
-            Text(trip.stops.isEmpty ? "No stops" : trip.stops.map(\.name).joined(separator: " → "))
+            Text(trip.stops.isEmpty ? "No charging stops" : trip.stops.map(\.name).joined(separator: " → "))
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
     }

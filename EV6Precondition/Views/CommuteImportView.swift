@@ -49,7 +49,7 @@ struct CommuteImportView: View {
                 }
                 if done {
                     Section {
-                        Label("Added \(added) commute\(added == 1 ? "" : "s"). Add the message and phone number in Trips › Manage commutes.",
+                        Label("Added \(added) commute\(added == 1 ? "" : "s"). Add the message and phone number in Trips › Edit commutes.",
                               systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     }

@@ -94,7 +94,7 @@ struct StopChoiceView: View {
             } header: {
                 Text("Chargers in reach for this stop")
             } footer: {
-                Text("Tap a charger to stop there, or ⓘ for its details and directions. Services on the main road are motorway services or petrol stations right by the route, not a detour into town. Food within a short walk, from Apple Maps. Times assume you leave at \(leaving.formatted(date: .omitted, time: .shortened)).")
+                Text("Tap one to stop there, ⓘ for details. Times assume you leave at \(leaving.formatted(date: .omitted, time: .shortened)).")
             }
         }
         .listStyle(.insetGrouped)

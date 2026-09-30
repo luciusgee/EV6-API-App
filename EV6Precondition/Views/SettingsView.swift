@@ -27,18 +27,11 @@ struct SettingsView: View {
                         Label("Activity log", systemImage: "list.bullet.clipboard")
                     }
                 }
-                Section {
-                    NavigationLink {
-                        ChargerDataView()
-                    } label: {
-                        Label("Charger data", systemImage: "ev.charger")
-                    }
-                }
                 PermissionsSection()
                 Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
                 } footer: {
-                    Text("No analytics and no account with us. The app talks to Kia, and to Apple Maps and a weather service only for the features you use.")
+                    Text("No analytics and no account with us. The app talks to Kia, and only for the features you use to Apple Maps, OpenStreetMap (charger details), a weather service and Google Maps (to read commute links).")
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -176,48 +169,6 @@ private struct SafetySection: View {
             get: { model.settings[keyPath: keyPath] },
             set: { value in Task { await model.updateSettings { $0[keyPath: keyPath] = value } } }
         )
-    }
-}
-
-// MARK: - Charger data
-
-/// Keys for charger details: Open Charge Map (free) and Google Places (live availability, reviews).
-private struct ChargerDataView: View {
-    @State private var ocm = ChargerKeys.openChargeMap ?? ""
-    @State private var google = ChargerKeys.google ?? ""
-
-    var body: some View {
-        Form {
-            Section {
-                TextField("Open Charge Map key", text: $ocm)
-                    .font(.body.monospaced())
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .onChange(of: ocm) { _, v in ChargerKeys.openChargeMap = v.trimmingCharacters(in: .whitespacesAndNewlines) }
-                Link(destination: URL(string: "https://openchargemap.org/site/loginprovider/beginlogin")!) {
-                    Label("Get a free key (My profile › API keys)", systemImage: "key")
-                }
-            } header: {
-                Text("Open Charge Map")
-            } footer: {
-                Text("Adds real charger speeds, connectors, prices and drivers' check-ins.")
-            }
-            Section {
-                TextField("Google key (optional)", text: $google)
-                    .font(.body.monospaced())
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .onChange(of: google) { _, v in ChargerKeys.google = v.trimmingCharacters(in: .whitespacesAndNewlines) }
-                Link(destination: URL(string: "https://console.cloud.google.com/google/maps-apis/api-list")!) {
-                    Label("Get a key (turn on Places API (New))", systemImage: "key")
-                }
-            } header: {
-                Text("Google")
-            } footer: {
-                Text("Adds live availability and reviews. Google may charge after its free allowance. Keys stay in your iPhone's Keychain.")
-            }
-        }
-        .navigationTitle("Charger data")
     }
 }
 

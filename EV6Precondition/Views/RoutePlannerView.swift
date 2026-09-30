@@ -556,7 +556,7 @@ struct RoutePlannerView: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(t.name)
-                        Text(t.stops.isEmpty ? "No stops" : t.stops.map { s in s.food.first.map { "\(s.name) (\($0))" } ?? s.name }.joined(separator: " → "))
+                        Text(t.stops.isEmpty ? "No charging stops" : t.stops.map { s in s.food.first.map { "\(s.name) (\($0))" } ?? s.name }.joined(separator: " → "))
                             .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     }
                 }

@@ -272,28 +272,6 @@ struct RoutePlannerView: View {
             ForEach(Array(plan.stops.enumerated()), id: \.offset) { i, stop in
                 let arrive = minutesIn(stop: i, plan, found)
                 NavigationLink {
-                    if let site = found.sites[stop.charger.id] {
-                        ChargeSiteView(site: site)
-                    } else {
-                        GuessedChargerView(charger: stop.charger)
-                    }
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        legRow(icon: "bolt.fill", tint: .green, title: stop.charger.name,
-                               detail: "\(Int(stop.arrivePercent.rounded()))% → \(Int(stop.departPercent.rounded()))% · \(DisplayText.duration(minutes: max(1, Int(stop.chargeMinutes.rounded())))) charging",
-                               trailing: time(arrive))
-                        Text([
-                            "\(DisplayText.distance(km: stop.charger.alongKm, miles: miles)) in",
-                            stop.charger.powerGuessed ? "~\(Int(stop.charger.powerKW)) kW" : "\(Int(stop.charger.powerKW)) kW",
-                            found.sites[stop.charger.id].flatMap { $0.rapidCount > 0 ? "\($0.rapidCount) rapid" : nil },
-                            "leave \(time(arrive + stop.chargeMinutes + 5))",
-                        ].compactMap { $0 }.joined(separator: " · "))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 36)
-                    }
-                }
-                NavigationLink {
                     StopChoiceView(
                         options: stopOptions(for: i, plan, found),
                         current: stop.charger.id,
@@ -309,8 +287,23 @@ struct RoutePlannerView: View {
                         replan()
                     }
                 } label: {
-                    FoodLine(names: food.food(at: stop.charger), loading: food.loading.contains(stop.charger.id), chains: trips.chains,
-                             arrive: time(arrive))
+                    VStack(alignment: .leading, spacing: 4) {
+                        legRow(icon: "bolt.fill", tint: .green, title: stop.charger.name,
+                               detail: "\(Int(stop.arrivePercent.rounded()))% → \(Int(stop.departPercent.rounded()))% · \(DisplayText.duration(minutes: max(1, Int(stop.chargeMinutes.rounded())))) charging",
+                               trailing: time(arrive))
+                        Text([
+                            food.area(of: stop.charger),
+                            "\(DisplayText.distance(km: stop.charger.alongKm, miles: miles)) in",
+                            stop.charger.powerGuessed ? "~\(Int(stop.charger.powerKW)) kW" : "\(Int(stop.charger.powerKW)) kW",
+                            found.sites[stop.charger.id].flatMap { $0.rapidCount > 0 ? "\($0.rapidCount) rapid" : nil },
+                            "leave \(time(arrive + stop.chargeMinutes + 5))",
+                        ].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 36)
+                        FoodLine(names: food.food(at: stop.charger), loading: food.loading.contains(stop.charger.id), chains: trips.chains)
+                            .padding(.leading, 4)
+                    }
                 }
             }
             legRow(icon: "mappin.circle.fill", tint: .red, title: destination?.name ?? "Destination",
@@ -320,7 +313,7 @@ struct RoutePlannerView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if let problem = found.problem { Text(problem).foregroundStyle(.orange) }
-                Text("Tap a stop for details, or its food line to choose a different charger. Send the trip to the car so the battery warms up before each stop.")
+                Text("Tap a stop to see the other chargers in reach and pick a different one. Send the trip to the car so the battery warms up before each stop.")
             }
         }
 
@@ -721,11 +714,13 @@ final class DestinationSearch: NSObject, MKLocalSearchCompleterDelegate {
 /// A charger found through Apple Maps, without Open Charge Map's details.
 struct GuessedChargerView: View {
     let charger: RouteCharger
+    var area: String?
 
     var body: some View {
         List {
             Section {
                 Text(charger.name).font(.headline)
+                if let area { LabeledContent("Where", value: area) }
                 LabeledContent("Speed", value: "~\(Int(charger.powerKW)) kW (estimated)")
             }
             Section {

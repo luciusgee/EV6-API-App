@@ -22,7 +22,7 @@ struct FoodLine: View {
                 } else {
                     Text("No food nearby").foregroundStyle(.secondary)
                 }
-                Text([arrive.map { "Around \($0)" }, "Choose another stop"].compactMap { $0 }.joined(separator: " · "))
+                Text([arrive.map { "Around \($0)" }, "Tap to see or change"].compactMap { $0 }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -32,7 +32,7 @@ struct FoodLine: View {
     private var matched: [FoodChain] { FoodMatch.chains(at: names ?? [], from: chains) }
 }
 
-/// The other chargers you could use for one stop, with what there is to eat at each.
+/// One stop: the charger chosen, and every other one in reach with what there is to eat, to pick instead.
 struct StopChoiceView: View {
     let options: [StopOption]
     let current: String
@@ -44,10 +44,14 @@ struct StopChoiceView: View {
     let onPick: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var onlyWithFood = true
+    /// The charger whose details are open, by id.
+    @State private var details: String?
 
     private var shown: [StopOption] {
-        guard onlyWithFood else { return options }
-        return options.filter { o in
+        // The chosen one first.
+        let ordered = options.filter { $0.id == current } + options.filter { $0.id != current }
+        guard onlyWithFood else { return ordered }
+        return ordered.filter { o in
             // Keep ones still loading, and the current stop.
             o.id == current || food.food(at: o.charger) == nil || !FoodMatch.chains(at: food.food(at: o.charger) ?? [], from: chains).isEmpty
         }
@@ -56,28 +60,45 @@ struct StopChoiceView: View {
     var body: some View {
         List {
             Section {
-                Toggle("Only stops with my food", isOn: $onlyWithFood)
+                Toggle("Only chargers with my food", isOn: $onlyWithFood)
             }
             Section {
                 if shown.isEmpty {
                     Text("None of the chargers in reach have your food places. Turn off the filter to see them all.").foregroundStyle(.secondary)
                 }
                 ForEach(shown) { o in
-                    Button {
-                        onPick(o.id)
-                        dismiss()
-                    } label: {
-                        row(o)
+                    HStack(spacing: 8) {
+                        Button {
+                            if o.id != current { onPick(o.id) }
+                            dismiss()
+                        } label: {
+                            row(o).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        Button {
+                            details = o.id
+                        } label: {
+                            Image(systemName: "info.circle").font(.title3)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Details for \(o.charger.name)")
                     }
                 }
             } header: {
                 Text("Chargers in reach for this stop")
             } footer: {
-                Text("Food within a short walk, from Apple Maps. Times assume you leave at \(leaving.formatted(date: .omitted, time: .shortened)).")
+                Text("Tap a charger to stop there, or ⓘ for its details and directions. Food within a short walk, from Apple Maps. Times assume you leave at \(leaving.formatted(date: .omitted, time: .shortened)).")
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Charge and eat")
+        .navigationTitle("Choose a charger")
+        .navigationDestination(item: $details) { id in
+            if let site = sites[id] {
+                ChargeSiteView(site: site)
+            } else if let o = options.first(where: { $0.id == id }) {
+                GuessedChargerView(charger: o.charger, area: food.area(of: o.charger))
+            }
+        }
         .task { await food.load(options.prefix(30).map(\.charger)) }
     }
 
@@ -88,7 +109,12 @@ struct StopChoiceView: View {
             HStack {
                 Image(systemName: o.id == current ? "checkmark.circle.fill" : "bolt.circle")
                     .foregroundStyle(o.id == current ? .green : .secondary)
-                Text(o.charger.name).foregroundStyle(.primary).lineLimit(1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(o.charger.name).foregroundStyle(.primary).lineLimit(1)
+                    if let area = food.area(of: o.charger) {
+                        Label(area, systemImage: "mappin.and.ellipse").font(.caption.weight(.medium)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
                 Spacer()
                 Text(leaving.addingTimeInterval(o.minutesIn * 60).formatted(date: .omitted, time: .shortened))
                     .font(.subheadline.weight(.semibold)).monospacedDigit().foregroundStyle(.primary)

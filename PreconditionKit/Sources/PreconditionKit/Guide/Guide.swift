@@ -100,7 +100,7 @@ public enum Guide {
                       "Most UK Superchargers take any car through the Tesla app; you pay by card in the app, less with its monthly membership. Most are older V3 units where an EV6 charges at about 60 kW, so the planner allows for that.",
                       symbol: "bolt.car", tab: .trips),
             GuideStep("trips.food", "Charge and eat",
-                      "Under each charging stop is a line showing which of your food places are a short walk away, and roughly when you'll get there. Tap it to see every charger you could use for that stop, with the food at each. Pick one and the trip is planned around it. Change your food list in Food I look for.",
+                      "Each charging stop shows where it is (like Rugby Services) and which of your food places are a short walk away. Tap the stop for every charger you could use instead, with the food at each: tap one to stop there, or ⓘ for its details. Change your food list in Food I look for.",
                       symbol: "fork.knife", tab: .trips, screen: .foodChains),
             GuideStep("trips.saved", "Save it, send it to the car",
                       "At the bottom of a planned trip, Save keeps it in the Trips tab, and Send to the car puts the stops and destination in the car's sat nav, now or whenever you're ready.",
@@ -160,7 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
-        GuideRelease(number: 11, title: "Right charging costs, and time at places that works", stepIds: ["charging.hub", "trips.places"]),
+        GuideRelease(number: 11, title: "Fixes for costs, time at places and charging stops", stepIds: ["charging.hub", "trips.places", "trips.food"]),
         GuideRelease(number: 10, title: "Fewer false plug-in reminders", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 9, title: "A fresh coat of paint", stepIds: ["car.look", "car.refresh", "settings.alerts"]),
         GuideRelease(number: 8, title: "Trips has its own tab, and a simpler planner", stepIds: ["trips.tab", "trips.plan", "trips.tesla"]),

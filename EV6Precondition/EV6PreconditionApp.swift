@@ -5,6 +5,10 @@ import SwiftUI
 struct EV6PreconditionApp: App {
     private let services = AppServices.shared
 
+    init() {
+        KeyboardDoneBar.install()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

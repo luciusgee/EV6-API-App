@@ -172,3 +172,33 @@ extension CommuteTests {
         XCTAssertNil(CommuteImport.parse(URL(string: "ev6://command/refresh")!))
     }
 }
+
+final class CommuteDirectionTests: XCTestCase {
+    let home = LatLon(lat: 52.0, lon: -1.0)
+    let work = LatLon(lat: 52.3, lon: -1.2)
+
+    func testWhereYouAreSaysWhichWayYoureGoing() throws {
+        let toWork = Commute(name: "Work", routes: [CommuteRoute(name: "M1", link: "x", points: [home, LatLon(lat: 52.1, lon: -1.1), work])])
+        let back = toWork.reversed(name: "Home", message: "Home at {eta}")
+        XCTAssertEqual(back.start, work)
+        XCTAssertEqual(back.routes[0].points[1], LatLon(lat: 52.1, lon: -1.1))
+        let all = [toWork, back]
+        XCTAssertEqual(all.starting(near: LatLon(lat: 52.001, lon: -1.001))?.name, "Work")
+        XCTAssertEqual(all.starting(near: LatLon(lat: 52.301, lon: -1.2))?.name, "Home")
+        // Somewhere else entirely: no guess.
+        XCTAssertNil(all.starting(near: LatLon(lat: 51.5, lon: -0.1)))
+    }
+
+    func testOnlyACommuteThatChecksOnLeavingIsWatched() throws {
+        var c = Commute(name: "Home", routes: [CommuteRoute(name: "A5", link: "x", points: [work, home])])
+        XCTAssertNil(c.leaveRegion)
+        c.auto.whenLeaving = true
+        let region = try XCTUnwrap(c.leaveRegion)
+        XCTAssertEqual(region.centre, work)
+        XCTAssertTrue(region.exit)
+        XCTAssertEqual(Commute.id(fromRegion: region.id), c.id)
+        // Saved before automatic checks existed.
+        let old = try JSONDecoder().decode(Commute.self, from: Data(#"{"name":"Home","routes":[]}"#.utf8))
+        XCTAssertEqual(old.auto, CommuteAuto())
+    }
+}

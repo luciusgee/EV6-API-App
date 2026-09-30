@@ -11,6 +11,8 @@ final class GeofenceMonitor: NSObject {
     private let manager = CLLocationManager()
     /// Set by `AppServices`: runs the engine for a crossed boundary.
     var onEvent: ((TriggerEvent, Date) async -> Void)?
+    /// Set by `AppServices`: you've driven away from a commute's start.
+    var onLeftCommuteStart: ((UUID) async -> Void)?
     private(set) var watching: [String] = []
 
     override private init() {
@@ -21,8 +23,9 @@ final class GeofenceMonitor: NSObject {
     var status: CLAuthorizationStatus { manager.authorizationStatus }
 
     /// Registers exactly the regions the enabled rules need (up to iOS's 20).
-    func sync(rules: [Rule], places: [Place], carPosition: LatLon?) {
-        let specs = Array(Geofences.required(rules, places: places, carPosition: carPosition).prefix(Geofences.iosRegionLimit))
+    /// `extra` adds regions beyond the rules', such as commute starts.
+    func sync(rules: [Rule], places: [Place], carPosition: LatLon?, extra: [GeofenceSpec] = []) {
+        let specs = Array((Geofences.required(rules, places: places, carPosition: carPosition) + extra).prefix(Geofences.iosRegionLimit))
         if !specs.isEmpty {
             switch manager.authorizationStatus {
             case .notDetermined: manager.requestWhenInUseAuthorization()
@@ -60,6 +63,11 @@ final class GeofenceMonitor: NSObject {
     }
 
     private func crossed(_ id: String, _ transition: Transition) {
+        if let commute = Commute.id(fromRegion: id) {
+            guard transition == .exit, let onLeftCommuteStart else { return }
+            Task { await onLeftCommuteStart(commute) }
+            return
+        }
         guard let event = Geofences.event(for: id, transition: transition), let onEvent else { return }
         let at = Date()
         Task { await onEvent(event, at) }

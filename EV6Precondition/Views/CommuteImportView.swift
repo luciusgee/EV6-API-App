@@ -9,6 +9,8 @@ final class CommuteInbox {
     var pending: [CommuteImport]?
     /// Rules to add from an ev6://rules link, as backup text.
     var rules: String?
+    /// A commute to show, from a tapped notification or the quick check.
+    var open: UUID?
 }
 
 /// Asks before adding commutes from a link, then reads each route's link and saves them.

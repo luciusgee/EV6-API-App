@@ -16,6 +16,13 @@ struct CommuteView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            if !model.commutes.isEmpty {
+                Section {
+                    QuickCommuteButton()
+                } footer: {
+                    Text("Picks the commute that starts where you are: at home it checks the way to work, at work the way home.")
+                }
+            }
             ForEach(model.commutes) { commute in
                 NavigationLink {
                     CommuteDetailView(id: commute.id)
@@ -35,6 +42,17 @@ struct CommuteView: View {
                 } label: {
                     Label("Add a commute", systemImage: "plus")
                 }
+                ForEach(missingWayBack) { c in
+                    Button {
+                        Task { await addWayBack(c) }
+                    } label: {
+                        Label("Make the way back from \(c.name)", systemImage: "arrow.uturn.backward")
+                    }
+                }
+            } footer: {
+                if !missingWayBack.isEmpty {
+                    Text("Adds the same routes the other way, so the quick check knows where you're going from either end.")
+                }
             }
             if !model.commutes.isEmpty {
                 Section {
@@ -51,9 +69,26 @@ struct CommuteView: View {
         }
     }
 
+    /// Commutes with nothing starting where they end.
+    private var missingWayBack: [Commute] {
+        model.commutes.filter { c in
+            guard let end = c.end else { return false }
+            return model.commutes.starting(near: end) == nil
+        }
+    }
+
+    private func addWayBack(_ c: Commute) async {
+        let home = c.name.localizedCaseInsensitiveContains("home")
+        let name = home ? "Work" : "Home"
+        let message = home ? "I'll be at work at {eta}" : Commute.defaultMessage
+        await model.save(c.reversed(name: name, message: message))
+    }
+
     static let automationHelp = """
-    In Shortcuts, create an automation (a time on weekdays, or when you leave work) and set it to Run \
-    Immediately. Add Check my commute from My EV6, then Send Message with its result.
+    The app can check by itself: open a commute, tap Edit, and turn on Check automatically. It notifies you \
+    with the quickest way and your ETA message, one tap to send. iOS only lets Shortcuts send a message with \
+    no tap at all: make an automation (a time, or leaving work) set to Run Immediately, with Check my commute \
+    from My EV6, then Send Message with its result.
     """
 }
 
@@ -151,7 +186,7 @@ struct CommuteDetailView: View {
             ForEach(commute.routes) { route in
                 let check = advice?.checks.first { $0.id == route.id }
                 Button {
-                    if let url = URL(string: route.link) { openURL(url) }
+                    if let url = route.mapsURL { openURL(url) }
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: advice?.pick?.id == route.id ? "checkmark.circle.fill" : "circle")
@@ -331,6 +366,24 @@ struct CommuteEditView: View {
                     Text("Paste the link you share from Google Maps (the same ones your shortcut opens). The start, end and the points you dragged the route through are read from it.")
                 }
                 Section {
+                    Toggle("When I drive away from the start", isOn: $commute.auto.whenLeaving)
+                    Toggle("At a set time", isOn: Binding(
+                        get: { commute.auto.remindAt != nil },
+                        set: { commute.auto.remindAt = $0 ? ClockTime(hour: 17) : nil }
+                    ))
+                    if let at = commute.auto.remindAt {
+                        DatePicker("Time", selection: Binding(get: { at.date }, set: { commute.auto.remindAt = ClockTime(date: $0) }),
+                                   displayedComponents: .hourAndMinute)
+                        DaysPicker(days: $commute.auto.days)
+                    }
+                } header: {
+                    Text("Check automatically")
+                } footer: {
+                    Text(commute.auto.whenLeaving
+                         ? "Driving away from where this commute starts checks the traffic and notifies you. It needs location access set to Always. Tap the notification to send your ETA."
+                         : "A notification with the quickest way and your ETA, one tap to send.")
+                }
+                Section {
                     Stepper(commute.toleranceMinutes == 0 ? "Always take the quickest" : "Allow \(commute.toleranceMinutes) min slower", value: $commute.toleranceMinutes, in: 0...45, step: 5)
                 } footer: {
                     Text("How much longer your favourite can take before another route is suggested.")
@@ -436,7 +489,7 @@ struct CommuteRouteEditView: View {
                     }
                     .frame(height: 220)
                     .listRowInsets(EdgeInsets())
-                    if let url = URL(string: route.link) {
+                    if let url = route.mapsURL {
                         Link(destination: url) { Label("Open in Google Maps", systemImage: "map") }
                     }
                 } footer: {
@@ -503,6 +556,53 @@ struct CommuteRouteEditView: View {
             problem = failure.description
         } catch {
             problem = "Couldn't open the link: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// Checks the commute that starts where you are: at home the way to work, at work the way home.
+struct QuickCommuteButton: View {
+    @Environment(CommuteModel.self) private var model
+    @Environment(CarModel.self) private var car
+    @State private var finding = false
+    @State private var note: String?
+
+    /// A guess from where the car's parked, for the label, before asking for your location.
+    private var guess: Commute? {
+        car.snapshot?.parkingPosition.flatMap { model.commutes.starting(near: $0) }
+    }
+
+    var body: some View {
+        Button {
+            Task { await go() }
+        } label: {
+            HStack {
+                Label(guess.map { "Check traffic: \($0.name)" } ?? "Check traffic from here", systemImage: "location.fill")
+                    .font(.body.weight(.semibold))
+                Spacer()
+                if finding { ProgressView() }
+            }
+        }
+        .disabled(finding || model.commutes.isEmpty)
+        if let note {
+            Text(note).font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    private func go() async {
+        finding = true
+        defer { finding = false }
+        note = nil
+        LocationAccess.shared.requestIfNeeded()
+        let here = await LocationPhoneLocator().locate() ?? car.snapshot?.parkingPosition
+        if let here, let c = model.commutes.starting(near: here) {
+            CommuteInbox.shared.open = c.id
+        } else if model.commutes.count == 1 {
+            CommuteInbox.shared.open = model.commutes[0].id
+        } else {
+            note = here == nil
+                ? "Couldn't tell where you are. Pick a commute below."
+                : "You're not at the start of a commute. Pick one below, or add the way back."
         }
     }
 }

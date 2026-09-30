@@ -16,6 +16,9 @@ final class LocalNotifier: NSObject, Notifier, UNUserNotificationCenterDelegate,
     static let commandID = "command"
     /// userInfo key: "settings" when tapping should open Settings.
     static let openKey = "open"
+    /// userInfo key: the commute to open when tapped.
+    static let commuteKey = "commute"
+    static let commuteReminderPrefix = "commute-remind-"
 
     /// Set once at launch; runs when the user taps Stop on a notification.
     var onStop: (@MainActor () async -> Void)?
@@ -140,6 +143,34 @@ final class LocalNotifier: NSObject, Notifier, UNUserNotificationCenterDelegate,
         }
     }
 
+    /// A commute's traffic, or a nudge to check it; tapping opens the commute.
+    func commute(_ id: UUID, title: String, text: String) async {
+        await post(title: title, text: text, category: nil, id: "commute-\(id.uuidString)", userInfo: [Self.commuteKey: id.uuidString])
+    }
+
+    /// Books each commute's set-time reminder on its days, replacing the last lot.
+    func bookCommuteReminders(_ commutes: [Commute]) async {
+        let center = UNUserNotificationCenter.current()
+        let old = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(Self.commuteReminderPrefix) }
+        center.removePendingNotificationRequests(withIdentifiers: old)
+        for c in commutes {
+            guard let at = c.auto.remindAt, c.start != nil else { continue }
+            for day in c.auto.days {
+                let content = UNMutableNotificationContent()
+                content.title = "Check the traffic for \(c.name)?"
+                content.body = "Tap to see the quickest way and send your ETA."
+                content.sound = .default
+                content.userInfo = [Self.commuteKey: c.id.uuidString]
+                let when = DateComponents(hour: at.hour, minute: at.minute, weekday: day.calendarWeekday)
+                let request = UNNotificationRequest(
+                    identifier: "\(Self.commuteReminderPrefix)\(c.id.uuidString)-\(day.rawValue)", content: content,
+                    trigger: UNCalendarNotificationTrigger(dateMatching: when, repeats: true)
+                )
+                try? await center.add(request)
+            }
+        }
+    }
+
     private func post(title: String, text: String, category: String?, id: String? = nil, userInfo: [String: String] = [:]) async {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -189,6 +220,14 @@ final class LocalNotifier: NSObject, Notifier, UNUserNotificationCenterDelegate,
         if response.actionIdentifier == Self.lockAction {
             Task { @MainActor in
                 _ = await GlanceSync.shared.perform(.lock)
+                completionHandler()
+            }
+            return
+        }
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+           let raw = response.notification.request.content.userInfo[Self.commuteKey] as? String, let id = UUID(uuidString: raw) {
+            Task { @MainActor in
+                CommuteInbox.shared.open = id
                 completionHandler()
             }
             return

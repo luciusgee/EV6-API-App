@@ -15,6 +15,24 @@ public struct CommuteRoute: Codable, Equatable, Identifiable, Sendable {
         self.link = link
         self.points = points
     }
+
+    /// The shared link, or for a route with none (a way back made in the app), Google Maps directions
+    /// through the same points.
+    public var mapsURL: URL? {
+        if !link.isEmpty { return URL(string: link) }
+        guard let first = points.first, let last = points.last, points.count >= 2 else { return nil }
+        var c = URLComponents(string: "https://www.google.com/maps/dir/")!
+        var items = [
+            URLQueryItem(name: "api", value: "1"),
+            URLQueryItem(name: "origin", value: "\(first.lat),\(first.lon)"),
+            URLQueryItem(name: "destination", value: "\(last.lat),\(last.lon)"),
+            URLQueryItem(name: "travelmode", value: "driving"),
+        ]
+        let via = points.dropFirst().dropLast()
+        if !via.isEmpty { items.append(URLQueryItem(name: "waypoints", value: via.map { "\($0.lat),\($0.lon)" }.joined(separator: "|"))) }
+        c.queryItems = items
+        return c.url
+    }
 }
 
 public enum MessageChannel: String, Codable, CaseIterable, Sendable {
@@ -36,11 +54,14 @@ public struct Commute: Codable, Equatable, Identifiable, Sendable {
     /// Who gets it: a phone number, with country code for WhatsApp.
     public var recipient: String
     public var channel: MessageChannel
+    /// Checking by itself: when you leave the start, and a reminder at a set time.
+    public var auto: CommuteAuto
 
     public static let defaultMessage = "I'll be home at {eta}, see you soon x"
 
     public init(id: UUID = UUID(), name: String, routes: [CommuteRoute] = [], toleranceMinutes: Int = 10,
-                message: String = Commute.defaultMessage, recipient: String = "", channel: MessageChannel = .messages) {
+                message: String = Commute.defaultMessage, recipient: String = "", channel: MessageChannel = .messages,
+                auto: CommuteAuto = CommuteAuto()) {
         self.id = id
         self.name = name
         self.routes = routes
@@ -48,6 +69,7 @@ public struct Commute: Codable, Equatable, Identifiable, Sendable {
         self.message = message
         self.recipient = recipient
         self.channel = channel
+        self.auto = auto
     }
 
     public init(from decoder: Decoder) throws {
@@ -59,6 +81,34 @@ public struct Commute: Codable, Equatable, Identifiable, Sendable {
         message = try c.decodeIfPresent(String.self, forKey: .message) ?? Self.defaultMessage
         recipient = try c.decodeIfPresent(String.self, forKey: .recipient) ?? ""
         channel = try c.decodeIfPresent(MessageChannel.self, forKey: .channel) ?? .messages
+        auto = try c.decodeIfPresent(CommuteAuto.self, forKey: .auto) ?? CommuteAuto()
+    }
+
+    /// Where the favourite route starts and ends.
+    public var start: LatLon? { routes.first?.points.first }
+    public var end: LatLon? { routes.first?.points.last }
+
+    /// The same drive the other way: every route reversed, for the trip back.
+    public func reversed(name: String, message: String) -> Commute {
+        Commute(
+            name: name,
+            routes: routes.map { CommuteRoute(name: $0.name, link: "", points: $0.points.reversed()) },
+            toleranceMinutes: toleranceMinutes, message: message, recipient: recipient, channel: channel
+        )
+    }
+
+    /// The region watched for leaving the start.
+    public static let regionPrefix = "commute:"
+    public static let leaveRadiusM = 300.0
+
+    public var leaveRegion: GeofenceSpec? {
+        guard auto.whenLeaving, let start else { return nil }
+        return GeofenceSpec(id: Self.regionPrefix + id.uuidString, centre: start, radiusM: Self.leaveRadiusM, enter: false, exit: true)
+    }
+
+    public static func id(fromRegion regionId: String) -> UUID? {
+        guard regionId.hasPrefix(regionPrefix) else { return nil }
+        return UUID(uuidString: String(regionId.dropFirst(regionPrefix.count)))
     }
 
     /// The message with the blanks filled in.
@@ -268,5 +318,36 @@ public struct CommuteImport: Codable, Equatable, Sendable {
         let d = data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
         return URL(string: "ev6://commutes?d=\(d)")
+    }
+}
+
+/// A commute checking itself: when you drive away from its start, and a reminder at a set time.
+public struct CommuteAuto: Codable, Equatable, Sendable {
+    public var whenLeaving: Bool
+    /// Nil: no reminder.
+    public var remindAt: ClockTime?
+    public var days: Set<Weekday>
+
+    public init(whenLeaving: Bool = false, remindAt: ClockTime? = nil, days: Set<Weekday> = Weekday.weekdays) {
+        self.whenLeaving = whenLeaving
+        self.remindAt = remindAt
+        self.days = days
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        whenLeaving = try c.decodeIfPresent(Bool.self, forKey: .whenLeaving) ?? false
+        remindAt = try c.decodeIfPresent(ClockTime.self, forKey: .remindAt)
+        days = try c.decodeIfPresent(Set<Weekday>.self, forKey: .days) ?? Weekday.weekdays
+    }
+}
+
+public extension Array where Element == Commute {
+    /// The commute that starts where you are: the nearest start within `withinM`. A commute ends
+    /// where another starts (home to work, work to home), so where you are says which way you're going.
+    func starting(near position: LatLon, withinM: Double = 2500) -> Commute? {
+        compactMap { c in c.start.map { (c, $0.distance(to: position)) } }
+            .filter { $0.1 <= withinM }
+            .min { $0.1 < $1.1 }?.0
     }
 }

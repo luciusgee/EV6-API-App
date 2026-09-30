@@ -28,6 +28,7 @@ struct TripsView: View {
                 }
 
                 Section {
+                    if !commutes.commutes.isEmpty { QuickCommuteButton() }
                     ForEach(commutes.commutes) { c in
                         NavigationLink {
                             CommuteDetailView(id: c.id)

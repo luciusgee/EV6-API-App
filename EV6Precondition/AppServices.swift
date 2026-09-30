@@ -63,9 +63,16 @@ final class AppServices {
             await BackgroundTrigger.run(event, at: at, engine: engine)
             await AppServices.shared.car.load()
         }
-        rules.onChange = { rules, places in
-            GeofenceMonitor.shared.sync(rules: rules, places: places, carPosition: car.snapshot?.parkingPosition)
+        rules.onChange = { _, _ in
+            AppServices.shared.syncGeofences()
             Task { await AskCoordinator.shared.rebook() }
+        }
+        commute.onChange = { list in
+            AppServices.shared.syncGeofences()
+            Task { await notifier.bookCommuteReminders(list) }
+        }
+        GeofenceMonitor.shared.onLeftCommuteStart = { id in
+            await CommuteCoordinator.leftStart(id)
         }
         let presence = self.presence
         let engine2 = container.engine
@@ -74,6 +81,12 @@ final class AppServices {
         presence.places = { rulesModel.places }
         // Now, not later: the Watch can wake the app in the background with a command.
         GlanceSync.shared.start(car: car)
+    }
+
+    /// Watches the places the rules need and the starts of commutes that check on leaving.
+    func syncGeofences() {
+        GeofenceMonitor.shared.sync(rules: rules.rules, places: rules.places, carPosition: car.snapshot?.parkingPosition,
+                                    extra: commute.commutes.compactMap(\.leaveRegion))
     }
 
     /// Loads settings and state once; safe to call from every entry point.

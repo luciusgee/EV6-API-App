@@ -62,6 +62,17 @@ struct RootView: View {
         .sheet(isPresented: Binding(get: { inbox.pending != nil }, set: { if !$0 { inbox.pending = nil } })) {
             if let list = inbox.pending { CommuteImportView(list: list) }
         }
+        // A commute notification tapped, or the quick traffic check.
+        .sheet(isPresented: Binding(get: { inbox.open != nil }, set: { if !$0 { inbox.open = nil } })) {
+            if let id = inbox.open {
+                NavigationStack {
+                    CommuteDetailView(id: id)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) { Button("Done") { inbox.open = nil } }
+                        }
+                }
+            }
+        }
         .sheet(item: $tour.showing) { screen in
             GuideScreenSheet(screen: screen)
         }
@@ -91,7 +102,7 @@ struct RootView: View {
             Guide.seenBefore = seenRelease
             // After the launch animation, and not over anything else that's asking for attention.
             try? await Task.sleep(nanoseconds: 2_600_000_000)
-            while asks.pending != nil || inbox.rules != nil || inbox.pending != nil || tour.showing != nil {
+            while asks.pending != nil || inbox.rules != nil || inbox.pending != nil || inbox.open != nil || tour.showing != nil {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
             whatsNew = true

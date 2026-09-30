@@ -76,7 +76,7 @@ extension ChargingModel {
     }
 }
 
-private extension ClockTime {
+extension ClockTime {
     /// For a DatePicker showing hours and minutes.
     var date: Date {
         Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: Date()) ?? Date()

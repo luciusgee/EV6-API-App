@@ -9,6 +9,9 @@ public final class CommuteModel {
     public private(set) var advice: [UUID: CommuteAdvice] = [:]
     public private(set) var checking: Set<UUID> = []
 
+    /// Runs after the commutes change, so the app can watch their starts and book reminders.
+    @ObservationIgnored public var onChange: (@MainActor ([Commute]) -> Void)?
+
     /// Google when there's a key, Apple Maps otherwise. Set by the app.
     @ObservationIgnored public var timer: () -> DriveTimer = { NoDriveTimer() }
 
@@ -22,6 +25,7 @@ public final class CommuteModel {
 
     public func load() async {
         commutes = await store.load()
+        onChange?(commutes)
     }
 
     public func save(_ commute: Commute) async {
@@ -32,12 +36,14 @@ public final class CommuteModel {
         }
         advice[commute.id] = nil
         await store.save(commutes)
+        onChange?(commutes)
     }
 
     public func delete(_ id: UUID) async {
         commutes.removeAll { $0.id == id }
         advice[id] = nil
         await store.save(commutes)
+        onChange?(commutes)
     }
 
     /// The commute called `name` (any case), else the first.

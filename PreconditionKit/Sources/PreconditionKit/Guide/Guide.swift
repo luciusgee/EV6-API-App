@@ -112,7 +112,7 @@ public enum Guide {
                       "Add your routes home by pasting their Google Maps links, favourite first. It checks the traffic on all of them, takes your favourite unless another is much quicker, and writes your ETA message (\"I'll be home at 18:38…\") ready to send. Tap a route to rename it, see it on a map, swap its link or move it.",
                       symbol: "car.rear.road.lane", tab: .trips, screen: .commute),
             GuideStep("trips.commuteAuto", "Commute on autopilot",
-                      "In Shortcuts › Automation, make one for when you leave work (or a time on weekdays), set to Run Immediately. Add Check my commute from My EV6, then Send Message with its result. You get a notification saying which way to go, and your message goes by itself.",
+                      "Check traffic from here picks the right commute for where you are: home means the way to work, work the way home (Make the way back adds the return). In a commute's Edit, Check automatically notifies you when you drive off or at a set time, one tap to send your ETA. For no tap at all, use a Shortcuts automation.",
                       symbol: "wand.and.stars", tab: .trips, screen: .commute),
             GuideStep("trips.places", "Time at places",
                       "Switch on the places to track, and see how long the car was at each by day, from its own trips, ready to export as a timesheet. Stops the app didn't see are worked out from how far the car drove.",
@@ -160,7 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
-        GuideRelease(number: 11, title: "A new rule maker, and trips with several stops", stepIds: ["rules.intro", "trips.plan", "trips.food", "trips.commute", "charging.hub", "trips.places"]),
+        GuideRelease(number: 11, title: "A new rule maker, and trips with several stops", stepIds: ["rules.intro", "trips.commuteAuto", "trips.plan", "trips.food", "trips.commute", "charging.hub", "trips.places"]),
         GuideRelease(number: 10, title: "Fewer false plug-in reminders", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 9, title: "A fresh coat of paint", stepIds: ["car.look", "car.refresh", "settings.alerts"]),
         GuideRelease(number: 8, title: "Trips has its own tab, and a simpler planner", stepIds: ["trips.tab", "trips.plan", "trips.tesla"]),

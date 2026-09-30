@@ -75,11 +75,12 @@ struct EnergyView: View {
                             load()
                         } label: {
                             HStack(spacing: 8) {
-                                if model.busy == .energy { ProgressView().tint(.white) }
+                                if model.busy == .energy { ProgressView().tint(Color.onAccent) }
                                 Text(model.busy == .energy ? "Loading…" : "Load energy data")
                             }
                         }
                         .buttonStyle(.borderedProminent)
+                        .foregroundStyle(Color.onAccent)
                         .disabled(model.busy != nil)
                     }
                 }

@@ -195,6 +195,7 @@ struct ConnectionBar: View {
                         Text("Connect").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .foregroundStyle(Color.black)
                     .tint(.green)
                     .contextMenu {
                         Button("Choose Adapter…") { showingAdapters = true }

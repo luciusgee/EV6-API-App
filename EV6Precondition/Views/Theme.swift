@@ -6,6 +6,19 @@ extension String {
 }
 
 /// A stepper with round, filled − and + buttons: iOS's own is nearly invisible on dark grouped rows.
+extension Color {
+    /// Text and symbols on the accent colour: white on the light-mode teal, near-black on the
+    /// dark-mode cyan, where white is hard to read.
+    static let onAccent = Color("OnAccent")
+
+    /// What reads on `tint` as a filled background.
+    static func on(_ tint: Color) -> Color {
+        if tint == .accentColor { return .onAccent }
+        if [Color.green, .mint, .cyan, .yellow, .orange].contains(tint) { return .black }
+        return .white
+    }
+}
+
 struct RoundStepper<V: Strideable>: View {
     let title: String
     @Binding var value: V
@@ -55,7 +68,7 @@ struct RoundStepper<V: Strideable>: View {
             Image(systemName: symbol)
                 .font(.system(size: 15, weight: .bold))
                 .frame(width: 36, height: 36)
-                .foregroundStyle(enabled ? Color.white : Color.secondary)
+                .foregroundStyle(enabled ? Color.on(tint) : Color.secondary)
                 .background(enabled ? tint.opacity(0.85) : Color(.tertiarySystemFill), in: Circle())
         }
         .buttonStyle(.borderless)

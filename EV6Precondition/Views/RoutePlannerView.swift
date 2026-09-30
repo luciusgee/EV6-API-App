@@ -381,7 +381,7 @@ struct RoutePlannerView: View {
                 HStack {
                     Spacer()
                     if sent, isSending {
-                        ProgressView().tint(.white)
+                        ProgressView().tint(Color.onAccent)
                         Text("Sending…")
                     } else {
                         Label("Send to the car", systemImage: "car.side.arrowtriangle.up.fill")
@@ -392,6 +392,7 @@ struct RoutePlannerView: View {
                 .padding(.vertical, 4)
             }
             .buttonStyle(.borderedProminent)
+            .foregroundStyle(Color.onAccent)
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .disabled(car.busy != nil)

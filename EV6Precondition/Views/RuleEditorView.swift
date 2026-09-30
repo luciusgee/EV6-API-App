@@ -478,7 +478,7 @@ struct DaysPicker: View {
                     Text(String(day.shortName.prefix(2)))
                         .font(.footnote.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 32)
-                        .foregroundStyle(on ? Color.white : Color.primary)
+                        .foregroundStyle(on ? Color.onAccent : Color.primary)
                         .background(on ? Color.accentColor : Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)

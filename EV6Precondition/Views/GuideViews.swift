@@ -85,6 +85,7 @@ struct TourCard: View {
                     }
                     Button(tour.index + 1 == tour.steps.count ? "Done" : "Next") { tour.next() }
                         .buttonStyle(.borderedProminent)
+                        .foregroundStyle(Color.onAccent)
                 }
             }
             .padding(16)

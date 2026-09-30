@@ -192,6 +192,7 @@ struct TripView: View {
                         Label("Start Trip", systemImage: "play.fill").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .foregroundStyle(Color.onAccent)
                     .disabled(obd.carState != .connected)
                 } else {
                     Button(role: .destructive) {

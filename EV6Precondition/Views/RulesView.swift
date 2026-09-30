@@ -63,6 +63,7 @@ struct RulesView: View {
                         } actions: {
                             Button("Type a rule") { composing = true }
                                 .buttonStyle(.borderedProminent)
+                                .foregroundStyle(Color.onAccent)
                             Menu("Choose a template") {
                                 ForEach(Templates.all, id: \.title) { template in
                                     Button(template.title) {

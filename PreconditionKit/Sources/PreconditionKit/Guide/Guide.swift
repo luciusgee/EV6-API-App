@@ -100,7 +100,7 @@ public enum Guide {
                       "Most UK Superchargers take any car through the Tesla app; you pay by card in the app, less with its monthly membership. Most are older V3 units where an EV6 charges at about 60 kW, so the planner allows for that.",
                       symbol: "bolt.car", tab: .trips),
             GuideStep("trips.food", "Charge and eat",
-                      "Each charging stop shows where it is (like Rugby Services) and which of your food places are a short walk away. Tap the stop for every charger you could use instead, with the food at each: tap one to stop there, or ⓘ for its details. Each says how far off the route it is, and Only services on the main road keeps to motorway services and forecourts right by the route. Change your food list in Food I look for.",
+                      "Each stop shows where it is (like Rugby Services) and your food nearby. Tap it for every charger in reach: how far off the route and the minutes that adds, how many chargers and how fast, and the food. Tap one to stop there. Only services on the main road keeps to motorway services and forecourts. Change your food in Food I look for.",
                       symbol: "fork.knife", tab: .trips, screen: .foodChains),
             GuideStep("trips.saved", "Save it, send it to the car",
                       "At the bottom of a planned trip, Save keeps it in the Trips tab, and Send to the car puts the stops and destination in the car's sat nav, now or whenever you're ready.",
@@ -160,7 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
-        GuideRelease(number: 12, title: "Chargers: how far off the route, and services on the main road", stepIds: ["trips.food"]),
+        GuideRelease(number: 12, title: "Chargers: detours, how many and how fast, and services on the main road", stepIds: ["trips.food"]),
         GuideRelease(number: 11, title: "A new rule maker, and trips with several stops", stepIds: ["rules.intro", "trips.commuteAuto", "trips.plan", "trips.food", "trips.commute", "charging.hub", "trips.places"]),
         GuideRelease(number: 10, title: "Fewer false plug-in reminders", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 9, title: "A fresh coat of paint", stepIds: ["car.look", "car.refresh", "settings.alerts"]),

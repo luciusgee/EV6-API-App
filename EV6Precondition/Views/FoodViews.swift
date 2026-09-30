@@ -113,12 +113,26 @@ struct StopChoiceView: View {
     /// how far it is from the route line, which is a few hundred metres at motorway services.
     static func onMainRoad(_ c: RouteCharger) -> Bool { c.detourKm / 2 <= 0.8 }
 
-    /// How far it is from the route (half the extra driving: there and back).
+    /// How far it is from the route (half the extra driving: there and back), and the time that adds.
     private func offRoute(_ c: RouteCharger) -> String {
         let km = c.detourKm / 2
         guard km >= 0.3 else { return "on the route" }
         let value = miles ? km / DisplayText.kmPerMile : km
-        return String(format: value < 10 ? "%.1f %@ off route" : "%.0f %@ off route", value, miles ? "mi" : "km")
+        let distance = String(format: value < 10 ? "%.1f %@" : "%.0f %@", value, miles ? "mi" : "km")
+        return "\(distance) off route (+\(Self.detourMinutes(c)) min)"
+    }
+
+    /// There and back on local roads, at about 35 km/h.
+    static func detourMinutes(_ c: RouteCharger) -> Int { max(1, Int((c.detourKm / 35 * 60).rounded())) }
+
+    /// "6 chargers · 350 kW" from OpenStreetMap or Open Charge Map; else the guess from the name.
+    private func power(_ o: StopOption) -> String {
+        if let site = sites[o.id], let kw = site.maxKW {
+            let n = max(site.rapidCount, 1)
+            return "\(n) rapid · \(Int(kw)) kW"
+        }
+        if let summary = food.details[o.id]?.summary { return summary }
+        return "~\(Int(o.charger.powerKW)) kW (guessed from the name)"
     }
 
     private func row(_ o: StopOption) -> some View {
@@ -146,10 +160,10 @@ struct StopChoiceView: View {
                 "\(DisplayText.distance(km: o.charger.alongKm, miles: miles)) in",
                 offRoute(o.charger),
                 "arrive \(Int(o.arrivePercent.rounded()))%",
-                o.charger.powerGuessed ? "~\(Int(o.charger.powerKW)) kW" : "\(Int(o.charger.powerKW)) kW",
-                sites[o.id].flatMap { $0.rapidCount > 0 ? "\($0.rapidCount) rapid" : nil },
             ].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption).foregroundStyle(.secondary)
+            Label(power(o), systemImage: "bolt.fill")
+                .font(.caption.weight(.medium)).foregroundStyle(.secondary)
             if names == nil {
                 Text("Looking for food…").font(.caption).foregroundStyle(.secondary)
             } else if matched.isEmpty {

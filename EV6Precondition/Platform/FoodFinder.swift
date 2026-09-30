@@ -14,6 +14,10 @@ final class FoodFinder {
     private(set) var stations: [String: Station] = [:]
     /// Chargers whose services and petrol station have been looked up.
     private(set) var stationChecked: Set<String> = []
+    /// Charger id → how many points and how fast, from OpenStreetMap, where it's mapped.
+    private(set) var details: [String: ChargerDetails] = [:]
+    @ObservationIgnored private var detailsTried: Set<String> = []
+    @ObservationIgnored private let osm = OSMChargersClient(transport: URLSessionTransport())
 
     struct Station: Equatable {
         var name: String
@@ -31,6 +35,12 @@ final class FoodFinder {
     }
 
     func load(_ chargers: [RouteCharger]) async {
+        // One OpenStreetMap request for all of them, alongside Apple Maps.
+        let detailsWanted = chargers.filter { !detailsTried.contains($0.id) }
+        detailsTried.formUnion(detailsWanted.map(\.id))
+        let points = detailsWanted.map { (id: $0.id, position: $0.position) }
+        let client = osm
+        async let osmDetails = try? client.details(for: points)
         let areaWanted = chargers.filter { !areaTried.contains($0.id) }
         areaTried.formUnion(areaWanted.map(\.id))
         let noServices: [String] = await withTaskGroup(of: String?.self) { group in
@@ -62,6 +72,12 @@ final class FoodFinder {
             var out: [String] = []
             for await id in group { if let id { out.append(id) } }
             return out
+        }
+        if let found = await osmDetails {
+            details.merge(found) { _, new in new }
+        } else {
+            // Try again next time.
+            detailsTried.subtract(detailsWanted.map(\.id))
         }
         // Apple limits how fast places can be looked up, so one at a time.
         for c in areaWanted where noServices.contains(c.id) {

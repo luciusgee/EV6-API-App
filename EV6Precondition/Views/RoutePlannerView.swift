@@ -468,8 +468,9 @@ struct RoutePlannerView: View {
                 Text([
                     food.area(of: stop.charger),
                     "\(DisplayText.distance(km: stop.charger.alongKm, miles: miles)) in",
-                    stop.charger.powerGuessed ? "~\(Int(stop.charger.powerKW)) kW" : "\(Int(stop.charger.powerKW)) kW",
-                    f.sites[stop.charger.id].flatMap { $0.rapidCount > 0 ? "\($0.rapidCount) rapid" : nil },
+                    f.sites[stop.charger.id].flatMap { $0.rapidCount > 0 ? "\($0.rapidCount) rapid" : nil }
+                        ?? food.details[stop.charger.id]?.summary
+                        ?? (stop.charger.powerGuessed ? "~\(Int(stop.charger.powerKW)) kW" : "\(Int(stop.charger.powerKW)) kW"),
                     "leave \(time(arrive + stop.chargeMinutes + 5))",
                 ].compactMap { $0 }.joined(separator: " · "))
                     .font(.caption)

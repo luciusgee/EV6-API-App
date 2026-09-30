@@ -44,14 +44,18 @@ struct StopChoiceView: View {
     let onPick: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var onlyWithFood = true
+    @State private var onlyStations = false
     /// The charger whose details are open, by id.
     @State private var details: String?
 
     private var shown: [StopOption] {
         // The chosen one first.
         let ordered = options.filter { $0.id == current } + options.filter { $0.id != current }
-        guard onlyWithFood else { return ordered }
-        return ordered.filter { o in
+        let stops = onlyStations
+            ? ordered.filter { o in o.id == current || !food.stationChecked.contains(o.id) || food.stations[o.id] != nil }
+            : ordered
+        guard onlyWithFood else { return stops }
+        return stops.filter { o in
             // Keep ones still loading, and the current stop.
             o.id == current || food.food(at: o.charger) == nil || !FoodMatch.chains(at: food.food(at: o.charger) ?? [], from: chains).isEmpty
         }
@@ -61,10 +65,11 @@ struct StopChoiceView: View {
         List {
             Section {
                 Toggle("Only chargers with my food", isOn: $onlyWithFood)
+                Toggle("Only service stations", isOn: $onlyStations)
             }
             Section {
                 if shown.isEmpty {
-                    Text("None of the chargers in reach have your food places. Turn off the filter to see them all.").foregroundStyle(.secondary)
+                    Text("None of the chargers in reach match. Turn off a filter to see more.").foregroundStyle(.secondary)
                 }
                 ForEach(shown) { o in
                     HStack(spacing: 8) {
@@ -87,7 +92,7 @@ struct StopChoiceView: View {
             } header: {
                 Text("Chargers in reach for this stop")
             } footer: {
-                Text("Tap a charger to stop there, or ⓘ for its details and directions. Food within a short walk, from Apple Maps. Times assume you leave at \(leaving.formatted(date: .omitted, time: .shortened)).")
+                Text("Tap a charger to stop there, or ⓘ for its details and directions. Service stations are motorway services or petrol stations. Food within a short walk, from Apple Maps. Times assume you leave at \(leaving.formatted(date: .omitted, time: .shortened)).")
             }
         }
         .listStyle(.insetGrouped)
@@ -102,6 +107,14 @@ struct StopChoiceView: View {
         .task { await food.load(options.prefix(30).map(\.charger)) }
     }
 
+    /// How far it is from the route (half the extra driving: there and back).
+    private func offRoute(_ c: RouteCharger) -> String {
+        let km = c.detourKm / 2
+        guard km >= 0.3 else { return "on the route" }
+        let value = miles ? km / DisplayText.kmPerMile : km
+        return String(format: value < 10 ? "%.1f %@ off route" : "%.0f %@ off route", value, miles ? "mi" : "km")
+    }
+
     private func row(_ o: StopOption) -> some View {
         let names = food.food(at: o.charger)
         let matched = FoodMatch.chains(at: names ?? [], from: chains)
@@ -111,8 +124,12 @@ struct StopChoiceView: View {
                     .foregroundStyle(o.id == current ? .green : .secondary)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(o.charger.name).foregroundStyle(.primary).lineLimit(1)
-                    if let area = food.area(of: o.charger) {
-                        Label(area, systemImage: "mappin.and.ellipse").font(.caption.weight(.medium)).foregroundStyle(.secondary).lineLimit(1)
+                    if let station = food.stations[o.id], !station.motorway {
+                        Label([station.name, food.area(of: o.charger)].compactMap { $0 }.joined(separator: " · "), systemImage: "fuelpump.fill")
+                            .font(.caption.weight(.medium)).foregroundStyle(.secondary).lineLimit(1)
+                    } else if let area = food.area(of: o.charger) {
+                        Label(area, systemImage: food.stations[o.id]?.motorway == true ? "road.lanes" : "mappin.and.ellipse")
+                            .font(.caption.weight(.medium)).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 Spacer()
@@ -121,6 +138,7 @@ struct StopChoiceView: View {
             }
             Text([
                 "\(DisplayText.distance(km: o.charger.alongKm, miles: miles)) in",
+                offRoute(o.charger),
                 "arrive \(Int(o.arrivePercent.rounded()))%",
                 o.charger.powerGuessed ? "~\(Int(o.charger.powerKW)) kW" : "\(Int(o.charger.powerKW)) kW",
                 sites[o.id].flatMap { $0.rapidCount > 0 ? "\($0.rapidCount) rapid" : nil },

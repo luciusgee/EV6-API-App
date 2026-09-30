@@ -10,6 +10,15 @@ final class FoodFinder {
     private(set) var places: [String: [String]] = [:]
     /// Charger id → the services or town it's at.
     private(set) var areas: [String: String] = [:]
+    /// Charger id → the motorway services or petrol station it's at; missing when it's at neither.
+    private(set) var stations: [String: Station] = [:]
+    /// Chargers whose services and petrol station have been looked up.
+    private(set) var stationChecked: Set<String> = []
+
+    struct Station: Equatable {
+        var name: String
+        var motorway: Bool
+    }
     private(set) var loading: Set<String> = []
     @ObservationIgnored private var areaTried: Set<String> = []
 
@@ -36,8 +45,17 @@ final class FoodFinder {
             }
             for c in areaWanted {
                 group.addTask { @MainActor in
-                    guard let services = await Self.services(near: c.position) else { return c.id }
-                    self.areas[c.id] = services
+                    async let services = Self.services(near: c.position)
+                    async let petrol = Self.petrolStation(near: c.position)
+                    let (motorway, fuel) = await (services, petrol)
+                    if let motorway {
+                        self.stations[c.id] = Station(name: motorway, motorway: true)
+                    } else if let fuel {
+                        self.stations[c.id] = Station(name: fuel, motorway: false)
+                    }
+                    self.stationChecked.insert(c.id)
+                    guard let motorway else { return c.id }
+                    self.areas[c.id] = motorway
                     return nil
                 }
             }
@@ -59,11 +77,18 @@ final class FoodFinder {
         request.region = MKCoordinateRegion(center: centre, latitudinalMeters: 1200, longitudinalMeters: 1200)
         let items = (try? await MKLocalSearch(request: request).start().mapItems) ?? []
         let here = CLLocation(latitude: p.lat, longitude: p.lon)
-        let brands = ["services", "moto ", "welcome break", "roadchef", "extra ", "truckstop"]
         return items.first { item in
-            guard let name = item.name?.lowercased(), brands.contains(where: { name.contains($0) }) else { return false }
+            guard let name = item.name, ServiceStations.isMotorwayServices(name) else { return false }
             return item.placemark.location.map { $0.distance(from: here) <= 600 } ?? false
         }?.name
+    }
+
+    /// A petrol station on the same forecourt, e.g. "Shell".
+    static func petrolStation(near p: LatLon) async -> String? {
+        let centre = CLLocationCoordinate2D(latitude: p.lat, longitude: p.lon)
+        let request = MKLocalPointsOfInterestRequest(center: centre, radius: 150)
+        request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.gasStation])
+        return ((try? await MKLocalSearch(request: request).start().mapItems) ?? []).first?.name
     }
 
     /// The town or district, when it isn't at services.

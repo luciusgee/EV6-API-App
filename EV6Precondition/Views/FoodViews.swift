@@ -52,7 +52,9 @@ struct StopChoiceView: View {
         // The chosen one first.
         let ordered = options.filter { $0.id == current } + options.filter { $0.id != current }
         let stops = onlyStations
-            ? ordered.filter { o in o.id == current || !food.stationChecked.contains(o.id) || food.stations[o.id] != nil }
+            ? ordered.filter { o in
+                o.id == current || (Self.onMainRoad(o.charger) && (!food.stationChecked.contains(o.id) || food.stations[o.id] != nil))
+            }
             : ordered
         guard onlyWithFood else { return stops }
         return stops.filter { o in
@@ -65,7 +67,7 @@ struct StopChoiceView: View {
         List {
             Section {
                 Toggle("Only chargers with my food", isOn: $onlyWithFood)
-                Toggle("Only service stations", isOn: $onlyStations)
+                Toggle("Only services on the main road", isOn: $onlyStations)
             }
             Section {
                 if shown.isEmpty {
@@ -92,7 +94,7 @@ struct StopChoiceView: View {
             } header: {
                 Text("Chargers in reach for this stop")
             } footer: {
-                Text("Tap a charger to stop there, or ⓘ for its details and directions. Service stations are motorway services or petrol stations. Food within a short walk, from Apple Maps. Times assume you leave at \(leaving.formatted(date: .omitted, time: .shortened)).")
+                Text("Tap a charger to stop there, or ⓘ for its details and directions. Services on the main road are motorway services or petrol stations right by the route, not a detour into town. Food within a short walk, from Apple Maps. Times assume you leave at \(leaving.formatted(date: .omitted, time: .shortened)).")
             }
         }
         .listStyle(.insetGrouped)
@@ -106,6 +108,10 @@ struct StopChoiceView: View {
         }
         .task { await food.load(options.prefix(30).map(\.charger)) }
     }
+
+    /// Right by the road you're on: services on the slip road, not a trip into town. The figure is
+    /// how far it is from the route line, which is a few hundred metres at motorway services.
+    static func onMainRoad(_ c: RouteCharger) -> Bool { c.detourKm / 2 <= 0.8 }
 
     /// How far it is from the route (half the extra driving: there and back).
     private func offRoute(_ c: RouteCharger) -> String {

@@ -55,8 +55,24 @@ public struct ChargingData: Codable, Equatable, Sendable {
     /// The first odometer reading seen, for cost per mile.
     public var firstOdometerKm: Double?
     public var latestOdometerKm: Double?
+    /// How home charges were costed: 2 puts them in the cheapest hours between readings.
+    public var costing: Int = ChargingData.currentCosting
+    public static let currentCosting = 2
 
     public init() {}
+
+    enum CodingKeys: String, CodingKey { case sessions, last, open, firstOdometerKm, latestOdometerKm, costing }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessions = try c.decodeIfPresent([ChargeSession].self, forKey: .sessions) ?? []
+        last = try c.decodeIfPresent(Reading.self, forKey: .last)
+        open = try c.decodeIfPresent(Reading.self, forKey: .open)
+        firstOdometerKm = try c.decodeIfPresent(Double.self, forKey: .firstOdometerKm)
+        latestOdometerKm = try c.decodeIfPresent(Double.self, forKey: .latestOdometerKm)
+        // Saved before costing was recorded: the old, time-averaged way.
+        costing = try c.decodeIfPresent(Int.self, forKey: .costing) ?? 1
+    }
 }
 
 public struct ChargingSettings: Codable, Equatable, Sendable {
@@ -170,6 +186,24 @@ public enum ChargeLedger {
         return nil
     }
 
+    static func homeCost(paidKWh: Double, from: Date, to: Date, settings: ChargingSettings, agileSlots: [PriceSlot], calendar: Calendar) -> Double {
+        // A "7 kW" wallbox is 32 A, which draws about 7.4 kW from the wall.
+        let kW = settings.smart.chargerKW == 7 ? 7.4 : settings.smart.chargerKW
+        return settings.tariff.chargeCost(kWh: paidKWh, powerKW: kW, from: from, to: to, agileSlots: agileSlots, calendar: calendar)
+    }
+
+    /// Prices home charges seen before costing used the cheapest hours again, with the tariff they
+    /// were seen under being the current one (it's the only one known). Runs once.
+    public static func recostOldHomeCharges(_ data: inout ChargingData, settings: ChargingSettings, agileSlots: [PriceSlot], calendar: Calendar = .current) {
+        guard data.costing < ChargingData.currentCosting else { return }
+        data.costing = ChargingData.currentCosting
+        for i in data.sessions.indices where data.sessions[i].atHome && !data.sessions[i].manual {
+            let s = data.sessions[i]
+            data.sessions[i].costPence = homeCost(paidKWh: s.paidKWh, from: s.start, to: s.end, settings: settings,
+                                                  agileSlots: agileSlots, calendar: calendar).rounded()
+        }
+    }
+
     private static func close(
         _ data: inout ChargingData, from: ChargingData.Reading, to: ChargingData.Reading,
         settings: ChargingSettings, home: LatLon?, agileSlots: [PriceSlot], calendar: Calendar
@@ -186,7 +220,7 @@ public enum ChargeLedger {
         let battery = Double(to.soc - from.soc) / 100 * settings.usableKWh
         let paid = atHome ? battery * settings.homeLossFactor : battery
         let pence = atHome
-            ? paid * settings.tariff.averagePence(from: from.at, to: to.at, agileSlots: agileSlots, calendar: calendar)
+            ? homeCost(paidKWh: paid, from: from.at, to: to.at, settings: settings, agileSlots: agileSlots, calendar: calendar)
             : paid * settings.publicPencePerKWh
         let session = ChargeSession(
             id: ISO8601DateFormatter().string(from: from.at),

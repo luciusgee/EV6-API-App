@@ -72,7 +72,27 @@ public enum Tariff: Codable, Equatable, Sendable {
         }
     }
 
-    /// Average price over [from, to), weighted by time; used to cost a charge.
+    /// What `kWh` cost if it was drawn at `powerKW` somewhere in [from, to). Readings are far apart
+    /// (the car's seen charging at 23:00 and finished at 07:15, say), so the charge is put in the
+    /// cheapest half hours of that stretch, which is what the car's charging window does. Anything
+    /// that doesn't fit is priced at the dearest half hour.
+    public func chargeCost(kWh: Double, powerKW: Double, from: Date, to: Date, agileSlots: [PriceSlot] = [], calendar: Calendar = .current) -> Double {
+        guard kWh > 0 else { return 0 }
+        let slots = slots(from: from, to: max(to, from.addingTimeInterval(60)), agileSlots: agileSlots, calendar: calendar)
+            .map(\.pencePerKWh).sorted()
+        guard let dearest = slots.last else { return 0 }
+        let perSlot = max(0.1, powerKW) / 2
+        var left = kWh
+        var pence = 0.0
+        for price in slots where left > 0 {
+            let take = min(perSlot, left)
+            pence += take * price
+            left -= take
+        }
+        return pence + left * dearest
+    }
+
+    /// Average price over [from, to), weighted by time.
     public func averagePence(from: Date, to: Date, agileSlots: [PriceSlot] = [], calendar: Calendar = .current) -> Double {
         let slots = slots(from: from, to: max(to, from.addingTimeInterval(60)), agileSlots: agileSlots, calendar: calendar)
         guard !slots.isEmpty else { return 0 }

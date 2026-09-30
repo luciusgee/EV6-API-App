@@ -31,6 +31,28 @@ final class ChargingTests: XCTestCase {
         XCTAssertEqual(tariff.averagePence(from: date("2026-09-30T00:00:00Z"), to: date("2026-09-30T02:00:00Z"), calendar: utc), 7)
     }
 
+    func testAnOvernightChargeIsCostedInTheCheapHours() throws {
+        // Seen charging at 23:00, next seen finished at 07:15: the peak hour after 06:00 shouldn't count.
+        let tariff = Tariff.offPeak(peakPence: 32.875, offPeakPence: 6.66, from: ClockTime(hour: 23), to: ClockTime(hour: 6))
+        let cost = tariff.chargeCost(kWh: 40, powerKW: 7, from: date("2026-09-29T23:00:00Z"), to: date("2026-09-30T07:15:00Z"), calendar: utc)
+        XCTAssertEqual(cost, 40 * 6.66, accuracy: 0.001)
+        // More than the window can hold: the rest at the peak price.
+        let over = tariff.chargeCost(kWh: 52, powerKW: 7, from: date("2026-09-29T23:00:00Z"), to: date("2026-09-30T07:15:00Z"), calendar: utc)
+        XCTAssertEqual(over, 49 * 6.66 + 3 * 32.875, accuracy: 0.001)
+
+        // Old charges are costed again this way, once.
+        var settings = ChargingSettings(tariff: tariff)
+        settings.smart.chargerKW = 7
+        var data = try JSONDecoder().decode(ChargingData.self, from: Data(#"{"sessions":[]}"#.utf8))
+        data.sessions = [ChargeSession(id: "a", start: date("2026-09-29T23:00:00Z"), end: date("2026-09-30T07:15:00Z"), startPercent: 35, endPercent: 90,
+                                       batteryKWh: 36, paidKWh: 40, costPence: 493, atHome: true)]
+        ChargeLedger.recostOldHomeCharges(&data, settings: settings, agileSlots: [], calendar: utc)
+        XCTAssertEqual(data.sessions[0].costPence, (40 * 6.66).rounded())
+        data.sessions[0].costPence = 1
+        ChargeLedger.recostOldHomeCharges(&data, settings: settings, agileSlots: [], calendar: utc)
+        XCTAssertEqual(data.sessions[0].costPence, 1)
+    }
+
     func testAgileUsesPublishedSlotsAndFallsBack() {
         let slots = [PriceSlot(start: date("2026-09-29T23:00:00Z"), end: date("2026-09-29T23:30:00Z"), pencePerKWh: 4.2)]
         let tariff = Tariff.agile(region: "C", fallbackPence: 25)

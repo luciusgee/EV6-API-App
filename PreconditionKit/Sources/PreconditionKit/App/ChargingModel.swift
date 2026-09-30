@@ -42,6 +42,12 @@ public final class ChargingModel {
         data = await dataStore.load()
         agile = await pricesStore.load()
         loaded = true
+        var d = data
+        ChargeLedger.recostOldHomeCharges(&d, settings: settings, agileSlots: agile, calendar: calendar)
+        if d != data {
+            data = d
+            await dataStore.save(d)
+        }
     }
 
     /// Everything that writes starts here, so a write never replaces the files with defaults.

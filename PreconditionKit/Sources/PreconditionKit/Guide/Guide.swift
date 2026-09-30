@@ -74,7 +74,7 @@ public enum Guide {
         ]),
         GuideSection(id: "charging", title: "Charging", symbol: "bolt.fill", steps: [
             GuideStep("charging.hub", "Charging & costs",
-                      "Your home tariff (Octopus Agile prices come in on their own), smart charging to be full by a set time at the cheapest rate, and what every charge cost, home and public.",
+                      "Your home tariff (Octopus Agile prices come in on their own), smart charging to be full by a set time at the cheapest rate, and what every charge cost, home and public. Overnight charges are priced at your cheap rate.",
                       symbol: "bolt.batteryblock", tab: .car, screen: .charging),
             GuideStep("charging.offPeak", "Off-peak window",
                       "The car's own charging window, like the 23:00–06:00 you set in the Kia app. Change the times, or make it charge only in the window, and send it to the car. Your departure times aren't touched. It asks for your Kia Connect PIN the first time.",
@@ -160,6 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
+        GuideRelease(number: 11, title: "Charges costed at the right price", stepIds: ["charging.hub"]),
         GuideRelease(number: 10, title: "Fewer false plug-in reminders", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 9, title: "A fresh coat of paint", stepIds: ["car.look", "car.refresh", "settings.alerts"]),
         GuideRelease(number: 8, title: "Trips has its own tab, and a simpler planner", stepIds: ["trips.tab", "trips.plan", "trips.tesla"]),

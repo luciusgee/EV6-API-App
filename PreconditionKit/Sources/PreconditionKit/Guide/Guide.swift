@@ -74,7 +74,7 @@ public enum Guide {
         ]),
         GuideSection(id: "charging", title: "Charging", symbol: "bolt.fill", steps: [
             GuideStep("charging.hub", "Charging & costs",
-                      "Your home tariff (Octopus Agile prices come in on their own), smart charging to be full by a set time at the cheapest rate, and what every charge cost, home and public. Overnight charges are priced at your cheap rate.",
+                      "Your home tariff, like EDF GoElectric's cheap overnight hours, smart charging to be full by a set time at the cheapest rate, and what every charge cost, home and public. Overnight charges are priced at your cheap rate.",
                       symbol: "bolt.batteryblock", tab: .car, screen: .charging),
             GuideStep("charging.offPeak", "Off-peak window",
                       "The car's own charging window, like the 23:00–06:00 you set in the Kia app. Change the times, or make it charge only in the window, and send it to the car. Your departure times aren't touched. It asks for your Kia Connect PIN the first time.",

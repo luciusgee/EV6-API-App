@@ -406,7 +406,7 @@ private struct TariffSection: View {
     @State private var lookingUp = false
 
     private enum Kind: String, CaseIterable, Identifiable {
-        case flat = "Standard", offPeak = "Off-peak (Economy 7, Octopus Go…)", agile = "Octopus Agile"
+        case flat = "Standard", offPeak = "Off-peak (like EDF GoElectric)", agile = "Half-hourly prices"
         var id: String { rawValue }
     }
 
@@ -421,7 +421,8 @@ private struct TariffSection: View {
     var body: some View {
         Section {
             Picker("Tariff", selection: Binding(get: { kind }, set: { choose($0) })) {
-                ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
+                // Half-hourly prices only show for someone already on them.
+                ForEach(Kind.allCases.filter { $0 != .agile || kind == .agile }) { Text($0.rawValue).tag($0) }
             }
             switch charging.settings.tariff {
             case .flat(let p):

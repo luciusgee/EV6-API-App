@@ -38,7 +38,7 @@ struct SettingsView: View {
                 Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
                 } footer: {
-                    Text("No analytics and no account with us. The app talks to Kia, and to Octopus, Open Charge Map, Google and weather services only for the features you use.")
+                    Text("No analytics and no account with us. The app talks to Kia, and to Apple Maps and a weather service only for the features you use.")
                 }
             }
             .scrollDismissesKeyboard(.interactively)

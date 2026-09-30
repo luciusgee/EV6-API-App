@@ -20,6 +20,13 @@ public struct CarTrip: Codable, Equatable, Sendable {
 
     public var end: Date { start.addingTimeInterval((driveMinutes + idleMinutes) * 60) }
 
+    /// The clock Kia's EU trip log is written in.
+    public static let kiaCalendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Europe/Berlin")!
+        return c
+    }()
+
     /// Kia's day trip list: `resMsg.dayTripList[].tripList[]` with the day as "yyyyMMdd" and each trip's
     /// time as "HHmmss", in the car's (the owner's) time zone.
     /// `requested` is the day asked for: a one-day reply doesn't always say which day it is.
@@ -71,6 +78,18 @@ public struct CarMovements: Codable, Equatable, Sendable {
     public var sightings: [CarSighting] = []
     /// Days fetched ("2026-09-28") and when: a day fetched after it ended never changes.
     public var fetched: [String: Date] = [:]
+    /// Trips were read in Kia's own time zone. Before that they were an hour out in the UK, so
+    /// older saved trips are fetched again.
+    public var tripTimesInKiaZone: Bool?
+
+    /// Forgets trips read with the wrong clock, so they're fetched again. True when anything changed.
+    public mutating func dropTripsWithOldTimes() -> Bool {
+        guard tripTimesInKiaZone != true else { return false }
+        tripTimesInKiaZone = true
+        trips = []
+        fetched = [:]
+        return true
+    }
 
     public init() {}
 

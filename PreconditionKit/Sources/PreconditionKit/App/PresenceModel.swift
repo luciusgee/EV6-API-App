@@ -31,6 +31,9 @@ public final class PresenceModel {
     public func load() async {
         log = await store.load()
         movements = await movementsStore.load()
+        if movements.dropTripsWithOldTimes() {
+            await movementsStore.save(movements)
+        }
         loaded = true
     }
 

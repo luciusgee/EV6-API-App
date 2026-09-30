@@ -228,7 +228,8 @@ public final class KiaClient: VehicleAPI, @unchecked Sendable {
             let url = "\(self.config.spa)/vehicles/\(id)/tripinfo"
             let stamp = String(format: "%04d%02d%02d", day.year, day.month, day.day)
             let json = try await self.post(url, self.authHeaders(s), ["tripPeriodType": 1, "setTripDay": .string(stamp)])
-            return CarTrip.parseDay(json, requested: day)
+            // Kia's European servers give trip times in Central European time, like the status time.
+            return CarTrip.parseDay(json, requested: day, calendar: CarTrip.kiaCalendar)
         }
     }
 

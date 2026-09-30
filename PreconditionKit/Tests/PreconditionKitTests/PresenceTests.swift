@@ -113,4 +113,16 @@ final class PresenceTests: XCTestCase {
         XCTAssertEqual(stays.map(\.placeId), ["work", "work", "home"])
         XCTAssertEqual(stays.first?.arrived, date("2026-09-28T08:55:00Z"))
     }
+
+    func testKiaTripTimesAreCentralEuropeanNotUK() throws {
+        // 08:25 on Kia's clock in late September (CEST, UTC+2) is 07:25 in the UK (BST).
+        let trips = CarTrip.parseDay(try XCTUnwrap(JSONValue.parse(Data(Self.dayTrips.utf8))), calendar: CarTrip.kiaCalendar)
+        XCTAssertEqual(trips[0].start, date("2026-09-28T06:25:00Z"))
+        var old = CarMovements()
+        old.store(trips, for: CalendarDay(2026, 9, 28), fetchedAt: date("2026-09-28T20:00:00Z"), calendar: utc)
+        XCTAssertTrue(old.dropTripsWithOldTimes())
+        XCTAssertTrue(old.trips.isEmpty)
+        XCTAssertTrue(old.needs(CalendarDay(2026, 9, 28), now: date("2026-09-29T09:00:00Z"), calendar: utc))
+        XCTAssertFalse(old.dropTripsWithOldTimes())
+    }
 }

@@ -33,12 +33,17 @@ struct TripsView: View {
                         NavigationLink {
                             CommuteDetailView(id: c.id)
                         } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Label(c.name, systemImage: c.name.localizedCaseInsensitiveContains("home") ? "house.fill" : "building.2.fill")
-                                Text(commutes.advice[c.id]?.headline ?? "Tap to check the traffic")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
+                            // The line under the name sits beside the icon, not under it.
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(c.name)
+                                    Text(commutes.advice[c.id]?.headline ?? "Tap to check the traffic")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            } icon: {
+                                Image(systemName: c.name.localizedCaseInsensitiveContains("home") ? "house.fill" : "building.2.fill")
                             }
                         }
                     }

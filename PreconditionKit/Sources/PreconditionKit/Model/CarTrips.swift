@@ -22,10 +22,12 @@ public struct CarTrip: Codable, Equatable, Sendable {
 
     /// Kia's day trip list: `resMsg.dayTripList[].tripList[]` with the day as "yyyyMMdd" and each trip's
     /// time as "HHmmss", in the car's (the owner's) time zone.
-    static func parseDay(_ json: JSONValue, calendar: Calendar = .current) -> [CarTrip] {
+    /// `requested` is the day asked for: a one-day reply doesn't always say which day it is.
+    static func parseDay(_ json: JSONValue, requested: CalendarDay? = nil, calendar: Calendar = .current) -> [CarTrip] {
         var out: [CarTrip] = []
+        let asked = requested.map { String(format: "%04d%02d%02d", $0.year, $0.month, $0.day) }
         for day in json.path("resMsg.dayTripList")?.array ?? [] {
-            guard let raw = day["tripDayInMonth"]?.str, raw.count == 8,
+            guard let raw = day["tripDayInMonth"]?.str ?? day["tripDay"]?.str ?? asked, raw.count == 8,
                   let y = Int(raw.prefix(4)), let m = Int(raw.dropFirst(4).prefix(2)), let d = Int(raw.suffix(2)) else { continue }
             for trip in day["tripList"]?.array ?? [] {
                 guard let t = trip["tripTime"]?.str ?? trip["serviceTC"]?.str.map({ String($0.suffix(6)) }), t.count >= 4,
@@ -115,13 +117,43 @@ public struct CarMovements: Codable, Equatable, Sendable {
             guard next.map({ $0 > arrived }) ?? true else { continue }
             // Seen parked during the gap (a little slack for the car's upload after switching off).
             let seen = sightings.last { $0.at >= arrived.addingTimeInterval(-120) && $0.at <= (next ?? now).addingTimeInterval(60) }
-            guard let seen, let place = watched.first(where: { $0.centre.distance(to: seen.position) <= Double($0.radiusM) + 75 }) else { continue }
+            let place: Place?
+            if let seen {
+                place = watched.first { $0.centre.distance(to: seen.position) <= Double($0.radiusM) + 75 }
+            } else {
+                place = guessPlace(arrivingBy: trip, leavingBy: next == nil ? nil : trips[i + 1],
+                                   parkedSince: i > 0 ? trips[i - 1].end : nil,
+                                   parkedUntil: i + 2 < trips.count ? trips[i + 2].start : now, among: watched)
+            }
+            guard let place else { continue }
             out.append(Visit(
                 id: "car-\(Int(arrived.timeIntervalSince1970))",
                 placeId: place.id, arrived: arrived, left: next, source: .car
             ))
         }
         return out
+    }
+
+    /// Nobody saw where the car stopped: work it out from where it was seen before the drive there or
+    /// after the drive away, and how far those drives went. Only a single tracked place that fits both
+    /// counts (roads are longer than a straight line, but not usually by more than about 2.5 times).
+    /// `parkedSince`/`parkedUntil` bound the stops either side, so only sightings from those count.
+    func guessPlace(arrivingBy inbound: CarTrip, leavingBy outbound: CarTrip?, parkedSince: Date?, parkedUntil: Date,
+                    among watched: [Place]) -> Place? {
+        func fits(_ place: Place, from known: LatLon, drive: CarTrip) -> Bool {
+            let straight = max(0, place.centre.distance(to: known) - Double(place.radiusM)) / 1000
+            return drive.distanceKm > 0.5 && straight <= drive.distanceKm * 1.05 + 0.3 && straight >= drive.distanceKm * 0.4
+        }
+        let before = sightings.last { $0.at <= inbound.start.addingTimeInterval(60) && $0.at >= (parkedSince ?? .distantPast).addingTimeInterval(-120) }
+        let after = outbound.flatMap { out in
+            sightings.first { $0.at >= out.end.addingTimeInterval(-120) && $0.at <= parkedUntil.addingTimeInterval(60) }
+        }
+        guard before != nil || after != nil else { return nil }
+        let matches = watched.filter { place in
+            (before.map { fits(place, from: $0.position, drive: inbound) } ?? true)
+                && (after.map { a in outbound.map { fits(place, from: a.position, drive: $0) } ?? true } ?? true)
+        }
+        return matches.count == 1 ? matches[0] : nil
     }
 }
 

@@ -96,6 +96,14 @@ struct TimeAtPlacesView: View {
         }
     }
 
+    /// What the tracking has to go on, so an empty log can be explained.
+    private var drivesLine: String {
+        let weekAgo = presence.now.addingTimeInterval(-7 * 86400)
+        let drives = presence.movements.trips.filter { $0.start >= weekAgo }.count
+        let seen = presence.movements.sightings.filter { $0.at >= weekAgo }.count
+        return "Last 7 days: \(drives) drive\(drives == 1 ? "" : "s") from the car, parked position seen \(seen) time\(seen == 1 ? "" : "s")."
+    }
+
     private var trackingSection: some View {
         Section {
             if rules.places.isEmpty {
@@ -124,7 +132,7 @@ struct TimeAtPlacesView: View {
         } header: {
             Text("Track time at")
         } footer: {
-            Text("From the car's trips and where it parked. Each day loaded uses one Kia request.")
+            Text("From the car's trips and where it parked. Each day loaded uses one Kia request.\n\(drivesLine)")
         }
     }
 

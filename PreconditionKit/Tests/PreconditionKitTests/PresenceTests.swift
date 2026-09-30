@@ -95,4 +95,22 @@ final class PresenceTests: XCTestCase {
         XCTAssertFalse(m.needs(CalendarDay(2026, 9, 28), now: date("2026-09-29T10:00:00Z"), calendar: utc))
         XCTAssertTrue(m.needs(CalendarDay(2026, 9, 27), now: date("2026-09-29T09:00:00Z"), calendar: utc))
     }
+
+    func testAStopNobodySawIsWorkedOutFromTheDrives() throws {
+        let work = Place(id: "work", name: "Work", centre: LatLon(lat: 53.8, lon: -1.55), radiusM: 200)
+        let home = Place(id: "home", name: "Home", centre: LatLon(lat: 53.9, lon: -1.6), radiusM: 150)
+        var m = CarMovements()
+        // A one-day reply that doesn't say which day it is.
+        let reply = Self.dayTrips.replacingOccurrences(of: #""tripDayInMonth":"20260928","#, with: "")
+        let trips = CarTrip.parseDay(try XCTUnwrap(JSONValue.parse(Data(reply.utf8))), requested: CalendarDay(2026, 9, 28), calendar: utc)
+        XCTAssertEqual(trips.count, 3)
+        m.store(trips, for: CalendarDay(2026, 9, 28), fetchedAt: date("2026-09-28T20:00:00Z"), calendar: utc)
+        // Only ever seen at home: before leaving and in the evening.
+        m.record(CarSighting(at: date("2026-09-28T07:00:00Z"), position: LatLon(lat: 53.9001, lon: -1.6)))
+        m.record(CarSighting(at: date("2026-09-28T19:00:00Z"), position: LatLon(lat: 53.9, lon: -1.6001)))
+        let stays = m.stays(places: [work, home], tracked: ["work", "home"], now: date("2026-09-28T21:00:00Z"))
+        // Home, then a 21.5 km drive: work. After the lunch hop, a 21.4 km drive home: back at work. Home that evening was seen.
+        XCTAssertEqual(stays.map(\.placeId), ["work", "work", "home"])
+        XCTAssertEqual(stays.first?.arrived, date("2026-09-28T08:55:00Z"))
+    }
 }

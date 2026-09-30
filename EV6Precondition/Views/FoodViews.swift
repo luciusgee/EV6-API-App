@@ -281,6 +281,7 @@ struct FoodChainsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Food I look for")
         .toolbar { EditButton() }
         .confirmationDialog("Replace your list with the vegan list?", isPresented: $confirmReset, titleVisibility: .visible) {

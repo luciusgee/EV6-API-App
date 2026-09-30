@@ -9,6 +9,7 @@ struct OffPeakView: View {
     @State private var end: Date
     @State private var only: Bool
     @State private var pin = ""
+    @FocusState private var pinFocused: Bool
     @State private var sending = false
     /// Why the last send didn't work, shown under the button.
     @State private var failure: String?
@@ -36,6 +37,13 @@ struct OffPeakView: View {
                     SecureField("Kia Connect PIN", text: $pin)
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
+                        .focused($pinFocused)
+                        .onChange(of: pin) { _, v in
+                            let digits = String(v.filter(\.isNumber).prefix(4))
+                            if digits != v { pin = digits }
+                            // All four digits in: put the keypad away so Send to car is in view.
+                            if digits.count == 4 { pinFocused = false }
+                        }
                 } footer: {
                     Text("Kia needs your 4-digit Kia Connect PIN to change this. It's stored in your iPhone's Keychain.")
                 }
@@ -64,6 +72,7 @@ struct OffPeakView: View {
                 }
             }
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Off-peak charging")
         .navigationBarTitleDisplayMode(.inline)
     }

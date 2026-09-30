@@ -83,6 +83,7 @@ struct RoutePlannerView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Plan a trip")
         .onAppear {
             if let soc = car.snapshot?.socPercent, legs.isEmpty { trip.startPercent = Double(max(soc, 10)) }

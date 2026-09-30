@@ -27,6 +27,7 @@ struct RuleEditorView: View {
             Form {
                 Section {
                     TextField("Name", text: $draft.name)
+                        .submitLabel(.done)
                     Toggle("Enabled", isOn: $draft.enabled)
                 }
                 TriggerSection(trigger: $draft.trigger, places: model.places)
@@ -85,6 +86,7 @@ struct RuleEditorView: View {
                 }
             }
             .interactiveDismissDisabled(changed)
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(isNew ? "New rule" : "Edit rule")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

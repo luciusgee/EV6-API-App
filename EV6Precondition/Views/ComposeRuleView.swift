@@ -86,6 +86,7 @@ struct ComposeRuleView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Type a rule")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

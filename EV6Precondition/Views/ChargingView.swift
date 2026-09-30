@@ -357,8 +357,10 @@ private struct AddChargeSheet: View {
     @Environment(ChargingModel.self) private var charging
     @State private var when = Date()
     @State private var percent = 50
-    @State private var pounds: Double?
+    @State private var costText = ""
     @State private var note = ""
+    /// Read as it's typed: a number pad has no return key to commit it.
+    private var pounds: Double? { Double(costText.replacingOccurrences(of: ",", with: ".").replacingOccurrences(of: "£", with: "")) }
     @State private var saving = false
 
     var body: some View {
@@ -367,12 +369,14 @@ private struct AddChargeSheet: View {
                 DatePicker("When", selection: $when)
                 RoundStepper("Added", value: $percent, in: 5...100, step: 5) { "\($0)%" }
                 LabeledContent("Cost (£)") {
-                    TextField("0.00", value: $pounds, format: .number.precision(.fractionLength(2)))
+                    TextField("0.00", text: $costText)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                 }
                 TextField("Where (optional)", text: $note)
+                    .submitLabel(.done)
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Public charge")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -437,6 +441,15 @@ private struct TariffSection: View {
                     TextField("Postcode", text: $postcode)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
+                        .submitLabel(.search)
+                        .onSubmit {
+                            guard postcode.count >= 5, !lookingUp else { return }
+                            lookingUp = true
+                            Task {
+                                await charging.useAgile(postcode: postcode)
+                                lookingUp = false
+                            }
+                        }
                     if lookingUp {
                         ProgressView()
                     } else {

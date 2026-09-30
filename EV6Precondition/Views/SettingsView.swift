@@ -41,6 +41,7 @@ struct SettingsView: View {
                     Text("No analytics and no account with us. The app talks to Kia, and to Octopus, Open Charge Map, Google and weather services only for the features you use.")
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Settings")
         }
     }
@@ -79,6 +80,7 @@ private struct KiaConnectSection: View {
     @State private var password = ""
     @State private var signInError: String?
     @State private var confirmSignOut = false
+    @FocusState private var passwordFocused: Bool
 
     var body: some View {
         Section {
@@ -113,8 +115,11 @@ private struct KiaConnectSection: View {
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .submitLabel(.next)
+                    .onSubmit { passwordFocused = true }
                 SecureField("Password", text: $password)
                     .textContentType(.password)
+                    .focused($passwordFocused)
                     .submitLabel(.go)
                     .onSubmit { signIn() }
                 Button {

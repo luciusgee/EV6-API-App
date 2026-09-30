@@ -93,6 +93,7 @@ struct PlaceEditorView: View {
             Form {
                 Section {
                     TextField("Name, e.g. Home or Work", text: $place.name)
+                        .submitLabel(.done)
                 }
                 Section {
                     MapReader { proxy in
@@ -169,6 +170,7 @@ struct PlaceEditorView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(isNew ? "New place" : place.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -43,6 +43,7 @@ struct TrafficAheadView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Traffic ahead")
         .refreshable {
             checkTask?.cancel()
@@ -77,6 +78,7 @@ struct TrafficAheadView: View {
                 TextField("Where are you heading?", text: $search.query)
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
+                    .submitLabel(.search)
                 if !search.query.isEmpty {
                     Button { search.query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
                         .buttonStyle(.borderless)

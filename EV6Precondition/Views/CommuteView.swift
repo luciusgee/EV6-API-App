@@ -270,6 +270,7 @@ struct CommuteEditView: View {
             Form {
                 Section {
                     TextField("Name, e.g. Home", text: $commute.name)
+                        .submitLabel(.done)
                 }
                 Section {
                     ForEach($commute.routes) { $route in
@@ -277,6 +278,7 @@ struct CommuteEditView: View {
                         HStack {
                             Text("\(i + 1)").monospacedDigit().foregroundStyle(.secondary).frame(width: 20)
                             TextField("Name", text: $route.name)
+                                .submitLabel(.done)
                             Spacer()
                             Text("\(max(0, route.points.count - 2)) via").font(.caption).foregroundStyle(.secondary)
                         }
@@ -294,6 +296,7 @@ struct CommuteEditView: View {
                 }
                 Section {
                     TextField("Name, e.g. M1 and A14", text: $newName)
+                        .submitLabel(.next)
                     TextField("Google Maps link", text: $newLink, axis: .vertical)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
@@ -337,6 +340,7 @@ struct CommuteEditView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(isNew ? "New commute" : commute.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

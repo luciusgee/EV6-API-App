@@ -8,6 +8,7 @@ struct RoutePlannerView: View {
     @Environment(CarModel.self) private var car
     @Environment(ChargingModel.self) private var charging
     @Environment(TripsModel.self) private var trips
+    @Environment(RulesModel.self) private var rules
     @State private var food = FoodFinder()
     @State private var savingTrip = false
     @State private var tripName = ""
@@ -40,7 +41,11 @@ struct RoutePlannerView: View {
     @State private var here: CLLocationCoordinate2D?
 
     /// Where the trip starts: the car, you, or a place you pick.
-    enum Origin: Hashable { case car, me, place }
+    enum Origin: Hashable {
+        case car, me, place
+        /// One of your saved places (Home, Work…), by id.
+        case saved(String)
+    }
     @State private var origin: Origin = .car
     @State private var fromSearch = DestinationSearch()
     @State private var fromPlace: MKMapItem?
@@ -54,6 +59,8 @@ struct RoutePlannerView: View {
             return here
         case .place:
             return fromPlace?.placemark.coordinate
+        case .saved(let id):
+            return rules.places.first { $0.id == id }.map { CLLocationCoordinate2D(latitude: $0.centre.lat, longitude: $0.centre.lon) }
         }
     }
 
@@ -62,6 +69,15 @@ struct RoutePlannerView: View {
         case .car: return car.snapshot?.parkingPosition != nil ? "EV6" : "You"
         case .me: return "You"
         case .place: return fromPlace?.name ?? "Start"
+        case .saved(let id): return rules.places.first { $0.id == id }?.name ?? "Start"
+        }
+    }
+
+    /// Starting from a set place (a saved one or one searched for) rather than the car or you.
+    private var fixedStart: Bool {
+        switch origin {
+        case .place, .saved: return true
+        case .car, .me: return false
         }
     }
     private var destination: MKMapItem? { places.last }
@@ -115,6 +131,9 @@ struct RoutePlannerView: View {
             Picker(selection: $origin) {
                 Text("The car").tag(Origin.car)
                 Text("Me").tag(Origin.me)
+                ForEach(rules.places) { p in
+                    Text(p.name).tag(Origin.saved(p.id))
+                }
                 Text("Somewhere else").tag(Origin.place)
             } label: {
                 Label("From", systemImage: "circle.circle")
@@ -148,7 +167,7 @@ struct RoutePlannerView: View {
             if !places.isEmpty, search.query.isEmpty, let start, !isStart(places.last) {
                 Button {
                     let item = MKMapItem(placemark: MKPlacemark(coordinate: start))
-                    item.name = origin == .place ? (fromPlace?.name ?? "Start") : "Back to the start"
+                    item.name = fixedStart ? startName : "Back to the start"
                     addPlace(item)
                 } label: {
                     Label("And back again", systemImage: "arrow.uturn.backward.circle")
@@ -310,8 +329,8 @@ struct RoutePlannerView: View {
                 }
                 if let start {
                     Annotation(startName, coordinate: start) {
-                        Image(systemName: origin == .place ? "circle.circle.fill" : "car.fill")
-                            .padding(5).background(origin == .place ? Color.blue : .red, in: Circle()).foregroundStyle(.white)
+                        Image(systemName: fixedStart ? "circle.circle.fill" : "car.fill")
+                            .padding(5).background(fixedStart ? Color.blue : .red, in: Circle()).foregroundStyle(.white)
                     }
                 }
                 ForEach(Array(allStops.enumerated()), id: \.offset) { i, stop in
@@ -345,8 +364,8 @@ struct RoutePlannerView: View {
         }
 
         Section {
-            legRow(icon: origin == .place ? "circle.circle.fill" : "car.fill", tint: origin == .place ? .blue : .red,
-                   title: "Leave \(origin == .place ? (fromPlace?.name ?? "") : "")".trimmingCharacters(in: .whitespaces),
+            legRow(icon: fixedStart ? "circle.circle.fill" : "car.fill", tint: fixedStart ? .blue : .red,
+                   title: "Leave \(fixedStart ? startName : "")".trimmingCharacters(in: .whitespaces),
                    detail: "with \(Int(trip.startPercent))%", trailing: time(0))
             ForEach(Array(legs.enumerated()), id: \.offset) { l, leg in
                 ForEach(Array(leg.plan.stops.enumerated()), id: \.offset) { i, stop in

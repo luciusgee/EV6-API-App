@@ -94,7 +94,7 @@ public enum Guide {
                       "Everything for a drive is here: Where to? to plan a trip, your commutes with their latest check (and Traffic on another drive), saved trips, and time at places.",
                       symbol: "map.fill", tab: .trips),
             GuideStep("trips.plan", "Plan a trip",
-                      "Trips tab › Where to? Start from the car, you or anywhere, and add as many places as you like, with how long you'll stay at each. And back again plans the drive home too. It plans the charging stops and what you'll arrive with at each place, and can set smart charging so you leave with enough.",
+                      "Trips tab › Where to? Start from the car, you, one of your places (like Home or Work) or anywhere, and add as many places as you like, with how long you'll stay at each. And back again plans the drive home too. It plans the charging stops and what you'll arrive with at each place, and can set smart charging so you leave with enough.",
                       symbol: "map", tab: .trips, screen: .planTrip),
             GuideStep("trips.tesla", "Tesla Superchargers",
                       "Most UK Superchargers take any car through the Tesla app; you pay by card in the app, less with its monthly membership. Most are older V3 units where an EV6 charges at about 60 kW, so the planner allows for that.",
@@ -160,6 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
+        GuideRelease(number: 13, title: "Start a trip from Home, Work or any of your places", stepIds: ["trips.plan"]),
         GuideRelease(number: 12, title: "Chargers: detours, how many and how fast, and services on the main road", stepIds: ["trips.food", "trips.traffic", "rules.intro"]),
         GuideRelease(number: 11, title: "A new rule maker, and trips with several stops", stepIds: ["rules.intro", "trips.commuteAuto", "trips.plan", "trips.food", "trips.commute", "charging.hub", "trips.places"]),
         GuideRelease(number: 10, title: "Fewer false plug-in reminders", stepIds: ["charging.plugAlerts"]),

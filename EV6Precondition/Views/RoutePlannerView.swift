@@ -18,11 +18,15 @@ struct RoutePlannerView: View {
     @State private var sent = false
     @State private var settingCharge = false
     @State private var search = DestinationSearch()
-    @State private var destination: MKMapItem?
+    /// The places to visit, in order; the last is where the trip ends.
+    @State private var places: [MKMapItem] = []
+    /// Minutes at each place before the last.
+    @State private var stays: [Double] = []
     @State private var trip = TripSettings()
     @State private var leaving = Date().addingTimeInterval(3600)
-    @State private var found: RouteService.Found?
-    @State private var plan: TripPlan?
+    /// The route for each leg: start → first place, then place to place.
+    @State private var found: [RouteService.Found] = []
+    @State private var legs: [PlannedLeg] = []
     @State private var planning = false
     @State private var problem: String?
     @State private var outsideC: Double?
@@ -60,6 +64,10 @@ struct RoutePlannerView: View {
         case .place: return fromPlace?.name ?? "Start"
         }
     }
+    private var destination: MKMapItem? { places.last }
+    /// Every charging stop, in order, across the legs.
+    private var allStops: [TripStop] { legs.flatMap(\.plan.stops) }
+
     private var baseConsumption: Double { car.energy?.kWhPer100km ?? 18.5 }
 
     var body: some View {
@@ -69,15 +77,15 @@ struct RoutePlannerView: View {
                 savedTripsSection
             } else {
                 batterySection
-                if let plan, let found {
-                    resultSections(plan, found)
+                if !legs.isEmpty, legs.count == found.count {
+                    resultSections()
                 }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Plan a trip")
         .onAppear {
-            if let soc = car.snapshot?.socPercent, plan == nil { trip.startPercent = Double(max(soc, 10)) }
+            if let soc = car.snapshot?.socPercent, legs.isEmpty { trip.startPercent = Double(max(soc, 10)) }
             trip.usableKWh = charging.settings.usableKWh
         }
         .onChange(of: trip) { _, _ in replan() }
@@ -88,8 +96,9 @@ struct RoutePlannerView: View {
             clearResults()
             if destination != nil, origin != .place || fromPlace != nil { Task { await planRoute() } }
         }
-        .task(id: plan?.stops.map(\.id)) {
-            if let plan { await food.load(plan.stops.map(\.charger)) }
+        .onChange(of: stays) { _, _ in replan() }
+        .task(id: allStops.map(\.id)) {
+            await food.load(allStops.map(\.charger))
         }
         .alert("Save trip", isPresented: $savingTrip) {
             TextField("Name", text: $tripName)
@@ -121,18 +130,28 @@ struct RoutePlannerView: View {
                     Task { await chooseStart(r) }
                 }
             }
-            placeSearch("Where to?", search: $search.query, results: search.results,
-                        showResults: destination == nil || search.query != (destination?.name ?? ""),
-                        onClear: {
-                            search.query = ""
-                            destination = nil
-                            problem = nil
-                            clearResults()
-                        }) { r in
+            ForEach(Array(places.enumerated()), id: \.offset) { i, place in
+                placeRow(i, place)
+            }
+            .onDelete { idx in
+                for i in idx.sorted(by: >) { removePlace(at: i) }
+            }
+            placeSearch(places.isEmpty ? "Where to?" : "Add another place", search: $search.query, results: search.results,
+                        showResults: !search.query.isEmpty,
+                        onClear: { search.query = "" }) { r in
                 Task { await choose(r) }
             }
-            if destination == nil, search.query.count >= 3, search.results.isEmpty, !search.searching {
+            if search.query.count >= 3, search.results.isEmpty, !search.searching {
                 Text("No places found.").foregroundStyle(.secondary)
+            }
+            if !places.isEmpty, search.query.isEmpty, let start, !isStart(places.last) {
+                Button {
+                    let item = MKMapItem(placemark: MKPlacemark(coordinate: start))
+                    item.name = origin == .place ? (fromPlace?.name ?? "Start") : "Back to the start"
+                    addPlace(item)
+                } label: {
+                    Label("And back again", systemImage: "arrow.uturn.backward.circle")
+                }
             }
             DatePicker(selection: $leaving, in: Date()..., displayedComponents: [.date, .hourAndMinute]) {
                 Label("Leaving", systemImage: "clock")
@@ -152,8 +171,8 @@ struct RoutePlannerView: View {
                              onClear: @escaping () -> Void,
                              pick: @escaping (MKLocalSearchCompletion) -> Void) -> some View {
         HStack {
-            Image(systemName: prompt == "Where to?" ? "mappin.circle.fill" : "circle.circle.fill")
-                .foregroundStyle(prompt == "Where to?" ? Color.red : .blue)
+            Image(systemName: prompt == "Starting from?" ? "circle.circle.fill" : (places.isEmpty ? "mappin.circle.fill" : "plus.circle.fill"))
+                .foregroundStyle(prompt == "Starting from?" ? Color.blue : .red)
             TextField(prompt, text: search)
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
@@ -179,11 +198,62 @@ struct RoutePlannerView: View {
         }
     }
 
+    /// A place on the trip: numbered, with how long you'll stay if it isn't the last.
+    private func placeRow(_ i: Int, _ place: MKMapItem) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: i == places.count - 1 ? "mappin.circle.fill" : "\(i + 1).circle.fill")
+                .foregroundStyle(i == places.count - 1 ? Color.red : .orange)
+                .frame(width: 24)
+            Text(place.name ?? "Place").lineLimit(1)
+            Spacer()
+            if i < places.count - 1, i < stays.count {
+                Menu {
+                    ForEach([15.0, 30, 45, 60, 90, 120, 180, 240, 360, 480], id: \.self) { m in
+                        Button("Stay \(DisplayText.duration(minutes: Int(m)))") { stays[i] = m }
+                    }
+                } label: {
+                    Text("Stay \(DisplayText.duration(minutes: Int(stays[i])))").font(.subheadline).monospacedDigit()
+                }
+            }
+        }
+    }
+
+    private func isStart(_ item: MKMapItem?) -> Bool {
+        guard let item, let start else { return false }
+        let a = CLLocation(latitude: start.latitude, longitude: start.longitude)
+        let b = CLLocation(latitude: item.placemark.coordinate.latitude, longitude: item.placemark.coordinate.longitude)
+        return a.distance(from: b) < 300
+    }
+
+    private func addPlace(_ item: MKMapItem) {
+        if !places.isEmpty { stays.append(60) }
+        places.append(item)
+        clearResults()
+        Task { await planRoute() }
+    }
+
+    private func removePlace(at i: Int) {
+        guard places.indices.contains(i) else { return }
+        places.remove(at: i)
+        // The stay after the removed place goes; the last place never has one.
+        if i < stays.count { stays.remove(at: i) } else if !stays.isEmpty { stays.removeLast() }
+        clearResults()
+        if !places.isEmpty { Task { await planRoute() } }
+    }
+
     // MARK: Battery
 
     private var batterySection: some View {
         Section {
-            RoundStepper("Leave with", value: $trip.startPercent, in: 10...100, step: 5, tint: .green) { "\(Int($0))%" }
+            RoundStepper("Leave with", value: $trip.startPercent, in: 10...100, step: 1, tint: .green) { "\(Int($0))%" }
+            Slider(value: $trip.startPercent, in: 10...100, step: 1) {
+                Text("Leave with")
+            } minimumValueLabel: {
+                Text("10%").font(.caption).foregroundStyle(.secondary)
+            } maximumValueLabel: {
+                Text("100%").font(.caption).foregroundStyle(.secondary)
+            }
+            .tint(.green)
             DisclosureGroup {
                 RoundStepper("Arrive at chargers with", value: $trip.minArrivalPercent, in: 5...30, step: 5) { "\(Int($0))%" }
                 RoundStepper("Arrive at destination with", value: $trip.destinationPercent, in: 5...50, step: 5) { "\(Int($0))%" }
@@ -208,9 +278,11 @@ struct RoutePlannerView: View {
         return parts.joined(separator: ", ") + "."
     }
 
-    private var consumptionModel: ConsumptionModel {
+    private var consumptionModel: ConsumptionModel { model(for: found.first?.route) }
+
+    private func model(for route: MKRoute?) -> ConsumptionModel {
         let avg: Double
-        if let route = found?.route, route.expectedTravelTime > 0 {
+        if let route, route.expectedTravelTime > 0 {
             avg = route.distance / 1000 / (route.expectedTravelTime / 3600)
         } else {
             avg = 80
@@ -225,94 +297,73 @@ struct RoutePlannerView: View {
     }
 
     @ViewBuilder
-    private func resultSections(_ plan: TripPlan, _ found: RouteService.Found) -> some View {
+    private func resultSections() -> some View {
+        let last = legs[legs.count - 1]
+        let driveMinutes = legs.map(\.plan.driveMinutes).reduce(0, +)
+        let chargeMinutes = legs.map(\.plan.chargeMinutes).reduce(0, +)
+        let distanceKm = legs.map(\.plan.distanceKm).reduce(0, +)
         Section {
             Map(position: $camera) {
-                MapPolyline(found.route.polyline).stroke(.blue, lineWidth: 5)
+                ForEach(Array(found.enumerated()), id: \.offset) { _, f in
+                    MapPolyline(f.route.polyline).stroke(.blue, lineWidth: 5)
+                }
                 if let start {
                     Annotation(startName, coordinate: start) {
                         Image(systemName: origin == .place ? "circle.circle.fill" : "car.fill")
                             .padding(5).background(origin == .place ? Color.blue : .red, in: Circle()).foregroundStyle(.white)
                     }
                 }
-                ForEach(Array(plan.stops.enumerated()), id: \.offset) { i, stop in
+                ForEach(Array(allStops.enumerated()), id: \.offset) { i, stop in
                     Marker("\(i + 1). \(stop.charger.name)", systemImage: "bolt.fill",
                            coordinate: CLLocationCoordinate2D(latitude: stop.charger.position.lat, longitude: stop.charger.position.lon))
                         .tint(.green)
                 }
-                if let d = destination {
-                    Marker(d.name ?? "Destination", coordinate: d.placemark.coordinate).tint(.red)
+                ForEach(Array(places.enumerated()), id: \.offset) { i, p in
+                    Marker(p.name ?? "Place", coordinate: p.placemark.coordinate).tint(i == places.count - 1 ? .red : .orange)
                 }
             }
             .frame(height: 240)
             .listRowInsets(EdgeInsets())
 
             HStack {
-                summary(value: time(plan.totalMinutes), label: "arrive")
+                summary(value: time(last.endMinutes), label: "arrive")
                 Divider()
-                summary(value: DisplayText.duration(minutes: Int(plan.totalMinutes.rounded())), label: "total")
+                summary(value: DisplayText.duration(minutes: Int(last.endMinutes.rounded())), label: "total")
                 Divider()
-                summary(value: "\(plan.stops.count)", label: plan.stops.count == 1 ? "stop" : "stops")
+                summary(value: "\(allStops.count)", label: allStops.count == 1 ? "stop" : "stops")
                 Divider()
-                summary(value: "\(Int(plan.arrivePercent.rounded()))%", label: "left")
+                summary(value: "\(Int(last.plan.arrivePercent.rounded()))%", label: "left")
             }
             .padding(.vertical, 4)
-            if plan.unreachable {
+            if legs.contains(where: \.plan.unreachable) {
                 Label("Not enough fast chargers on this route for these settings. Leave with more charge, or allow a lower charge at stops.", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             }
         } footer: {
-            Text("\(DisplayText.distance(km: plan.distanceKm, miles: miles)) · \(DisplayText.duration(minutes: Int(plan.driveMinutes.rounded()))) driving, \(DisplayText.duration(minutes: Int(plan.chargeMinutes.rounded()))) charging.")
+            Text("\(DisplayText.distance(km: distanceKm, miles: miles)) · \(DisplayText.duration(minutes: Int(driveMinutes.rounded()))) driving, \(DisplayText.duration(minutes: Int(chargeMinutes.rounded()))) charging" + (places.count > 1 ? ", plus your time at each place." : "."))
         }
 
         Section {
             legRow(icon: origin == .place ? "circle.circle.fill" : "car.fill", tint: origin == .place ? .blue : .red,
                    title: "Leave \(origin == .place ? (fromPlace?.name ?? "") : "")".trimmingCharacters(in: .whitespaces),
                    detail: "with \(Int(trip.startPercent))%", trailing: time(0))
-            ForEach(Array(plan.stops.enumerated()), id: \.offset) { i, stop in
-                let arrive = minutesIn(stop: i, plan, found)
-                NavigationLink {
-                    StopChoiceView(
-                        options: stopOptions(for: i, plan, found),
-                        current: stop.charger.id,
-                        leaving: leaving,
-                        food: food,
-                        chains: trips.chains,
-                        sites: found.sites,
-                        miles: miles
-                    ) { picked in
-                        let others = Set(stopOptions(for: i, plan, found).map(\.id))
-                        preferred.subtract(others)
-                        preferred.insert(picked)
-                        replan()
-                    }
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        legRow(icon: "bolt.fill", tint: .green, title: stop.charger.name,
-                               detail: "\(Int(stop.arrivePercent.rounded()))% → \(Int(stop.departPercent.rounded()))% · \(DisplayText.duration(minutes: max(1, Int(stop.chargeMinutes.rounded())))) charging",
-                               trailing: time(arrive))
-                        Text([
-                            food.area(of: stop.charger),
-                            "\(DisplayText.distance(km: stop.charger.alongKm, miles: miles)) in",
-                            stop.charger.powerGuessed ? "~\(Int(stop.charger.powerKW)) kW" : "\(Int(stop.charger.powerKW)) kW",
-                            found.sites[stop.charger.id].flatMap { $0.rapidCount > 0 ? "\($0.rapidCount) rapid" : nil },
-                            "leave \(time(arrive + stop.chargeMinutes + 5))",
-                        ].compactMap { $0 }.joined(separator: " · "))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 36)
-                        FoodLine(names: food.food(at: stop.charger), loading: food.loading.contains(stop.charger.id), chains: trips.chains)
-                            .padding(.leading, 4)
-                    }
+            ForEach(Array(legs.enumerated()), id: \.offset) { l, leg in
+                ForEach(Array(leg.plan.stops.enumerated()), id: \.offset) { i, stop in
+                    stopRow(leg: l, stop: i)
                 }
+                let place = places.indices.contains(l) ? places[l] : nil
+                let isLast = l == legs.count - 1
+                let stay = !isLast && l < stays.count ? stays[l] : 0
+                legRow(icon: isLast ? "mappin.circle.fill" : "\(l + 1).circle.fill", tint: isLast ? .red : .orange,
+                       title: place?.name ?? "Destination",
+                       detail: "Arrive with \(Int(leg.plan.arrivePercent.rounded()))%" + (isLast ? "" : " · leave \(time(leg.endMinutes + stay))"),
+                       trailing: time(leg.endMinutes))
             }
-            legRow(icon: "mappin.circle.fill", tint: .red, title: destination?.name ?? "Destination",
-                   detail: "Arrive with \(Int(plan.arrivePercent.rounded()))%", trailing: time(plan.totalMinutes))
         } header: {
             Text("Route")
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
-                if let problem = found.problem { Text(problem).foregroundStyle(.orange) }
+                ForEach(Array(Set(found.compactMap(\.problem))), id: \.self) { Text($0).foregroundStyle(.orange) }
                 Text("Tap a stop to see the other chargers in reach and pick a different one. Send the trip to the car so the battery warms up before each stop.")
             }
         }
@@ -352,14 +403,14 @@ struct RoutePlannerView: View {
                 }
                 .disabled(saved)
                 Menu {
-                    if let url = RouteService.googleMapsURL(from: start ?? found.route.polyline.coordinate,
-                                                            to: destination?.placemark.coordinate ?? found.route.polyline.coordinate, stops: plan.stops) {
+                    if let start, let destination,
+                       let url = RouteService.googleMapsURL(from: start, to: destination.placemark.coordinate, via: waypoints) {
                         Link(destination: url) { Label("Open in Google Maps", systemImage: "map") }
                     }
                     Button {
-                        if let first = plan.stops.first { directions(to: first.charger) } else { destination?.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving]) }
+                        if let first = legs.first?.plan.stops.first { directions(to: first.charger) } else { places.first?.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving]) }
                     } label: {
-                        Label(plan.stops.isEmpty ? "Directions in Apple Maps" : "Apple Maps to the first stop", systemImage: "location.fill")
+                        Label(legs.first?.plan.stops.isEmpty ?? true ? "Directions in Apple Maps" : "Apple Maps to the first stop", systemImage: "location.fill")
                     }
                 } label: {
                     Label("Open in…", systemImage: "arrow.up.right.square").frame(maxWidth: .infinity)
@@ -376,43 +427,110 @@ struct RoutePlannerView: View {
             }
         }
 
-        let chargeRow = chargeForTripNeeded(plan)
-        if chargeRow {
-            Section { chargeForTripRow(plan) }
+        if chargeForTripNeeded() {
+            Section { chargeForTripRow() }
         }
 
-        if !found.sites.isEmpty {
-            allChargersSection(found)
+        ForEach(Array(found.enumerated()), id: \.offset) { l, f in
+            if !f.sites.isEmpty {
+                allChargersSection(f, to: places.count > 1 && places.indices.contains(l) ? places[l].name : nil)
+            }
+        }
+    }
+
+    private func stopRow(leg l: Int, stop i: Int) -> some View {
+        let leg = legs[l]
+        let f = found[l]
+        let stop = leg.plan.stops[i]
+        let arrive = leg.startMinutes + minutesIn(stop: i, leg: l)
+        return NavigationLink {
+            StopChoiceView(
+                options: stopOptions(for: i, leg: l),
+                current: stop.charger.id,
+                leaving: leaving.addingTimeInterval(leg.startMinutes * 60),
+                food: food,
+                chains: trips.chains,
+                sites: f.sites,
+                miles: miles
+            ) { picked in
+                let others = Set(stopOptions(for: i, leg: l).map(\.id))
+                preferred.subtract(others)
+                preferred.insert(picked)
+                replan()
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                legRow(icon: "bolt.fill", tint: .green, title: stop.charger.name,
+                       detail: "\(Int(stop.arrivePercent.rounded()))% → \(Int(stop.departPercent.rounded()))% · \(DisplayText.duration(minutes: max(1, Int(stop.chargeMinutes.rounded())))) charging",
+                       trailing: time(arrive))
+                Text([
+                    food.area(of: stop.charger),
+                    "\(DisplayText.distance(km: stop.charger.alongKm, miles: miles)) in",
+                    stop.charger.powerGuessed ? "~\(Int(stop.charger.powerKW)) kW" : "\(Int(stop.charger.powerKW)) kW",
+                    f.sites[stop.charger.id].flatMap { $0.rapidCount > 0 ? "\($0.rapidCount) rapid" : nil },
+                    "leave \(time(arrive + stop.chargeMinutes + 5))",
+                ].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 36)
+                FoodLine(names: food.food(at: stop.charger), loading: food.loading.contains(stop.charger.id), chains: trips.chains)
+                    .padding(.leading, 4)
+            }
         }
     }
 
     // MARK: Food and saved trips
 
-    private func stopOptions(for i: Int, _ plan: TripPlan, _ found: RouteService.Found) -> [StopOption] {
-        RoutePlanner.stopOptions(for: i, in: plan, distanceKm: found.route.distance / 1000, driveMinutes: found.route.expectedTravelTime / 60,
-                                 chargers: found.chargers, trip: trip, model: consumptionModel)
+    private func stopOptions(for i: Int, leg l: Int) -> [StopOption] {
+        let f = found[l]
+        return RoutePlanner.stopOptions(for: i, in: legs[l].plan, distanceKm: f.route.distance / 1000, driveMinutes: f.route.expectedTravelTime / 60,
+                                        chargers: f.chargers, trip: legs[l].trip, model: model(for: f.route))
     }
 
-    private func minutesIn(stop i: Int, _ plan: TripPlan, _ found: RouteService.Found) -> Double {
-        let perKm = found.route.distance > 0 ? (found.route.expectedTravelTime / 60) / (found.route.distance / 1000) : 1
+    /// Minutes from the start of leg `l` to arriving at its stop `i`.
+    private func minutesIn(stop i: Int, leg l: Int) -> Double {
+        let route = found[l].route
+        let plan = legs[l].plan
+        let perKm = route.distance > 0 ? (route.expectedTravelTime / 60) / (route.distance / 1000) : 1
         let earlier = plan.stops[..<i].map { $0.chargeMinutes + 5 }.reduce(0, +)
         return plan.stops[i].charger.alongKm * perKm + earlier
     }
 
+    /// Everywhere the car goes on the way, in order: charging stops and the places between legs.
+    private var waypoints: [LatLon] {
+        legs.enumerated().flatMap { l, leg -> [LatLon] in
+            var out = leg.plan.stops.map(\.charger.position)
+            if l < legs.count - 1, places.indices.contains(l) {
+                let c = places[l].placemark.coordinate
+                out.append(LatLon(lat: c.latitude, lon: c.longitude))
+            }
+            return out
+        }
+    }
+
     private var defaultTripName: String {
         let day = leaving.formatted(.dateTime.weekday(.abbreviated).hour().minute())
-        return "\(destination?.name ?? "Trip") · \(day)"
+        let names = places.compactMap(\.name)
+        let title = names.count > 1 ? names.dropLast().joined(separator: ", ") + (isStart(places.last) ? " and back" : " → \(names.last!)") : (names.first ?? "Trip")
+        return "\(title) · \(day)"
     }
 
     private func savedTrip(name: String) -> SavedTrip? {
-        guard let plan, let destination else { return nil }
+        guard !legs.isEmpty, let destination else { return nil }
         let d = destination.placemark.coordinate
-        let stops = plan.stops.map { s in
-            SavedTrip.Stop(
-                name: s.charger.name, position: s.charger.position, kW: s.charger.powerGuessed ? nil : s.charger.powerKW,
-                chargeMinutes: s.chargeMinutes,
-                food: FoodMatch.chains(at: food.food(at: s.charger) ?? [], from: trips.chains).map(\.name)
-            )
+        var stops: [SavedTrip.Stop] = []
+        for (l, leg) in legs.enumerated() {
+            stops += leg.plan.stops.map { s in
+                SavedTrip.Stop(
+                    name: s.charger.name, position: s.charger.position, kW: s.charger.powerGuessed ? nil : s.charger.powerKW,
+                    chargeMinutes: s.chargeMinutes,
+                    food: FoodMatch.chains(at: food.food(at: s.charger) ?? [], from: trips.chains).map(\.name)
+                )
+            }
+            if l < legs.count - 1, places.indices.contains(l) {
+                let c = places[l].placemark.coordinate
+                stops.append(SavedTrip.Stop(name: places[l].name ?? "Place", position: LatLon(lat: c.latitude, lon: c.longitude), isPlace: true))
+            }
         }
         return SavedTrip(name: name, destination: NavPoint(name: destination.name ?? "Destination", position: LatLon(lat: d.latitude, lon: d.longitude),
                                                            address: destination.placemark.title ?? ""),
@@ -457,12 +575,12 @@ struct RoutePlannerView: View {
     }
 
     /// Every charger along the route, to look at or to plan around.
-    private func allChargersSection(_ found: RouteService.Found) -> some View {
+    private func allChargersSection(_ found: RouteService.Found, to name: String?) -> some View {
         let sites = found.chargers
             .compactMap { c in found.sites[c.id].map { (c, $0) } }
             .filter { ($0.1.maxKW ?? 0) >= minKW }
         return Section {
-            DisclosureGroup("All chargers on the route (\(found.chargers.filter { found.sites[$0.id] != nil }.count))") {
+            DisclosureGroup("All chargers \(name.map { "on the way to \($0)" } ?? "on the route") (\(found.chargers.filter { found.sites[$0.id] != nil }.count))") {
             Picker("At least", selection: $minKW) {
                 Text("50 kW+").tag(50.0)
                 Text("100 kW+").tag(100.0)
@@ -506,14 +624,14 @@ struct RoutePlannerView: View {
         }
     }
 
-    private func chargeForTripNeeded(_ plan: TripPlan) -> Bool {
+    private func chargeForTripNeeded() -> Bool {
         guard origin == .car, let soc = car.snapshot?.socPercent else { return chargedForTrip != nil }
-        return Int((trip.startPercent / 10).rounded(.up) * 10) > soc || chargedForTrip != nil
+        return Int(trip.startPercent.rounded(.up)) > soc || chargedForTrip != nil
     }
 
     @ViewBuilder
-    private func chargeForTripRow(_ plan: TripPlan) -> some View {
-        let needed = Int((trip.startPercent / 10).rounded(.up) * 10)
+    private func chargeForTripRow() -> some View {
+        let needed = Int(trip.startPercent.rounded(.up))
         if let current = car.snapshot?.socPercent, needed > current {
             Button {
                 Task {
@@ -528,7 +646,7 @@ struct RoutePlannerView: View {
                 }
             }
             .disabled(car.busy != nil || settingCharge)
-            if let noStop = plan.noStopStartPercent, !plan.stops.isEmpty, noStop <= 100 {
+            if legs.count == 1, let plan = legs.first?.plan, let noStop = plan.noStopStartPercent, !plan.stops.isEmpty, noStop <= 100 {
                 Text("Leave with \(Int(noStop.rounded(.up)))% and you won't need to stop.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -567,10 +685,8 @@ struct RoutePlannerView: View {
             problem = "Couldn't find that place."
             return
         }
-        destination = item
-        search.query = item.name ?? result.title
-        clearResults()
-        await planRoute()
+        search.query = ""
+        addPlace(item)
     }
 
     private func chooseStart(_ result: MKLocalSearchCompletion) async {
@@ -582,7 +698,7 @@ struct RoutePlannerView: View {
         fromPlace = item
         fromSearch.query = item.name ?? result.title
         outsideC = nil
-        if destination != nil {
+        if !places.isEmpty {
             clearResults()
             await planRoute()
         }
@@ -596,7 +712,7 @@ struct RoutePlannerView: View {
                 here = CLLocationCoordinate2D(latitude: fix.lat, longitude: fix.lon)
             }
         }
-        guard let destination, let start else {
+        guard !places.isEmpty, let start else {
             problem = origin == .place ? "Pick where the trip starts." : "Refresh the car or allow location so the trip has a start."
             return
         }
@@ -606,7 +722,13 @@ struct RoutePlannerView: View {
             if outsideC == nil {
                 outsideC = await AppServices.shared.container.weather.current(at: LatLon(lat: start.latitude, lon: start.longitude))?.celsius
             }
-            found = try await RouteService.route(from: start, to: destination)
+            var legsFound: [RouteService.Found] = []
+            var from = start
+            for place in places {
+                legsFound.append(try await RouteService.route(from: from, to: place))
+                from = place.placemark.coordinate
+            }
+            found = legsFound
             camera = .automatic
             replan()
         } catch {
@@ -616,8 +738,8 @@ struct RoutePlannerView: View {
 
     /// Forgets the last route and anything done with it, when where the trip starts or ends changes.
     private func clearResults() {
-        found = nil
-        plan = nil
+        found = []
+        legs = []
         preferred = []
         savedNote = nil
         chargedForTrip = nil
@@ -632,15 +754,12 @@ struct RoutePlannerView: View {
     }
 
     private func replan() {
-        guard let found else { return }
-        plan = RoutePlanner.plan(
-            distanceKm: found.route.distance / 1000,
-            driveMinutes: found.route.expectedTravelTime / 60,
-            chargers: found.chargers,
-            trip: trip,
-            model: consumptionModel,
-            prefer: preferred
-        )
+        guard !found.isEmpty, found.count == places.count else { return }
+        let inputs = found.map { f in
+            TripLeg(distanceKm: f.route.distance / 1000, driveMinutes: f.route.expectedTravelTime / 60,
+                    chargers: f.chargers, model: model(for: f.route))
+        }
+        legs = RoutePlanner.planLegs(inputs, trip: trip, stays: stays, prefer: preferred)
     }
 
     private func directions(to charger: RouteCharger) {
@@ -660,8 +779,10 @@ struct RoutePlannerView: View {
         charging.replan(soc: car.snapshot?.socPercent)
         await ChargingCoordinator.shared.remindAtWindowStart()
         ChargingCoordinator.shared.scheduleBackgroundRefresh()
-        if let limit = car.snapshot?.details?.chargeLimitAC, limit < percent {
-            await car.send(.setChargeLimits(ac: percent, dc: car.snapshot?.details?.chargeLimitDC ?? 80))
+        // The car's limit goes in tens.
+        let limitNeeded = min(100, (percent + 9) / 10 * 10)
+        if let limit = car.snapshot?.details?.chargeLimitAC, limit < limitNeeded {
+            await car.send(.setChargeLimits(ac: limitNeeded, dc: car.snapshot?.details?.chargeLimitDC ?? 80))
         }
         if let p = charging.plan {
             chargedForTrip = "Smart charging will charge \(p.start.formatted(date: .omitted, time: .shortened))–\(p.end.formatted(date: .omitted, time: .shortened)) for about \(DisplayText.money(pence: p.costPence))."

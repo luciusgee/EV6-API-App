@@ -252,3 +252,48 @@ public enum RoutePlanner {
         )
     }
 }
+
+/// One drive between two places you're visiting, with the chargers along it.
+public struct TripLeg: Equatable, Sendable {
+    public var distanceKm: Double
+    public var driveMinutes: Double
+    public var chargers: [RouteCharger]
+    public var model: ConsumptionModel
+
+    public init(distanceKm: Double, driveMinutes: Double, chargers: [RouteCharger], model: ConsumptionModel) {
+        self.distanceKm = distanceKm
+        self.driveMinutes = driveMinutes
+        self.chargers = chargers
+        self.model = model
+    }
+}
+
+/// A leg, planned: its stops, the settings it was planned with (starting where the last leg left
+/// off), and when it sets off, in minutes after leaving.
+public struct PlannedLeg: Equatable, Sendable {
+    public var plan: TripPlan
+    public var trip: TripSettings
+    public var startMinutes: Double
+
+    public var endMinutes: Double { startMinutes + plan.totalMinutes }
+}
+
+public extension RoutePlanner {
+    /// Plans a trip through several places: each leg starts with what the last one arrived with,
+    /// after `stays[i]` minutes at place `i` (the places between legs).
+    static func planLegs(_ legs: [TripLeg], trip: TripSettings, stays: [Double] = [], prefer: Set<String> = []) -> [PlannedLeg] {
+        var out: [PlannedLeg] = []
+        var soc = trip.startPercent
+        var clock = 0.0
+        for (i, leg) in legs.enumerated() {
+            var legTrip = trip
+            legTrip.startPercent = max(0, soc)
+            let plan = plan(distanceKm: leg.distanceKm, driveMinutes: leg.driveMinutes, chargers: leg.chargers,
+                            trip: legTrip, model: leg.model, prefer: prefer)
+            out.append(PlannedLeg(plan: plan, trip: legTrip, startMinutes: clock))
+            soc = plan.arrivePercent
+            clock += plan.totalMinutes + (i < stays.count ? stays[i] : 0)
+        }
+        return out
+    }
+}

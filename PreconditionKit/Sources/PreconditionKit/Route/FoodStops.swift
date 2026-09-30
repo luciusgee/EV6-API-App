@@ -110,13 +110,16 @@ public struct SavedTrip: Codable, Equatable, Identifiable, Sendable {
         public var kW: Double?
         public var chargeMinutes: Double?
         public var food: [String]
+        /// A place you're visiting on the way, not a charger.
+        public var isPlace: Bool?
 
-        public init(name: String, position: LatLon, kW: Double? = nil, chargeMinutes: Double? = nil, food: [String] = []) {
+        public init(name: String, position: LatLon, kW: Double? = nil, chargeMinutes: Double? = nil, food: [String] = [], isPlace: Bool? = nil) {
             self.name = name
             self.position = position
             self.kW = kW
             self.chargeMinutes = chargeMinutes
             self.food = food
+            self.isPlace = isPlace
         }
     }
 
@@ -136,7 +139,7 @@ public struct SavedTrip: Codable, Equatable, Identifiable, Sendable {
         self.savedAt = savedAt
     }
 
-    /// For the car's nav: the charging stops, then the destination.
+    /// For the car's nav: the charging stops and places on the way, then the destination.
     public var navPoints: [NavPoint] {
         stops.map { NavPoint(name: $0.name, position: $0.position) } + [destination]
     }

@@ -83,4 +83,19 @@ extension RoutePlannerTests {
         XCTAssertEqual(ChargerPower.forEV6(350, name: "Ionity Stafford"), 350)
         XCTAssertEqual(ChargerPower.guess(name: "Ionity Stafford Services"), 150)
     }
+
+    func testThereAndBackCarriesTheChargeOverAndStopsOnlyWhenNeeded() {
+        let model = ConsumptionModel(baseKWhPer100km: 18, averageKmh: 90, marginPercent: 0)
+        let out = TripLeg(distanceKm: 150, driveMinutes: 100, chargers: [charger(70)], model: model)
+        let back = TripLeg(distanceKm: 150, driveMinutes: 100, chargers: [charger(70, 150, name: "Back 70")], model: model)
+        let legs = RoutePlanner.planLegs([out, back], trip: TripSettings(startPercent: 80), stays: [180])
+        XCTAssertEqual(legs.count, 2)
+        XCTAssertTrue(legs[0].plan.stops.isEmpty)
+        // The way back starts with what the way out arrived with, three hours after arriving.
+        XCTAssertEqual(legs[1].trip.startPercent, legs[0].plan.arrivePercent, accuracy: 0.001)
+        XCTAssertEqual(legs[1].startMinutes, legs[0].plan.totalMinutes + 180, accuracy: 0.001)
+        // 80% less two 150 km drives doesn't leave 15%: one stop on the way back.
+        XCTAssertEqual(legs[1].plan.stops.map(\.charger.name), ["Back 70"])
+        XCTAssertGreaterThanOrEqual(legs[1].plan.arrivePercent, 15 - 0.01)
+    }
 }

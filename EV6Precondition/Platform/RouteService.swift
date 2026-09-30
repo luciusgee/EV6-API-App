@@ -157,7 +157,7 @@ enum RouteService {
     }
 
     /// Google Maps directions through every stop (Apple Maps can't take waypoints from another app).
-    static func googleMapsURL(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D, stops: [TripStop]) -> URL? {
+    static func googleMapsURL(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D, via: [LatLon]) -> URL? {
         var comps = URLComponents(string: "https://www.google.com/maps/dir/")!
         var items = [
             URLQueryItem(name: "api", value: "1"),
@@ -165,8 +165,8 @@ enum RouteService {
             URLQueryItem(name: "destination", value: "\(to.latitude),\(to.longitude)"),
             URLQueryItem(name: "travelmode", value: "driving"),
         ]
-        if !stops.isEmpty {
-            items.append(URLQueryItem(name: "waypoints", value: stops.map { "\($0.charger.position.lat),\($0.charger.position.lon)" }.joined(separator: "|")))
+        if !via.isEmpty {
+            items.append(URLQueryItem(name: "waypoints", value: via.map { "\($0.lat),\($0.lon)" }.joined(separator: "|")))
         }
         comps.queryItems = items
         return comps.url

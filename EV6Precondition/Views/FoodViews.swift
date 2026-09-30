@@ -164,7 +164,11 @@ struct SavedTripView: View {
                 }
                 ForEach(Array(trip.stops.enumerated()), id: \.offset) { i, stop in
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("\(i + 1). \(stop.name)").font(.body.weight(.medium))
+                        if stop.isPlace == true {
+                            Label(stop.name, systemImage: "mappin.circle.fill").font(.body.weight(.medium)).foregroundStyle(.orange)
+                        } else {
+                            Text("\(i + 1). \(stop.name)").font(.body.weight(.medium))
+                        }
                         let detail = [stop.kW.map { "\(Int($0)) kW" }, stop.chargeMinutes.map { "about \(max(1, Int($0.rounded()))) min charging" }]
                             .compactMap { $0 }.joined(separator: " · ")
                         if !detail.isEmpty {

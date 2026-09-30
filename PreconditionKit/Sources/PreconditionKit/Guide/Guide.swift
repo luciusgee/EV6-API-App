@@ -94,7 +94,7 @@ public enum Guide {
                       "Everything for a drive is here: Where to? to plan a trip, Traffic ahead, your commutes with their latest check, saved trips, and time at places.",
                       symbol: "map.fill", tab: .trips),
             GuideStep("trips.plan", "Plan a trip",
-                      "Trips tab › Where to? Start from the car, from you, or anywhere else, then pick where you're going and when you leave. It plans the charging stops, how long each takes, and what you'll arrive with. It can also set smart charging so you leave with enough.",
+                      "Trips tab › Where to? Start from the car, you or anywhere, and add as many places as you like, with how long you'll stay at each. And back again plans the drive home too. It plans the charging stops and what you'll arrive with at each place, and can set smart charging so you leave with enough.",
                       symbol: "map", tab: .trips, screen: .planTrip),
             GuideStep("trips.tesla", "Tesla Superchargers",
                       "Most UK Superchargers take any car through the Tesla app; you pay by card in the app, less with its monthly membership. Most are older V3 units where an EV6 charges at about 60 kW, so the planner allows for that.",
@@ -160,7 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
-        GuideRelease(number: 11, title: "Fixes for costs, time at places and charging stops", stepIds: ["charging.hub", "trips.places", "trips.food"]),
+        GuideRelease(number: 11, title: "Trips with several stops, and there and back", stepIds: ["trips.plan", "trips.food", "charging.hub", "trips.places"]),
         GuideRelease(number: 10, title: "Fewer false plug-in reminders", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 9, title: "A fresh coat of paint", stepIds: ["car.look", "car.refresh", "settings.alerts"]),
         GuideRelease(number: 8, title: "Trips has its own tab, and a simpler planner", stepIds: ["trips.tab", "trips.plan", "trips.tesla"]),

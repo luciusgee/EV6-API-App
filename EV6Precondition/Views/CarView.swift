@@ -386,6 +386,10 @@ struct CarView: View {
 // MARK: - Hero
 
 private struct HeroCard: View {
+    /// At least as round as iOS's list sections, which clip the card: any tighter and its corners
+    /// (and the charging rim) get shaved off.
+    static let cornerRadius: CGFloat = 28
+
     let snapshot: VehicleSnapshot?
     let paint: CarPaint
     let miles: Bool
@@ -484,17 +488,17 @@ private struct HeroCard: View {
             }
         }
         .padding(16)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
         // A rim of the mood's colour while the car's busy doing something.
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                 .strokeBorder(
                     LinearGradient(colors: [mood.colour.opacity(mood == .idle ? 0 : 0.7), mood.colour.opacity(0.05)],
                                    startPoint: .top, endPoint: .bottom),
                     lineWidth: 1.2
                 )
         }
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
         .animation(.easeInOut(duration: 0.6), value: mood)
         .animation(.easeInOut, value: soc)
         .accessibilityElement(children: .combine)
@@ -684,7 +688,7 @@ private struct ControlTile: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
                     .fill(active ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(Color(.secondarySystemGroupedBackground)))
             )
             .opacity(isEnabled ? 1 : 0.5)

@@ -57,7 +57,7 @@ final class AskCoordinator {
     func run(_ rule: Rule) async {
         let car = AppServices.shared.car
         switch rule.action {
-        case .startClimate(let target): await car.start(targetC: target)
+        case .startClimate(let target): await car.start(targetC: target, options: rule.climateOptions)
         case .stopClimate: await car.stop()
         }
     }

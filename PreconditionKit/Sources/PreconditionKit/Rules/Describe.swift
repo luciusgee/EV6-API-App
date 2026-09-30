@@ -74,3 +74,7 @@ extension Describe {
         d.rounded(.down) == d && abs(d) < 1e15 ? String(Int64(d)) : String(format: "%.1f", d)
     }
 }
+
+extension String {
+    var capitalizingFirstLetter: String { prefix(1).uppercased() + dropFirst() }
+}

@@ -66,11 +66,12 @@ public final class PreconditionEngine: Sendable {
     }
 
     /// Manual start: the SoC guard and the budget still apply; cooldowns and pause don't.
-    public func manualStart(targetC: Double? = nil) async -> ManualOutcome {
+    /// `options` overrides the usual extras, e.g. for an "ask first" rule that sets its own.
+    public func manualStart(targetC: Double? = nil, options: ClimateOptions? = nil) async -> ManualOutcome {
         await mutex.withLock {
             let target: Double
             if let targetC { target = targetC } else { target = await settings.defaultTargetC() }
-            return await manual(.startClimate(targetC: target))
+            return await manual(.startClimate(targetC: target), options: options)
         }
     }
 
@@ -102,7 +103,7 @@ public final class PreconditionEngine: Sendable {
         await log.append(LogEntry(at: time.now(), kind: .info, decision: "resumed", reason: "automation resumed by user"))
     }
 
-    private func manual(_ action: RuleAction) async -> ManualOutcome {
+    private func manual(_ action: RuleAction, options: ClimateOptions? = nil) async -> ManualOutcome {
         let now = time.now()
         let description = Describe.action(action)
 
@@ -137,7 +138,7 @@ public final class PreconditionEngine: Sendable {
         var note: String?
         switch action {
         case .startClimate(let target):
-            let start = await sendClimateStart(targetC: target, kind: .manual, vehicle: await plugState(vehicle), trigger: nil)
+            let start = await sendClimateStart(targetC: target, kind: .manual, vehicle: await plugState(vehicle), trigger: nil, options: options)
             result = start.result
             requests += start.requests
             note = start.note

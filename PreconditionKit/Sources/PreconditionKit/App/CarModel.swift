@@ -115,11 +115,11 @@ public final class CarModel {
         await reloadState()
     }
 
-    public func start(targetC: Double? = nil) async {
+    public func start(targetC: Double? = nil, options: ClimateOptions? = nil) async {
         guard busy == nil else { return }
         busy = .starting
         message = nil
-        report(await container.engine.manualStart(targetC: targetC))
+        report(await container.engine.manualStart(targetC: targetC, options: options))
         busy = nil
         fakeCar = container.fakeCar.state
         await reloadState()

@@ -202,7 +202,7 @@ extension PreconditionEngine {
         var note: String?
         switch action {
         case .startClimate(let target):
-            let start = await sendClimateStart(targetC: target, kind: .automation, vehicle: vehicle, trigger: label)
+            let start = await sendClimateStart(targetC: target, kind: .automation, vehicle: vehicle, trigger: label, options: rule.climateOptions)
             result = start.result
             note = start.note
         case .stopClimate:

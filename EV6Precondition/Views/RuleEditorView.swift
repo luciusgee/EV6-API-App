@@ -32,7 +32,7 @@ struct RuleEditorView: View {
                 }
                 TriggerSection(trigger: $draft.trigger, places: model.places)
                 ConditionsSection(conditions: $draft.conditions, places: model.places)
-                ActionSection(action: $draft.action)
+                ActionSection(action: $draft.action, options: $draft.climateOptions)
                 Section {
                     Toggle("Ask me first", isOn: $draft.askFirst)
                 } footer: {
@@ -385,11 +385,24 @@ private struct SourcePicker: View {
 
 private struct ActionSection: View {
     @Binding var action: RuleAction
+    @Binding var options: ClimateOptions?
 
     private var isStart: Binding<Bool> {
         Binding(
             get: { if case .startClimate = action { return true } else { return false } },
             set: { start in action = start ? .startClimate(targetC: 21) : .stopClimate }
+        )
+    }
+
+    /// One of this rule's extras; turning both off goes back to the app's usual settings.
+    private func extra(_ key: WritableKeyPath<ClimateOptions, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { options?[keyPath: key] ?? false },
+            set: { on in
+                var o = options ?? ClimateOptions()
+                o[keyPath: key] = on
+                options = (o.defrost || o.heatedExtras) ? o : nil
+            }
         )
     }
 
@@ -402,6 +415,8 @@ private struct ActionSection: View {
             .pickerStyle(.segmented)
             if case .startClimate(let target) = action {
                 RoundStepper("Target", value: Binding(get: { target }, set: { action = .startClimate(targetC: $0) }), in: RuleValidator.minTargetC...RuleValidator.maxTargetC, step: 0.5) { _ in Describe.temp(target) }
+                Toggle("Heated wheel, mirrors and rear window", isOn: extra(\.heatedExtras))
+                Toggle("Defrost the windscreen", isOn: extra(\.defrost))
             }
         }
     }

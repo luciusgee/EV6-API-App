@@ -120,7 +120,7 @@ public enum Guide {
         ]),
         GuideSection(id: "rules", title: "Rules", symbol: "list.bullet.rectangle", steps: [
             GuideStep("rules.intro", "Rules",
-                      "Automatic climate and charging. Type what you want, like \"weekdays at 7:30 heat to 22 if it's below 5\", or start from a template. Rules can use the weather, your places and the car's charge.",
+                      "Rules warm or cool the car by themselves. Tap + and answer four quick questions: when, what, only if, and a check. The rule is read back in plain words as you go. Rules can use the weather, your places, the charge and the heated wheel and mirrors.",
                       symbol: "list.bullet.rectangle", tab: .rules),
             GuideStep("rules.ask", "Ask first",
                       "A rule can ask instead of just starting. At its time you get a notification to Start now, In 15 min or Not today. It's skipped when the weather means it isn't needed.",
@@ -160,7 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
-        GuideRelease(number: 11, title: "Trips with several stops, and there and back", stepIds: ["trips.plan", "trips.food", "trips.commute", "charging.hub", "trips.places"]),
+        GuideRelease(number: 11, title: "A new rule maker, and trips with several stops", stepIds: ["rules.intro", "trips.plan", "trips.food", "trips.commute", "charging.hub", "trips.places"]),
         GuideRelease(number: 10, title: "Fewer false plug-in reminders", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 9, title: "A fresh coat of paint", stepIds: ["car.look", "car.refresh", "settings.alerts"]),
         GuideRelease(number: 8, title: "Trips has its own tab, and a simpler planner", stepIds: ["trips.tab", "trips.plan", "trips.tesla"]),

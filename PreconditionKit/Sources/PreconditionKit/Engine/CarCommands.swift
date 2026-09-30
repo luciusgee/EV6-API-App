@@ -29,8 +29,11 @@ extension PreconditionEngine {
     /// Starts climate with the user's options. When the charger should be held, stops it first and waits
     /// for the car to confirm (or `commandGap` when Kia gives no id), so the car takes the commands one at a
     /// time. A failed stop never blocks the climate.
-    func sendClimateStart(targetC: Double, kind: RequestKind, vehicle: VehicleSnapshot?, trigger: String?) async -> ClimateStart {
-        let prefs = await settings.climatePreferences()
+    /// `options` replaces the usual heated extras and defrost, for a rule that sets its own.
+    func sendClimateStart(targetC: Double, kind: RequestKind, vehicle: VehicleSnapshot?, trigger: String?,
+                          options: ClimateOptions? = nil) async -> ClimateStart {
+        var prefs = await settings.climatePreferences()
+        if let options { prefs.options = options }
         var requests = 0
         var note: String?
         if Self.shouldHoldCharger(vehicle, prefs) {

@@ -367,6 +367,8 @@ public struct Rule: Hashable, Identifiable, Sendable {
     public var proceedIfUnknown: Bool
     /// Ask with a notification (Start / In 15 min / Not today) instead of sending the command.
     public var askFirst: Bool
+    /// Heated extras and defrost for this rule's climate start; nil uses the app's usual settings.
+    public var climateOptions: ClimateOptions?
 
     public init(
         id: String,
@@ -378,7 +380,8 @@ public struct Rule: Hashable, Identifiable, Sendable {
         action: RuleAction,
         cooldownMinutes: Int = Rule.defaultCooldownMinutes,
         proceedIfUnknown: Bool = false,
-        askFirst: Bool = false
+        askFirst: Bool = false,
+        climateOptions: ClimateOptions? = nil
     ) {
         self.id = id
         self.name = name
@@ -390,11 +393,12 @@ public struct Rule: Hashable, Identifiable, Sendable {
         self.cooldownMinutes = cooldownMinutes
         self.proceedIfUnknown = proceedIfUnknown
         self.askFirst = askFirst
+        self.climateOptions = climateOptions
     }
 }
 
 extension Rule: Codable {
-    private enum CodingKeys: String, CodingKey { case id, name, enabled, priority, trigger, conditions, action, cooldownMinutes, proceedIfUnknown, askFirst }
+    private enum CodingKeys: String, CodingKey { case id, name, enabled, priority, trigger, conditions, action, cooldownMinutes, proceedIfUnknown, askFirst, climateOptions }
 
     /// Missing keys take their defaults; unknown keys are ignored.
     public init(from decoder: Decoder) throws {
@@ -409,7 +413,8 @@ extension Rule: Codable {
             action: try c.decode(RuleAction.self, forKey: .action),
             cooldownMinutes: try c.decodeIfPresent(Int.self, forKey: .cooldownMinutes) ?? Rule.defaultCooldownMinutes,
             proceedIfUnknown: try c.decodeIfPresent(Bool.self, forKey: .proceedIfUnknown) ?? false,
-            askFirst: try c.decodeIfPresent(Bool.self, forKey: .askFirst) ?? false
+            askFirst: try c.decodeIfPresent(Bool.self, forKey: .askFirst) ?? false,
+            climateOptions: try c.decodeIfPresent(ClimateOptions.self, forKey: .climateOptions)
         )
     }
 
@@ -425,6 +430,7 @@ extension Rule: Codable {
         try c.encode(cooldownMinutes, forKey: .cooldownMinutes)
         try c.encode(proceedIfUnknown, forKey: .proceedIfUnknown)
         if askFirst { try c.encode(askFirst, forKey: .askFirst) }
+        try c.encodeIfPresent(climateOptions, forKey: .climateOptions)
     }
 }
 

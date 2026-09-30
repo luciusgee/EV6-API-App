@@ -129,7 +129,7 @@ public struct VehicleFetch: Equatable, Sendable {
 }
 
 /// Extras for a climate start.
-public struct ClimateOptions: Codable, Equatable, Sendable {
+public struct ClimateOptions: Codable, Hashable, Sendable {
     /// Front windscreen defrost.
     public var defrost: Bool
     /// Heated steering wheel, rear window and mirrors.

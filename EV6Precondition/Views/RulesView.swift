@@ -59,9 +59,9 @@ struct RulesView: View {
                         ContentUnavailableView {
                             Label("No rules yet", systemImage: "list.bullet.rectangle")
                         } description: {
-                            Text("Say what you want, like “weekdays at 7:30 heat to 22 if it's below 5”, or start from a template.")
+                            Text("A rule warms or cools the car by itself: at a time, when you leave or arrive somewhere, or when it's cold.")
                         } actions: {
-                            Button("Type a rule") { composing = true }
+                            Button("Make a rule") { composing = true }
                                 .buttonStyle(.borderedProminent)
                                 .foregroundStyle(Color.onAccent)
                             Menu("Choose a template") {
@@ -134,7 +134,7 @@ struct RulesView: View {
                     Button {
                         composing = true
                     } label: {
-                        Label("Type a rule", systemImage: "text.cursor")
+                        Label("New rule", systemImage: "plus")
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -146,11 +146,11 @@ struct RulesView: View {
                                 }
                             }
                         }
-                        Button("Blank rule") {
+                        Button("From scratch (advanced)") {
                             editing = EditorItem(rule: model.blankRule(), isNew: true)
                         }
                     } label: {
-                        Label("Add rule", systemImage: "plus")
+                        Label("Templates", systemImage: "square.grid.2x2")
                     }
                 }
             }
@@ -158,14 +158,7 @@ struct RulesView: View {
                 RuleEditorView(rule: item.rule, isNew: item.isNew)
             }
             .sheet(isPresented: $composing) {
-                ComposeRuleView { rule in
-                    composing = false
-                    // Let the sheet close before the editor opens.
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(450))
-                        editing = EditorItem(rule: rule, isNew: true)
-                    }
-                }
+                RuleBuilderView()
             }
             .sheet(isPresented: $showScheduleHelp) {
                 ScheduleHelpView()

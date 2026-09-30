@@ -76,11 +76,6 @@ public final class RulesModel {
         }
     }
 
-    /// A rule from a sentence, understood on the device.
-    public func compose(_ sentence: String) async -> RuleComposer.Result {
-        RuleComposer.compose(sentence, places: places, defaultTargetC: await container.stores.settings.load().defaultTargetC)
-    }
-
     /// Carries out a suggestion's fix. A rule is returned for the editor rather than saved blind.
     public func apply(_ suggestion: Suggestion) async -> Rule? {
         switch suggestion.fix {

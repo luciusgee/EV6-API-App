@@ -32,7 +32,7 @@ final class ChargingCoordinator {
     func scheduleBackgroundRefresh() {
         let charging = AppServices.shared.charging
         let alerts = charging.settings.alerts
-        guard alerts.backgroundChecks || charging.settings.smart.enabled else {
+        guard alerts.backgroundChecks || charging.settings.smart.enabled || alerts.plugReminder.enabled else {
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskID)
             return
         }
@@ -50,6 +50,11 @@ final class ChargingCoordinator {
             let startsAt = Calendar.current.nextDate(after: Date(), matching: DateComponents(hour: window.start.hour, minute: window.start.minute),
                                                      matchingPolicy: .nextTime)
             if let startsAt { earliest = min(earliest, startsAt.addingTimeInterval(25 * 60)) }
+        }
+        // Just before the evening "plugged in?" reminder, so a car plugged in since the last reading
+        // cancels it instead of getting a false alarm.
+        if let due = plugReminderDue {
+            earliest = min(earliest, max(Date().addingTimeInterval(60), due.addingTimeInterval(-PlugReminder.checkAhead)))
         }
         let request = BGAppRefreshTaskRequest(identifier: Self.refreshTaskID)
         request.earliestBeginDate = earliest
@@ -71,6 +76,13 @@ final class ChargingCoordinator {
         let charging = services.car.snapshot?.chargingState == .charging
         _ = await services.container.vehicles.fetch(.automation, wake: charging)
         await services.car.load()
+        // The plug reminder's about to go and Kia's copy still says unplugged: ask the car itself once,
+        // as Kia's copy often lags a plug-in. One wake an evening is nothing for the 12 V.
+        if !charging, let due = plugReminderDue, due.timeIntervalSinceNow < PlugReminder.checkAhead + 20 * 60,
+           services.car.snapshot?.pluggedIn != true {
+            _ = await services.container.vehicles.fetch(.automation, wake: true)
+            await services.car.load()
+        }
         if let snapshot = services.car.snapshot { await handle(snapshot) }
     }
 
@@ -124,6 +136,12 @@ final class ChargingCoordinator {
             text: String(format: "%.1f kWh to %d%% for about %@ (%.1fp/kWh). If it hasn't started, tap Start charging.",
                          plan.kWh, plan.targetPercent, cost, plan.averagePence)
         )
+    }
+
+    /// When the "not plugged in yet" reminder will go, from the latest reading.
+    private var plugReminderDue: Date? {
+        let services = AppServices.shared
+        return services.charging.settings.alerts.plugReminder.next(after: Date(), snapshot: services.car.snapshot)
     }
 
     /// Books tonight's (or tomorrow's) "not plugged in yet" reminder from the latest reading.

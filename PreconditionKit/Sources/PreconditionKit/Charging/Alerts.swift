@@ -119,10 +119,20 @@ public struct PlugReminder: Codable, Equatable, Sendable {
     }
 
     /// The reminder's words.
-    public static func message(snapshot: VehicleSnapshot?, now: Date) -> (title: String, body: String) {
-        let at = snapshot?.socPercent.map { "It's at \($0)%. " } ?? ""
-        return ("Your EV6 isn't plugged in", at + "Plug in if it needs charging tonight, and confirm the charger in its app if it asks.")
+    /// It's booked ahead from the last reading, so it says when that was: plugging in after that
+    /// reading can't be known unless the app got to check the car first.
+    public static func message(snapshot: VehicleSnapshot?, now: Date, timeZone: TimeZone = .current) -> (title: String, body: String) {
+        var seen = ""
+        if let snapshot {
+            let when = DisplayText.clock(snapshot.carCapturedAt ?? snapshot.fetchedAt, timeZone)
+            seen = "At \(when) it was unplugged" + (snapshot.socPercent.map { " at \($0)%" } ?? "") + ". "
+        }
+        return ("Is your EV6 plugged in?", seen + "Plug in if it needs charging tonight. Already plugged in? Tap to check.")
     }
+
+    /// Shortly before the reminder, the app asks iOS for a chance to check the car, so a car that's
+    /// since been plugged in cancels it.
+    public static let checkAhead: TimeInterval = 25 * 60
 }
 
 /// Which lasting conditions have already been announced, so each is said once until it clears.

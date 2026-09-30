@@ -80,7 +80,7 @@ public enum Guide {
                       "The car's own charging window, like the 23:00–06:00 you set in the Kia app. Change the times, or make it charge only in the window, and send it to the car. Your departure times aren't touched. It asks for your Kia Connect PIN the first time.",
                       symbol: "moon.stars", tab: .car, screen: .offPeak),
             GuideStep("charging.plugAlerts", "Plugged in? Charging?",
-                      "When you plug in, you get a note saying when it'll charge (\"All set for tomorrow\"). If it's plugged in but hasn't started 20 minutes into the off-peak window, you're told, in case the charger wasn't confirmed in its app. And at 21:00, if it isn't plugged in, a reminder you can ignore. Change the time in Settings › Alerts.",
+                      "Plug in and you're told when it'll charge. Plugged in but not started 20 minutes into the off-peak window? You're told, in case the charger needs confirming in its app. At 21:00, if it isn't plugged in, a reminder. The app checks the car just before, so plugging in earlier cancels it. Change the time in Settings › Alerts.",
                       symbol: "powerplug.fill", tab: .settings, screen: .alerts),
             GuideStep("charging.chargers", "Chargers nearby",
                       "Chargers around the car, with directions to any of them.",
@@ -160,6 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
+        GuideRelease(number: 10, title: "Fewer false plug-in reminders", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 9, title: "A fresh coat of paint", stepIds: ["car.look", "car.refresh", "settings.alerts"]),
         GuideRelease(number: 8, title: "Trips has its own tab, and a simpler planner", stepIds: ["trips.tab", "trips.plan", "trips.tesla"]),
         GuideRelease(number: 7, title: "A new widget and Watch look", stepIds: ["extras.glance"]),

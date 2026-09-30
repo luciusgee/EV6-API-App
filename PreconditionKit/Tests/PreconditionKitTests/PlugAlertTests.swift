@@ -65,8 +65,8 @@ final class PlugAlertTests: XCTestCase {
         // After 21:00: tomorrow.
         XCTAssertEqual(r.next(after: at(1, 21, 30), snapshot: nil, calendar: cal), at(2, 21))
         XCTAssertNil(PlugReminder(enabled: false).next(after: at(1, 18), snapshot: nil, calendar: cal))
-        XCTAssertEqual(PlugReminder.message(snapshot: snap(at(1, 17), plugged: false), now: at(1, 21)).body,
-                       "It's at 45%. Plug in if it needs charging tonight, and confirm the charger in its app if it asks.")
+        XCTAssertEqual(PlugReminder.message(snapshot: snap(at(1, 17), plugged: false), now: at(1, 21), timeZone: cal.timeZone).body,
+                       "At 17:00 it was unplugged at 45%. Plug in if it needs charging tonight. Already plugged in? Tap to check.")
     }
 
     func testOldAlertSettingsLoadWithTheNewAlertsOn() throws {

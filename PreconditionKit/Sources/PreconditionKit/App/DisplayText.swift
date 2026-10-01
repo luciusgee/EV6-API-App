@@ -27,13 +27,18 @@ public enum DisplayText {
         switch v.chargingState {
         case .charging?:
             var parts = ["Charging"]
-            if let kw = v.chargePowerKw { parts.append(String(format: "%.1f kW", kw)) }
+            if let kw = v.chargePowerKw { parts.append(kW(kw)) }
             if let minutes = v.minutesToFullyCharged { parts.append("full in \(duration(minutes: minutes))") }
             return parts.joined(separator: " · ")
         case .pluggedIn?: return "Plugged in"
         case .unplugged?: return "Unplugged"
         case nil: return nil
         }
+    }
+
+    /// "132 kW" for rapid charging, "7.2 kW" at home.
+    public static func kW(_ kw: Double) -> String {
+        kw >= 20 ? "\(Int(kw.rounded())) kW" : String(format: "%.1f kW", kw)
     }
 
     public static func duration(minutes: Int) -> String {

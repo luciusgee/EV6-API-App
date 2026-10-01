@@ -130,10 +130,11 @@ struct CarView: View {
             let target = s.targetTempC.map { " to \(Describe.temp($0))" } ?? ""
             mood = DisplayText.isCooling(targetC: s.targetTempC ?? 21, outsideC: outsideC) ? "Cooling down\(target)" : "Warming up\(target)"
         } else if s.chargingState == .charging {
+            let at = s.chargePowerKw.map { " at \(DisplayText.kW($0))" } ?? ""
             if let m = s.minutesToFullyCharged, m > 0 {
-                mood = "Charging, done by \((s.carCapturedAt ?? s.fetchedAt).addingTimeInterval(Double(m) * 60).formatted(date: .omitted, time: .shortened))"
+                mood = "Charging\(at), done by \((s.carCapturedAt ?? s.fetchedAt).addingTimeInterval(Double(m) * 60).formatted(date: .omitted, time: .shortened))"
             } else {
-                mood = "Charging"
+                mood = "Charging\(at)"
             }
         } else if s.details?.locked == false {
             mood = "Unlocked"
@@ -193,7 +194,7 @@ struct CarView: View {
             .disabled(waiting(["lock the car", "unlock the car"]))
             ControlTile(
                 title: "Charging",
-                subtitle: waiting(["start charging", "stop charging"]) ? "Waiting for car…" : (snapshot == nil ? "–" : (charging ? (snapshot?.chargePowerKw.map { String(format: "%.1f kW", $0) } ?? "On") : (pluggedIn ? "Plugged in · tap to charge" : "Unplugged"))),
+                subtitle: waiting(["start charging", "stop charging"]) ? "Waiting for car…" : (snapshot == nil ? "–" : (charging ? (snapshot?.chargePowerKw.map { DisplayText.kW($0) } ?? "On") : (pluggedIn ? "Plugged in · tap to charge" : "Unplugged"))),
                 systemImage: charging ? "bolt.fill" : (pluggedIn ? "powerplug.fill" : "powerplug"),
                 tint: .green,
                 active: charging,

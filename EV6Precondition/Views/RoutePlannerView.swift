@@ -24,7 +24,9 @@ struct RoutePlannerView: View {
     /// Minutes at each place before the last.
     @State private var stays: [Double] = []
     @State private var trip = TripSettings()
-    @State private var leaving = Date().addingTimeInterval(3600)
+    /// The time picked to set off; nil means now. A picked time that's passed counts as now too.
+    @State private var leavingChosen: Date?
+    private var leaving: Date { max(leavingChosen ?? Date(), Date()) }
     /// The route for each leg: start → first place, then place to place.
     @State private var found: [RouteService.Found] = []
     @State private var legs: [PlannedLeg] = []
@@ -175,8 +177,9 @@ struct RoutePlannerView: View {
                     Label("And back again", systemImage: "arrow.uturn.backward.circle")
                 }
             }
-            DatePicker(selection: $leaving, in: Date()..., displayedComponents: [.date, .hourAndMinute]) {
-                Label("Leaving", systemImage: "clock")
+            DatePicker(selection: Binding(get: { leaving }, set: { leavingChosen = $0 }), in: Date()...,
+                       displayedComponents: [.date, .hourAndMinute]) {
+                Label(leavingChosen == nil ? "Leaving now" : "Leaving", systemImage: "clock")
             }
             if planning {
                 HStack { ProgressView(); Text("Finding the route and chargers…").foregroundStyle(.secondary) }

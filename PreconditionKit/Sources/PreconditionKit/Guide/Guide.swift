@@ -66,7 +66,7 @@ public enum Guide {
                       "Climate, locks, charging and the charge limit. After you tap one, the tile waits until the car confirms it did it, like the Kia app.",
                       symbol: "square.grid.2x2", tab: .car),
             GuideStep("car.climate", "Climate",
-                      "Scroll down to Climate. Slide to pick 17–27 °C (the EV6 won't take anything outside that). It's used by the Climate tile, widgets, Siri and the Watch. Climate runs for 15 minutes. Turn on defrost and the heated wheel and mirrors here, and Keep the charger off stops climate kicking off a charge while you're plugged in.",
+                      "Scroll down to Climate. Slide to pick 17–27 °C (the EV6 won't take anything outside that). It's used by the Climate tile, widgets, Siri and the Watch. Climate runs for 15 minutes. The tile and greeting show the temperature outside where the car is. Turn on defrost and the heated wheel and mirrors here, and Keep the charger off stops climate kicking off a charge while you're plugged in.",
                       symbol: "thermometer.medium", tab: .car),
             GuideStep("car.liveActivity", "On the Lock Screen",
                       "While climate runs or the car charges, a Live Activity shows the countdown or progress on the Lock Screen and in the Dynamic Island.",
@@ -160,6 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
+        GuideRelease(number: 14, title: "The temperature outside, on the Car tab", stepIds: ["car.climate"]),
         GuideRelease(number: 13, title: "Pick your route, then the chargers; start from your places", stepIds: ["trips.plan"]),
         GuideRelease(number: 12, title: "Chargers: detours, how many and how fast, and services on the main road", stepIds: ["trips.food", "trips.traffic", "rules.intro"]),
         GuideRelease(number: 11, title: "A new rule maker, and trips with several stops", stepIds: ["rules.intro", "trips.commuteAuto", "trips.plan", "trips.food", "trips.commute", "charging.hub", "trips.places"]),

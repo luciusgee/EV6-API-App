@@ -8,6 +8,8 @@ struct CarView: View {
     @Environment(ChargingModel.self) private var chargingModel
     @AppStorage(CarPaint.storageKey) private var paint: CarPaint = .runwayRed
     @State private var target: Double?
+    /// The weather where the car's parked, when the car doesn't report an outside temperature.
+    @State private var weatherC: Double?
     @State private var confirmUnlock = false
     @State private var editingLimits = false
 
@@ -71,6 +73,11 @@ struct CarView: View {
             .sensoryFeedback(.success, trigger: model.message) { _, new in new?.hasPrefix("✓") == true }
             .navigationTitle("My EV6")
             .refreshable { await model.refresh() }
+            // The temperature where the car is, so it's clear at a glance whether to heat or cool.
+            .task(id: snapshot?.parkingPosition.map { "\($0.lat),\($0.lon)" }) {
+                guard snapshot?.outsideTempC == nil, let p = snapshot?.parkingPosition else { return }
+                weatherC = await AppServices.shared.container.weather.current(at: p)?.celsius
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     if model.busy == .refreshing {
@@ -109,6 +116,11 @@ struct CarView: View {
     }
 
     /// "Good evening · Charging, full by 01:30": a friendly line about what the car's up to.
+    /// Outside where the car is: the car's own sensor, else the weather there.
+    private var outsideC: Double? { snapshot?.outsideTempC ?? weatherC }
+
+    private var outsideText: String? { outsideC.map { "\(Int($0.rounded())) °C outside" } }
+
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: model.now)
         let hello = hour < 5 ? "Hello" : (hour < 12 ? "Good morning" : (hour < 18 ? "Good afternoon" : "Good evening"))
@@ -116,7 +128,7 @@ struct CarView: View {
         let mood: String
         if s.climate == .running {
             let target = s.targetTempC.map { " to \(Describe.temp($0))" } ?? ""
-            mood = (s.outsideTempC.map { $0 > (s.targetTempC ?? 21) } ?? false) ? "Cooling down\(target)" : "Warming up\(target)"
+            mood = (outsideC.map { $0 > (s.targetTempC ?? 21) } ?? false) ? "Cooling down\(target)" : "Warming up\(target)"
         } else if s.chargingState == .charging {
             if let m = s.minutesToFullyCharged, m > 0 {
                 mood = "Charging, done by \((s.carCapturedAt ?? s.fetchedAt).addingTimeInterval(Double(m) * 60).formatted(date: .omitted, time: .shortened))"
@@ -132,7 +144,7 @@ struct CarView: View {
         } else {
             mood = "Parked" + (s.details?.locked == true ? " and locked" : "")
         }
-        return "\(hello) · \(mood)"
+        return [hello, outsideC.map { "\(Int($0.rounded())) °C" }, mood].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// We never wake the car, so its data can be old; say how old (HANDOVER.md §3.7).
@@ -153,7 +165,7 @@ struct CarView: View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
             ControlTile(
                 title: "Climate",
-                subtitle: waiting(["climatise", "stop climatisation"]) ? "Waiting for car…" : (snapshot == nil ? "–" : (climateOn ? (snapshot?.targetTempC.map { "On · \(Describe.temp($0))" } ?? "On") : "Off · \(Describe.temp(shownTarget))")),
+                subtitle: waiting(["climatise", "stop climatisation"]) ? "Waiting for car…" : (snapshot == nil ? "–" : (climateOn ? (snapshot?.targetTempC.map { "On · \(Describe.temp($0))" } ?? "On") : (outsideText.map { "Off · \($0)" } ?? "Off · \(Describe.temp(shownTarget))"))),
                 systemImage: climateOn ? "fan.fill" : "fan",
                 tint: .orange,
                 active: climateOn,

@@ -30,7 +30,7 @@ struct CarView: View {
                 }
 
                 Section {
-                    HeroCard(snapshot: snapshot, paint: paint, miles: model.settings.useMiles)
+                    HeroCard(snapshot: snapshot, paint: paint, miles: model.settings.useMiles, outsideC: outsideC)
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                 } header: {
@@ -128,7 +128,7 @@ struct CarView: View {
         let mood: String
         if s.climate == .running {
             let target = s.targetTempC.map { " to \(Describe.temp($0))" } ?? ""
-            mood = (outsideC.map { $0 > (s.targetTempC ?? 21) } ?? false) ? "Cooling down\(target)" : "Warming up\(target)"
+            mood = DisplayText.isCooling(targetC: s.targetTempC ?? 21, outsideC: outsideC) ? "Cooling down\(target)" : "Warming up\(target)"
         } else if s.chargingState == .charging {
             if let m = s.minutesToFullyCharged, m > 0 {
                 mood = "Charging, done by \((s.carCapturedAt ?? s.fetchedAt).addingTimeInterval(Double(m) * 60).formatted(date: .omitted, time: .shortened))"
@@ -267,8 +267,8 @@ struct CarView: View {
                 .tint(shownTarget >= 20 ? .orange : .cyan)
             }
             .padding(.vertical, 4)
-            if let outside = snapshot?.outsideTempC {
-                LabeledContent("Outside", value: Describe.temp(outside))
+            if let outside = outsideC {
+                LabeledContent("Outside", value: "\(Int(outside.rounded())) °C")
             }
             Toggle(isOn: setting(\.climateDefrost)) {
                 Label("Windscreen defrost", systemImage: "windshield.front.and.heat.waves")
@@ -405,6 +405,8 @@ private struct HeroCard: View {
     let snapshot: VehicleSnapshot?
     let paint: CarPaint
     let miles: Bool
+    /// Outside where the car is (its sensor, else the weather there).
+    let outsideC: Double?
 
     private var soc: Int? { snapshot?.socPercent }
 
@@ -425,8 +427,7 @@ private struct HeroCard: View {
 
     private var glow: EV6Illustration.ClimateGlow? {
         guard snapshot?.climate == .running else { return nil }
-        if let target = snapshot?.targetTempC, let outside = snapshot?.outsideTempC, outside > target { return .cooling }
-        return .heating
+        return DisplayText.isCooling(targetC: snapshot?.targetTempC ?? 21, outsideC: outsideC) ? .cooling : .heating
     }
 
     var body: some View {

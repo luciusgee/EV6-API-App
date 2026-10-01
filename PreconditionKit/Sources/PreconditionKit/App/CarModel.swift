@@ -196,17 +196,30 @@ public final class CarModel {
                 try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             }
             guard !Task.isCancelled else { return }
-            self.confirming = nil
             switch status {
             case .success:
                 self.message = "✓ \(DisplayText.confirmed(description))"
             case .failed:
                 self.message = "Couldn't \(Self.verb(description)). The car may be in use, or a door or the charge port may be open."
-            case .noResponse:
-                self.message = "No reply from the car. It may be out of mobile signal. Pull down to check again shortly."
-            case .pending, .unknown:
-                self.message = "Sent. The car hasn't confirmed it yet."
+            case .noResponse, .pending, .unknown:
+                // Kia doesn't always list the car's reply (climate often isn't), so ask the car itself.
+                // It's just woken up for the command, so this costs it nothing.
+                let read = await self.container.engine.refreshVehicle(wake: true)
+                guard !Task.isCancelled else { return }
+                await self.reloadState()
+                let shows = read.error == nil ? self.snapshot.flatMap { Self.carShows(description, $0) } : nil
+                switch shows {
+                case true?:
+                    self.message = "✓ \(DisplayText.confirmed(description))"
+                case false?:
+                    self.message = "Sent, but the car doesn't show it yet. Pull down in a minute to check."
+                case nil:
+                    self.message = status == .noResponse
+                        ? "No reply from the car. It may be out of mobile signal. Pull down to check again shortly."
+                        : "Sent. The car hasn't confirmed it yet."
+                }
             }
+            self.confirming = nil
             await self.reloadState()
         }
     }
@@ -225,6 +238,19 @@ public final class CarModel {
             message = reason.contains("budget") ? "Not sent. Kia's daily limit is used up." : "Not sent: \(reason)."
         case .failed(let error):
             message = "Couldn't send: \(error.message)"
+        }
+    }
+
+    /// Whether a fresh reading shows the command done; nil for commands it can't tell from.
+    nonisolated static func carShows(_ description: String, _ s: VehicleSnapshot) -> Bool? {
+        if description.hasPrefix("climatise") { return s.climate == .unknown ? nil : s.climate == .running }
+        if description.hasPrefix("stop climatisation") { return s.climate == .unknown ? nil : s.climate == .off }
+        switch description {
+        case "lock the car": return s.details?.locked
+        case "unlock the car": return s.details?.locked.map { !$0 }
+        case "start charging": return s.chargingState == .charging
+        case "stop charging": return s.chargingState != .charging
+        default: return nil
         }
     }
 

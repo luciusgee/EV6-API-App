@@ -42,6 +42,15 @@ public enum DisplayText {
         return rest == 0 ? "\(minutes / 60) h" : "\(minutes / 60) h \(rest) min"
     }
 
+    /// Whether climate set to `targetC` is cooling the car rather than warming it. A parked cabin is
+    /// a few degrees warmer than outside, so a target near or below the outside temperature cools,
+    /// and a low setting (18 °C or less) cools whatever the weather.
+    public static func isCooling(targetC: Double, outsideC: Double?) -> Bool {
+        if targetC <= 18 { return true }
+        guard let outsideC else { return false }
+        return targetC < outsideC + 3
+    }
+
     public static func clock(_ date: Date, _ timeZone: TimeZone) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")

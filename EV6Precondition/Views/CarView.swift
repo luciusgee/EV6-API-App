@@ -35,8 +35,8 @@ struct CarView: View {
                         .listRowBackground(Color.clear)
                 } header: {
                     Text(greeting)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary.opacity(0.85))
                         .textCase(nil)
                         .contentTransition(.opacity)
                 } footer: {
@@ -583,14 +583,20 @@ private struct Chip: View {
     var fixed = true
 
     var body: some View {
-        Label(text, systemImage: systemImage)
-            .font(.caption.weight(.medium))
-            .lineLimit(fixed ? 1 : 2)
-            .fixedSize(horizontal: fixed, vertical: !fixed)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .foregroundStyle(tint == .secondary ? Color.secondary : tint)
-            .background(Color(.tertiarySystemFill), in: Capsule())
+        // An icon and text by hand rather than a Label: inside a list, a Label's title can end up
+        // hidden, leaving an empty-looking chip.
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint == .secondary ? Color.secondary : tint)
+            Text(text)
+                .foregroundStyle(.primary)
+                .lineLimit(fixed ? 1 : 2)
+                .fixedSize(horizontal: fixed, vertical: !fixed)
+        }
+        .font(.caption.weight(.semibold))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color(.tertiarySystemFill), in: Capsule())
     }
 }
 

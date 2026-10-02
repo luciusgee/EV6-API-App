@@ -30,7 +30,7 @@ struct CarView: View {
                 }
 
                 Section {
-                    HeroCard(snapshot: snapshot, paint: paint, miles: model.settings.useMiles, outsideC: outsideC)
+                    HeroCard(snapshot: snapshot, paint: paint, miles: model.settings.useMiles, outsideC: outsideC, offPeakLine: offPeakLine)
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                 } header: {
@@ -118,6 +118,24 @@ struct CarView: View {
     /// "Good evening · Charging, full by 01:30": a friendly line about what the car's up to.
     /// Outside where the car is: the car's own sensor, else the weather there.
     private var outsideC: Double? { snapshot?.outsideTempC ?? weatherC }
+
+    /// The charge expected when off-peak ends, from the car's window (else the tariff's cheap hours).
+    private var offPeakLine: String? {
+        guard let s = snapshot else { return nil }
+        let settings = chargingModel.settings
+        var window = s.details?.offPeak
+        if window == nil, case .offPeak(_, _, let from, let to) = settings.tariff {
+            window = OffPeakWindow(start: from, end: to)
+        }
+        guard let window else { return nil }
+        // A "7 kW" wallbox draws about 7.4.
+        let kW = settings.smart.chargerKW == 7 ? 7.4 : settings.smart.chargerKW
+        guard let e = OffPeakForecast.estimate(s, window: window, now: model.now, chargerKW: kW, usableKWh: settings.usableKWh) else { return nil }
+        let time = e.at.formatted(date: .omitted, time: .shortened)
+        return e.reachesLimit
+            ? "At \(e.percent)% (its limit) by \(time), when off-peak ends"
+            : "About \(e.percent)% by \(time), when off-peak ends"
+    }
 
     private var outsideText: String? { outsideC.map { "\(Int($0.rounded())) °C outside" } }
 
@@ -408,6 +426,8 @@ private struct HeroCard: View {
     let miles: Bool
     /// Outside where the car is (its sensor, else the weather there).
     let outsideC: Double?
+    /// "About 72% by 6:00 am, when off-peak ends", while plugged in.
+    let offPeakLine: String?
 
     private var soc: Int? { snapshot?.socPercent }
 
@@ -499,6 +519,13 @@ private struct HeroCard: View {
                         Spacer(minLength: 0)
                     }
                 }
+            }
+
+            if let offPeakLine {
+                Label(offPeakLine, systemImage: "moon.stars.fill")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.primary.opacity(0.85))
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(16)

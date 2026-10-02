@@ -80,7 +80,7 @@ public enum Guide {
                       "The car's own charging window, like the 23:00–06:00 you set in the Kia app. Change the times, or make it charge only in the window, and send it to the car. Your departure times aren't touched. It asks for your Kia Connect PIN the first time.",
                       symbol: "moon.stars", tab: .car, screen: .offPeak),
             GuideStep("charging.plugAlerts", "Plugged in? Charging?",
-                      "Plug in and you're told when it'll charge. Plugged in but not started 20 minutes into the off-peak window? You're told, in case the charger needs confirming in its app. At 21:00, if it isn't plugged in, a reminder. The app checks the car just before, so plugging in earlier cancels it. Change the time in Settings › Alerts.",
+                      "Plug in and you're told when it'll charge, and the Car tab shows what you'll have when off-peak ends. Plugged in but not started 20 minutes into the off-peak window? You're told, in case the charger needs confirming in its app. At 21:00, if it isn't plugged in, a reminder. The app checks the car just before, so plugging in earlier cancels it. Change the time in Settings › Alerts.",
                       symbol: "powerplug.fill", tab: .settings, screen: .alerts),
             GuideStep("charging.chargers", "Chargers nearby",
                       "Chargers around the car, with directions to any of them.",
@@ -160,6 +160,7 @@ public enum Guide {
 
     /// Newest first.
     public static let releases: [GuideRelease] = [
+        GuideRelease(number: 15, title: "What you'll have when off-peak ends", stepIds: ["charging.plugAlerts"]),
         GuideRelease(number: 14, title: "The temperature outside, on the Car tab", stepIds: ["car.climate"]),
         GuideRelease(number: 13, title: "Pick your route, then the chargers; start from your places", stepIds: ["trips.plan"]),
         GuideRelease(number: 12, title: "Chargers: detours, how many and how fast, and services on the main road", stepIds: ["trips.food", "trips.traffic", "rules.intro"]),

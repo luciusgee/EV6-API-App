@@ -90,8 +90,10 @@ public struct PlugReminder: Codable, Equatable, Sendable {
     public var at: ClockTime
     /// No reminder when the car has at least this much.
     public var skipAbovePercent: Int
+    /// 2: the default moved from 21:00 to 20:00.
+    var version = 2
 
-    public init(enabled: Bool = true, at: ClockTime = ClockTime(hour: 21), skipAbovePercent: Int = 90) {
+    public init(enabled: Bool = true, at: ClockTime = ClockTime(hour: 20), skipAbovePercent: Int = 90) {
         self.enabled = enabled
         self.at = at
         self.skipAbovePercent = skipAbovePercent
@@ -103,10 +105,14 @@ public struct PlugReminder: Codable, Equatable, Sendable {
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
         at = try c.decodeIfPresent(ClockTime.self, forKey: .at) ?? d.at
         skipAbovePercent = try c.decodeIfPresent(Int.self, forKey: .skipAbovePercent) ?? d.skipAbovePercent
+        // Saved with the old 21:00 default: the evening check is 20:00 now. Once only.
+        if (try c.decodeIfPresent(Int.self, forKey: .version) ?? 1) < 2, at == ClockTime(hour: 21) { at = ClockTime(hour: 20) }
+        version = 2
     }
 
-    /// When to remind next, given the latest reading: today at `at` unless it's passed or the car is
-    /// already sorted (plugged in, seen since the morning, or charged enough), else tomorrow.
+    /// The evening check: today at `at` unless it's passed, else tomorrow. Plugged in (seen since the
+    /// morning) it's an "all set" note with what the charge should reach; unplugged, a reminder,
+    /// skipped when there's plenty of charge.
     public func next(after now: Date, snapshot: VehicleSnapshot?, calendar: Calendar = .current) -> Date? {
         guard enabled else { return nil }
         guard let today = calendar.date(bySettingHour: at.hour, minute: at.minute, second: 0, of: now) else { return nil }
@@ -114,14 +120,23 @@ public struct PlugReminder: Codable, Equatable, Sendable {
         let reported = snapshot.map { $0.carCapturedAt ?? $0.fetchedAt }
         let pluggedToday = snapshot?.pluggedIn == true && (reported ?? .distantPast) >= morning
         let full = (snapshot?.socPercent ?? 0) >= skipAbovePercent
-        if today > now && !pluggedToday && !full { return today }
+        if today > now && (pluggedToday || !full) { return today }
         return calendar.date(byAdding: .day, value: 1, to: today)
     }
 
     /// The reminder's words.
     /// It's booked ahead from the last reading, so it says when that was: plugging in after that
     /// reading can't be known unless the app got to check the car first.
-    public static func message(snapshot: VehicleSnapshot?, now: Date, timeZone: TimeZone = .current) -> (title: String, body: String) {
+    public static func message(snapshot: VehicleSnapshot?, now: Date, timeZone: TimeZone = .current,
+                               chargerKW: Double = 7.4, usableKWh: Double = 74) -> (title: String, body: String) {
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        if let snapshot, snapshot.pluggedIn == true,
+           let morning = calendar.date(bySettingHour: 6, minute: 0, second: 0, of: now),
+           (snapshot.carCapturedAt ?? snapshot.fetchedAt) >= morning {
+            let body = AlertEngine.pluggedInBody(snapshot, now: now, calendar: calendar, chargerKW: chargerKW, usableKWh: usableKWh)
+            return ("EV6 is plugged in" + (snapshot.socPercent.map { " at \($0)%" } ?? ""), body)
+        }
         var seen = ""
         if let snapshot {
             let when = DisplayText.clock(snapshot.carCapturedAt ?? snapshot.fetchedAt, timeZone)
@@ -176,8 +191,12 @@ public enum AlertEngine {
             }
         }
 
-        // Plugged in: say so, and what happens next.
-        if isNew, let previous, previous.pluggedIn == false, s.pluggedIn == true {
+        // Plugged in: say so, and what happens next. Before the evening check, that check's note says
+        // it instead, at a sensible time rather than whenever the app happened to notice.
+        let evening = settings.plugReminder
+        let eveningNoteToCome = evening.enabled
+            && (calendar.date(bySettingHour: evening.at.hour, minute: evening.at.minute, second: 0, of: now).map { now < $0 } ?? false)
+        if isNew, !eveningNoteToCome, let previous, previous.pluggedIn == false, s.pluggedIn == true {
             out.append(CarAlert(kind: .pluggedIn, title: "EV6 plugged in\(soc.map { " at \($0)%" } ?? "")", body: pluggedInBody(s, now: now, calendar: calendar, chargerKW: chargerKW, usableKWh: usableKWh)))
         }
 
@@ -225,13 +244,13 @@ public enum AlertEngine {
         let limit = s.details?.chargeLimitAC.map { " to \($0)%" } ?? ""
         func outlook(_ w: OffPeakWindow) -> String? {
             guard let e = OffPeakForecast.estimate(s, window: w, now: now, chargerKW: chargerKW, usableKWh: usableKWh, calendar: calendar) else { return nil }
-            if e.reachesLimit, let done = e.doneAt {
-                // To the nearest 5 minutes: it's an estimate.
-                let rounded = Date(timeIntervalSinceReferenceDate: (done.timeIntervalSinceReferenceDate / 300).rounded() * 300)
-                return "should reach \(e.percent)% (its limit) by about \(clock(rounded, calendar))"
-            }
+            // To the nearest 5 minutes: it's an estimate.
+            let done = e.doneAt.map { Date(timeIntervalSinceReferenceDate: ($0.timeIntervalSinceReferenceDate / 300).rounded() * 300) }
+            if e.reachesLimit, let done { return "should reach \(e.percent)% (its limit) by about \(clock(done, calendar))" }
             if e.reachesLimit { return "should reach \(e.percent)% (its limit) by \(clock(e.at, calendar))" }
-            return "should be at about \(e.percent)% by \(clock(e.at, calendar)), short of its \(s.details?.chargeLimitAC ?? 100)% limit"
+            let limit = s.details?.chargeLimitAC ?? 100
+            let full = done.map { " (\(limit)% would take until about \(clock($0, calendar)))" } ?? ""
+            return "should be at about \(e.percent)% by \(clock(e.at, calendar)), when off-peak ends\(full)"
         }
         if s.chargingState == .charging {
             if let w = s.details?.offPeak, let o = outlook(w) { return "Charging now, and it \(o)." }

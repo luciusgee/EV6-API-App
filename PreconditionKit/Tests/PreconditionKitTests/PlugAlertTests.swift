@@ -27,16 +27,21 @@ final class PlugAlertTests: XCTestCase {
 
     func testPluggingInIsConfirmedWithWhatHappensNext() {
         var state = AlertState()
-        let alerts = evaluate(snap(at(1, 18), plugged: false), snap(at(1, 19), plugged: true), &state, now: at(1, 19, 5))
+        // Plugged in at 19:00: the 20:00 evening note will say so, so nothing now.
+        var early = AlertState()
+        XCTAssertTrue(evaluate(snap(at(1, 18), plugged: false), snap(at(1, 19), plugged: true), &early, now: at(1, 19, 5))
+            .filter { $0.kind == .pluggedIn }.isEmpty)
+        // Plugged in after 20:00: said straight away.
+        let alerts = evaluate(snap(at(1, 18), plugged: false), snap(at(1, 20, 30), plugged: true), &state, now: at(1, 20, 35))
         let plugged = alerts.first { $0.kind == .pluggedIn }
         XCTAssertEqual(plugged?.title, "EV6 plugged in at 45%")
         // 45% → 80% is 25.9 kWh in the battery, 28.8 from the wall: 3.9 h at 7.4 kW from 23:00.
         XCTAssertEqual(plugged?.body, "It'll charge in the off-peak window, 23:00–06:00, and should reach 80% (its limit) by about 02:55. All set for tomorrow.")
         // Nearly empty: 7 h at 7.4 kW won't get to 80%.
         let low = AlertEngine.pluggedInBody(snap(at(1, 19), soc: 10, plugged: true), now: at(1, 19), calendar: cal)
-        XCTAssertEqual(low, "It'll charge in the off-peak window, 23:00–06:00, and should be at about 73% by 06:00, short of its 80% limit.")
+        XCTAssertEqual(low, "It'll charge in the off-peak window, 23:00–06:00, and should be at about 73% by 06:00, when off-peak ends (80% would take until about 06:45).")
         // Still plugged in: not said again.
-        XCTAssertTrue(evaluate(snap(at(1, 19), plugged: true), snap(at(1, 20), plugged: true), &state, now: at(1, 20)).isEmpty)
+        XCTAssertTrue(evaluate(snap(at(1, 20, 30), plugged: true), snap(at(1, 21), plugged: true), &state, now: at(1, 21)).isEmpty)
     }
 
     func testPluggedInButNotChargingLateInTheWindow() {
@@ -60,8 +65,11 @@ final class PlugAlertTests: XCTestCase {
         let r = PlugReminder(enabled: true, at: ClockTime(hour: 21), skipAbovePercent: 90)
         // Unplugged at teatime: remind at 21:00 today.
         XCTAssertEqual(r.next(after: at(1, 18), snapshot: snap(at(1, 17), plugged: false), calendar: cal), at(1, 21))
-        // Plugged in this evening: tomorrow instead.
-        XCTAssertEqual(r.next(after: at(1, 19), snapshot: snap(at(1, 18, 30), plugged: true), calendar: cal), at(2, 21))
+        // Plugged in this evening: the note still comes, saying it's all set.
+        XCTAssertEqual(r.next(after: at(1, 19), snapshot: snap(at(1, 18, 30), plugged: true), calendar: cal), at(1, 21))
+        let allSet = PlugReminder.message(snapshot: snap(at(1, 18, 30), plugged: true), now: at(1, 19), timeZone: cal.timeZone)
+        XCTAssertEqual(allSet.title, "EV6 is plugged in at 45%")
+        XCTAssertTrue(allSet.body.hasSuffix("All set for tomorrow."), allSet.body)
         // Plugged in, but that reading is from yesterday: still remind.
         XCTAssertEqual(r.next(after: at(2, 8), snapshot: snap(at(1, 22), plugged: true), calendar: cal), at(2, 21))
         // Charged enough already.

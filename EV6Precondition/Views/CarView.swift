@@ -131,10 +131,18 @@ struct CarView: View {
         // A "7 kW" wallbox draws about 7.4.
         let kW = settings.smart.chargerKW == 7 ? 7.4 : settings.smart.chargerKW
         guard let e = OffPeakForecast.estimate(s, window: window, now: model.now, chargerKW: kW, usableKWh: settings.usableKWh) else { return nil }
-        let time = e.at.formatted(date: .omitted, time: .shortened)
-        return e.reachesLimit
-            ? "At \(e.percent)% (its limit) by \(time), when off-peak ends"
-            : "About \(e.percent)% by \(time), when off-peak ends"
+        func clock(_ d: Date) -> String {
+            // To the nearest 5 minutes: it's an estimate.
+            Date(timeIntervalSinceReferenceDate: (d.timeIntervalSinceReferenceDate / 300).rounded() * 300)
+                .formatted(date: .omitted, time: .shortened)
+        }
+        let end = clock(e.at)
+        if e.reachesLimit {
+            return e.doneAt.map { "\(e.percent)% (its limit) at about \(clock($0)), before off-peak ends at \(end)" }
+                ?? "At \(e.percent)% (its limit) by \(end), when off-peak ends"
+        }
+        let full = e.doneAt.map { " · \(s.details?.chargeLimitAC ?? 100)% at about \(clock($0))" } ?? ""
+        return "About \(e.percent)% by \(end), when off-peak ends\(full)"
     }
 
     private var outsideText: String? { outsideC.map { "\(Int($0.rounded())) °C outside" } }

@@ -44,7 +44,7 @@ struct AlertsSettingsView: View {
                 Text("You'll get each alert once, and again only if it happens again.")
             }
             Section {
-                Toggle("Remind me if it's not plugged in", isOn: Binding(
+                Toggle("Evening check", isOn: Binding(
                     get: { alerts.plugReminder.enabled },
                     set: { on in Task { await charging.update { $0.alerts.plugReminder.enabled = on }; await ChargingCoordinator.shared.rebookPlugReminder() } }
                 ))
@@ -54,7 +54,7 @@ struct AlertsSettingsView: View {
                         set: { d in
                             let c = Calendar.current.dateComponents([.hour, .minute], from: d)
                             Task {
-                                await charging.update { $0.alerts.plugReminder.at = ClockTime(hour: c.hour ?? 21, minute: c.minute ?? 0) }
+                                await charging.update { $0.alerts.plugReminder.at = ClockTime(hour: c.hour ?? 20, minute: c.minute ?? 0) }
                                 await ChargingCoordinator.shared.rebookPlugReminder()
                             }
                         }
@@ -67,7 +67,7 @@ struct AlertsSettingsView: View {
             } header: {
                 Text("Evening reminder")
             } footer: {
-                Text("Every evening, unless the app has seen the car plugged in since the morning. Ignore it if you don't need to charge.")
+                Text("One note each evening: plugged in, what it should reach and when it'll be done; not plugged in, a reminder (skipped when the charge is above the level set). Plug in after it and you're told straight away.")
             }
             Section {
                 Toggle("Check in the background", isOn: Binding(

@@ -150,7 +150,10 @@ final class ChargingCoordinator {
         let reminder = services.charging.settings.alerts.plugReminder
         let snapshot = services.car.snapshot
         let at = reminder.next(after: Date(), snapshot: snapshot)
-        let words = PlugReminder.message(snapshot: snapshot, now: Date())
+        let settings = services.charging.settings
+        // A "7 kW" wallbox draws about 7.4.
+        let kW = settings.smart.chargerKW == 7 ? 7.4 : settings.smart.chargerKW
+        let words = PlugReminder.message(snapshot: snapshot, now: Date(), chargerKW: kW, usableKWh: settings.usableKWh)
         await services.notifier.schedulePlugReminder(at: at, title: words.title, text: words.body)
     }
 

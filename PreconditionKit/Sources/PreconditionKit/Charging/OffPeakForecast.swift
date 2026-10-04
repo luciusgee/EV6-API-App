@@ -28,7 +28,7 @@ public enum OffPeakForecast {
         public var percent: Int
         /// It reaches the car's charge limit before then.
         public var reachesLimit: Bool
-        /// Roughly when it gets to the limit, when it does.
+        /// Roughly when it gets to the limit at this pace (after the window ends when it falls short).
         public var doneAt: Date?
     }
 
@@ -48,7 +48,7 @@ public enum OffPeakForecast {
             let done = reported.addingTimeInterval(Double(minutes) * 60)
             if done <= end { return Estimate(at: end, percent: limit, reachesLimit: true, doneAt: done) }
             let share = end.timeIntervalSince(reported) / done.timeIntervalSince(reported)
-            return Estimate(at: end, percent: soc + Int((Double(limit - soc) * share).rounded(.down)), reachesLimit: false, doneAt: nil)
+            return Estimate(at: end, percent: soc + Int((Double(limit - soc) * share).rounded(.down)), reachesLimit: false, doneAt: done)
         }
 
         let kW = charging ? (s.chargePowerKw ?? chargerKW) : chargerKW
@@ -58,6 +58,6 @@ public enum OffPeakForecast {
         let percent = min(limit, soc + Int(added.rounded(.down)))
         let neededHours = Double(limit - soc) / 100 * usableKWh / efficiency / max(kW, 0.1)
         let doneAt = from.addingTimeInterval(neededHours * 3600)
-        return Estimate(at: end, percent: percent, reachesLimit: percent >= limit, doneAt: doneAt <= end ? doneAt : nil)
+        return Estimate(at: end, percent: percent, reachesLimit: percent >= limit, doneAt: doneAt)
     }
 }

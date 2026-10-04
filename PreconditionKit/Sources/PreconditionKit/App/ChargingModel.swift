@@ -162,7 +162,10 @@ public final class ChargingModel {
         }
         let previous = await previousStore.load()
         var state = await alertStore.load()
-        let alerts = AlertEngine.evaluate(previous: previous, current: snapshot, state: &state, settings: settings.alerts, now: now)
+        // A "7 kW" wallbox draws about 7.4.
+        let kW = settings.smart.chargerKW == 7 ? 7.4 : settings.smart.chargerKW
+        let alerts = AlertEngine.evaluate(previous: previous, current: snapshot, state: &state, settings: settings.alerts, now: now,
+                                          calendar: calendar, chargerKW: kW, usableKWh: settings.usableKWh)
         await alertStore.save(state)
         if previous?.fetchedAt != snapshot.fetchedAt {
             await previousStore.save(snapshot)

@@ -150,7 +150,9 @@ public enum AlertEngine {
         state: inout AlertState,
         settings: AlertSettings,
         now: Date,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        chargerKW: Double = 7.4,
+        usableKWh: Double = 74
     ) -> [CarAlert] {
         let reportedAt = s.carCapturedAt ?? s.fetchedAt
         // The same report again: no new changes, though lasting conditions (like not charging by now)
@@ -176,7 +178,7 @@ public enum AlertEngine {
 
         // Plugged in: say so, and what happens next.
         if isNew, let previous, previous.pluggedIn == false, s.pluggedIn == true {
-            out.append(CarAlert(kind: .pluggedIn, title: "EV6 plugged in\(soc.map { " at \($0)%" } ?? "")", body: pluggedInBody(s)))
+            out.append(CarAlert(kind: .pluggedIn, title: "EV6 plugged in\(soc.map { " at \($0)%" } ?? "")", body: pluggedInBody(s, now: now, calendar: calendar, chargerKW: chargerKW, usableKWh: usableKWh)))
         }
 
         // Conditions: said once, then again only after they've cleared.
@@ -216,10 +218,30 @@ public enum AlertEngine {
     }
 
     /// "It'll charge 23:00–06:00 to 80%. All set for tomorrow."
-    static func pluggedInBody(_ s: VehicleSnapshot) -> String {
+    /// What happens next, with the charge it should have by the end: "…should reach 80% (its limit)
+    /// by about 02:55. All set for tomorrow." or "…should be at about 72% by 06:00."
+    static func pluggedInBody(_ s: VehicleSnapshot, now: Date, calendar: Calendar = .current,
+                              chargerKW: Double = 7.4, usableKWh: Double = 74) -> String {
         let limit = s.details?.chargeLimitAC.map { " to \($0)%" } ?? ""
-        if s.chargingState == .charging { return "Charging now\(limit)." }
+        func outlook(_ w: OffPeakWindow) -> String? {
+            guard let e = OffPeakForecast.estimate(s, window: w, now: now, chargerKW: chargerKW, usableKWh: usableKWh, calendar: calendar) else { return nil }
+            if e.reachesLimit, let done = e.doneAt {
+                // To the nearest 5 minutes: it's an estimate.
+                let rounded = Date(timeIntervalSinceReferenceDate: (done.timeIntervalSinceReferenceDate / 300).rounded() * 300)
+                return "should reach \(e.percent)% (its limit) by about \(clock(rounded, calendar))"
+            }
+            if e.reachesLimit { return "should reach \(e.percent)% (its limit) by \(clock(e.at, calendar))" }
+            return "should be at about \(e.percent)% by \(clock(e.at, calendar)), short of its \(s.details?.chargeLimitAC ?? 100)% limit"
+        }
+        if s.chargingState == .charging {
+            if let w = s.details?.offPeak, let o = outlook(w) { return "Charging now, and it \(o)." }
+            return "Charging now\(limit)."
+        }
         if let w = s.details?.offPeak {
+            if let o = outlook(w) {
+                let done = o.contains("(its limit)")
+                return "It'll charge in the off-peak window, \(w.text), and \(o).\(done ? " All set for tomorrow." : "")"
+            }
             return "It'll charge in the off-peak window, \(w.text)\(limit). All set for tomorrow."
         }
         return "Not charging yet."
@@ -241,8 +263,13 @@ public enum AlertEngine {
     }
 
     private static func clock(_ date: Date) -> String {
+        clock(date, .current)
+    }
+
+    private static func clock(_ date: Date, _ calendar: Calendar) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")
+        f.timeZone = calendar.timeZone
         f.dateFormat = "HH:mm"
         return f.string(from: date)
     }

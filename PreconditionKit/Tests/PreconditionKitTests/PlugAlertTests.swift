@@ -30,7 +30,11 @@ final class PlugAlertTests: XCTestCase {
         let alerts = evaluate(snap(at(1, 18), plugged: false), snap(at(1, 19), plugged: true), &state, now: at(1, 19, 5))
         let plugged = alerts.first { $0.kind == .pluggedIn }
         XCTAssertEqual(plugged?.title, "EV6 plugged in at 45%")
-        XCTAssertEqual(plugged?.body, "It'll charge in the off-peak window, 23:00–06:00 to 80%. All set for tomorrow.")
+        // 45% → 80% is 25.9 kWh in the battery, 28.8 from the wall: 3.9 h at 7.4 kW from 23:00.
+        XCTAssertEqual(plugged?.body, "It'll charge in the off-peak window, 23:00–06:00, and should reach 80% (its limit) by about 02:55. All set for tomorrow.")
+        // Nearly empty: 7 h at 7.4 kW won't get to 80%.
+        let low = AlertEngine.pluggedInBody(snap(at(1, 19), soc: 10, plugged: true), now: at(1, 19), calendar: cal)
+        XCTAssertEqual(low, "It'll charge in the off-peak window, 23:00–06:00, and should be at about 73% by 06:00, short of its 80% limit.")
         // Still plugged in: not said again.
         XCTAssertTrue(evaluate(snap(at(1, 19), plugged: true), snap(at(1, 20), plugged: true), &state, now: at(1, 20)).isEmpty)
     }

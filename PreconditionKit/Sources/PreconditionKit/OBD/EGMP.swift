@@ -71,7 +71,7 @@ public struct BatteryReport: Codable, Equatable, Sendable {
         if let soh = sohPercent {
             if soh >= 95 { out.append(String(format: "Battery health %.1f%%: excellent.", soh)) }
             else if soh >= 85 { out.append(String(format: "Battery health %.1f%%: normal ageing.", soh)) }
-            else { out.append(String(format: "Battery health %.1f%%: below Kia's usual range; worth a dealer check (warranty covers 70%% for 8 years).", soh)) }
+            else { out.append(String(format: "Battery health %.1f%%: below the usual range; worth a dealer check (battery warranties typically cover 70%% for 8 years).", soh)) }
         }
         if let spread = cellSpreadMillivolts {
             if spread <= 40 { out.append(String(format: "Cells balanced within %.0f mV.", spread)) }

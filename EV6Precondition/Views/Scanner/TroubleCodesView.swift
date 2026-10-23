@@ -188,7 +188,7 @@ private struct CodeDetail: View {
                         Text(meaning)
                     }
                 } footer: {
-                    Text("Codes starting P1, C1, B1 and U1–U3 are Kia/Hyundai's own; a dealer or Car Scanner Pro has the full descriptions. Search \"EV6 \(code.code)\" for owners' experiences.")
+                    Text("Codes starting P1, C1, B1 and U1–U3 are the manufacturer's own; a dealer has the full descriptions. Searching for your car's model with \"\(code.code)\" finds owners' experiences.")
                 }
                 if !code.raw.isEmpty {
                     Section {
@@ -210,7 +210,7 @@ private struct CodeDetail: View {
                     } header: {
                         Text("Freeze frame")
                     } footer: {
-                        Text("What the module recorded when the fault happened. The layout is Kia's own, so it's shown as raw bytes.")
+                        Text("What the module recorded when the fault happened. The layout is the manufacturer's own, so it's shown as raw bytes.")
                     }
                 }
             }

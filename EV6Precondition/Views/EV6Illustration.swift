@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Kia's EV6 GT-Line paint options, for the picture on the dashboard.
+/// Paint colours for the drawn car.
 enum CarPaint: String, CaseIterable, Identifiable {
     case snowWhitePearl, glacier, steelGrey, moonscape, gravityGrey, interstellarGrey, auroraBlackPearl, runwayRed, yachtBlue
 
@@ -8,15 +8,15 @@ enum CarPaint: String, CaseIterable, Identifiable {
 
     var name: String {
         switch self {
-        case .snowWhitePearl: return "Snow White Pearl"
-        case .glacier: return "Glacier"
+        case .snowWhitePearl: return "Pearl White"
+        case .glacier: return "Ice White"
         case .steelGrey: return "Steel Grey"
-        case .moonscape: return "Moonscape Matte"
-        case .gravityGrey: return "Gravity Grey"
-        case .interstellarGrey: return "Interstellar Grey"
-        case .auroraBlackPearl: return "Aurora Black Pearl"
-        case .runwayRed: return "Runway Red"
-        case .yachtBlue: return "Yacht Blue"
+        case .moonscape: return "Matte Grey"
+        case .gravityGrey: return "Dark Grey"
+        case .interstellarGrey: return "Graphite"
+        case .auroraBlackPearl: return "Black"
+        case .runwayRed: return "Red"
+        case .yachtBlue: return "Navy Blue"
         }
     }
 

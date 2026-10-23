@@ -23,7 +23,7 @@ struct LaunchSplash: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 26) {
-                // The "digital tiger face" light bar.
+                // Two thin light bars.
                 HStack(spacing: 18) {
                     lightBar
                     lightBar

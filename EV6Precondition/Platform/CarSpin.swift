@@ -87,7 +87,7 @@ struct CarHeroImage: View {
             }
         }
         .accessibilityElement()
-        .accessibilityLabel("Your EV6")
+        .accessibilityLabel("Your car")
         .accessibilityHint(interactive ? "Drag to turn the car round." : "")
     }
 }

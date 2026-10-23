@@ -29,7 +29,12 @@ final class OBDService {
     private(set) var recording: DataRecording?
     private(set) var recordings: [URL] = []
     var trip: TripComputer?
-    var timer: AccelerationTimer?
+    /// The performance run under way, fed every speed reading.
+    var run: RunTimer?
+    /// Feels the car pull away, for sharper standing starts.
+    let motion = MotionLaunch()
+    /// The simulated car, in demo mode.
+    private(set) var demo: FakeOBDAdapter?
     private var wanted: [String: Set<String>] = [:]
     private var loop: Task<Void, Never>?
 
@@ -42,9 +47,10 @@ final class OBDService {
         }
     }
 
-    var adapterConnected: Bool { link.isReady }
+    var adapterConnected: Bool { link.isReady || demo != nil }
 
     var adapterText: String {
+        if demo != nil { return "Demo car" }
         switch link.state {
         case .idle: return "Disconnected"
         case .bluetoothOff: return "Bluetooth off"
@@ -69,8 +75,12 @@ final class OBDService {
 
     /// Starts the ELM327 session once the adapter is up, and checks the car answers.
     func adapterReady() async {
-        guard adapterConnected else { return }
-        let transport: OBDTransport = OBDLinkTransport(link: link)
+        guard link.isReady else { return }
+        demo = nil
+        await start(transport: OBDLinkTransport(link: link))
+    }
+
+    private func start(transport: OBDTransport) async {
         let elm = ELM327(transport: transport)
         self.elm = elm
         carState = .connecting
@@ -96,8 +106,27 @@ final class OBDService {
         restartIfNeeded()
     }
 
+    /// A simulated EV6 instead of a real one, to try everything without an adapter.
+    func startDemo() {
+        disconnect()
+        let fake = FakeOBDAdapter()
+        demo = fake
+        Task { await start(transport: fake) }
+    }
+
+    /// In demo mode, drives the simulated car to suit the run.
+    func demoDrive(for type: RunType?) {
+        guard let demo else { return }
+        guard let type else {
+            demo.car.drive = .parked
+            return
+        }
+        demo.car.drive = type.category == .braking ? .brakeTest(since: Date().addingTimeInterval(1)) : .launch(since: Date().addingTimeInterval(2))
+    }
+
     func disconnect() {
         stopLive()
+        demo = nil
         link.disconnect()
         elm = nil
         carState = .disconnected
@@ -186,8 +215,8 @@ final class OBDService {
         if trip != nil {
             trip?.add(at: sample.at, kmh: sample.values["speed"], powerKW: sample.values["power"])
         }
-        if timer != nil, let kmh = sample.values["speed"] {
-            timer?.add(at: sample.at, kmh: kmh, powerKW: sample.values["power"] ?? latest["power"])
+        if run != nil, let kmh = sample.values["speed"] {
+            run?.add(at: sample.at, kmh: kmh, powerKW: sample.values["power"] ?? latest["power"], launchedAt: motion.launchedAt)
         }
     }
 

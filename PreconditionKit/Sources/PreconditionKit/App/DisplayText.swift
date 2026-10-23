@@ -1,16 +1,7 @@
 import Foundation
 
-/// Short texts the screens show, kept here so they're tested.
+/// Words and numbers as the app shows them.
 public enum DisplayText {
-    /// The line under the dashboard's request count: "Next one frees up at 17:10".
-    public static func budget(_ b: BudgetSnapshot, timeZone: TimeZone = .current) -> String {
-        if let until = b.exhaustedUntil {
-            return "Kia's daily limit is used up. Try again at \(clock(until, timeZone))."
-        }
-        if let reset = b.resetAt { return "Each one comes back 24 hours after it's used. Next at \(clock(reset, timeZone))." }
-        return "None used in the last 24 hours."
-    }
-
     /// "just now", "5 min ago", "3 h ago", "2 days ago".
     public static func age(of date: Date, now: Date) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
@@ -22,38 +13,15 @@ public enum DisplayText {
         }
     }
 
-    /// "Charging · 10.9 kW · full in 1 h 35 min", "Plugged in", "Unplugged".
-    public static func charging(_ v: VehicleSnapshot) -> String? {
-        switch v.chargingState {
-        case .charging?:
-            var parts = ["Charging"]
-            if let kw = v.chargePowerKw { parts.append(kW(kw)) }
-            if let minutes = v.minutesToFullyCharged { parts.append("full in \(duration(minutes: minutes))") }
-            return parts.joined(separator: " · ")
-        case .pluggedIn?: return "Plugged in"
-        case .unplugged?: return "Unplugged"
-        case nil: return nil
-        }
-    }
-
     /// "132 kW" for rapid charging, "7.2 kW" at home.
     public static func kW(_ kw: Double) -> String {
-        kw >= 20 ? "\(Int(kw.rounded())) kW" : String(format: "%.1f kW", kw)
+        abs(kw) >= 20 ? "\(Int(kw.rounded())) kW" : String(format: "%.1f kW", kw)
     }
 
     public static func duration(minutes: Int) -> String {
         if minutes < 60 { return "\(minutes) min" }
         let rest = minutes % 60
         return rest == 0 ? "\(minutes / 60) h" : "\(minutes / 60) h \(rest) min"
-    }
-
-    /// Whether climate set to `targetC` is cooling the car rather than warming it. A parked cabin is
-    /// a few degrees warmer than outside, so a target near or below the outside temperature cools,
-    /// and a low setting (18 °C or less) cools whatever the weather.
-    public static func isCooling(targetC: Double, outsideC: Double?) -> Bool {
-        if targetC <= 18 { return true }
-        guard let outsideC else { return false }
-        return targetC < outsideC + 3
     }
 
     public static func clock(_ date: Date, _ timeZone: TimeZone) -> String {
@@ -78,62 +46,25 @@ public enum DisplayText {
         return String(format: "%.1f kWh/100 km", e)
     }
 
+    /// "60 mph" or "97 km/h".
+    public static func speed(kmh: Double, miles: Bool) -> String {
+        miles ? "\(Int((kmh / kmPerMile).rounded())) mph" : "\(Int(kmh.rounded())) km/h"
+    }
+
+    /// "402 m" or "1,320 ft" for short distances.
+    public static func shortDistance(metres: Double, miles: Bool) -> String {
+        miles ? "\(Int((metres / 0.3048).rounded())) ft" : "\(Int(metres.rounded())) m"
+    }
+
+    /// "4.21 s", "1:32.48" for laps.
+    public static func seconds(_ s: Double) -> String {
+        guard s >= 60 else { return String(format: "%.2f s", s) }
+        let m = Int(s / 60)
+        return String(format: "%d:%05.2f", m, s - Double(m) * 60)
+    }
+
     /// "12.4 kWh", "850 Wh".
     public static func energy(wh: Double) -> String {
         abs(wh) >= 1000 ? String(format: "%.1f kWh", wh / 1000) : "\(Int(wh.rounded())) Wh"
-    }
-
-    /// What Siri says for "How's my car?": "72%, 196 mi range. Charging at 7.4 kW, full in 1 h 5 min. Locked. Climate on at 21.0 °C."
-    public static func spokenStatus(_ v: VehicleSnapshot, miles: Bool) -> String {
-        var parts: [String] = []
-        var first = v.socPercent.map { "\($0)%" } ?? "Charge unknown"
-        if let range = v.rangeKm { first += ", \(distance(km: Double(range), miles: miles)) range" }
-        parts.append(first)
-        switch v.chargingState {
-        case .charging?:
-            var c = "Charging"
-            if let kw = v.chargePowerKw { c += String(format: " at %.1f kW", kw) }
-            if let m = v.minutesToFullyCharged { c += ", full in \(duration(minutes: m))" }
-            parts.append(c)
-        case .pluggedIn?: parts.append("Plugged in, not charging")
-        default: break
-        }
-        if let locked = v.details?.locked { parts.append(locked ? "Locked" : "Unlocked") }
-        if v.climate == .running { parts.append("Climate on" + (v.targetTempC.map { " at \(Describe.temp($0))" } ?? "")) }
-        if let alerts = v.details?.alerts, !alerts.isEmpty { parts.append(alerts.joined(separator: ". ")) }
-        return parts.joined(separator: ". ") + "."
-    }
-
-    /// A confirmed command as a headline: "Climate on · 21.0 °C", "Locked", "Charging stopped".
-    public static func confirmed(_ description: String) -> String {
-        if description.hasPrefix("climatise to ") { return "Climate on · " + description.dropFirst("climatise to ".count) }
-        switch description {
-        case "stop climatisation": return "Climate off"
-        case "lock the car": return "Locked"
-        case "unlock the car": return "Unlocked"
-        case "start charging": return "Charging started"
-        case "stop charging": return "Charging stopped"
-        default:
-            if description.hasPrefix("set charge limits") { return "Charge limits set" }
-            if description.hasPrefix("set off-peak charging to ") { return "Off-peak charging set to " + description.dropFirst("set off-peak charging to ".count) }
-            if description.hasPrefix("send ") { return "Sent " + description.dropFirst("send ".count) }
-            return description.capitalizingFirstLetter
-        }
-    }
-
-    /// A command's description in plain words: "start climate at 21.0 °C", "stop climate", "lock the car".
-    public static func request(_ description: String) -> String {
-        if description.hasPrefix("climatise to ") { return "start climate at " + description.dropFirst("climatise to ".count) }
-        if description == "stop climatisation" { return "stop climate" }
-        return description
-    }
-
-    /// A status line fit for Siri or the Watch: no tick, and commands in plain words.
-    public static func plain(_ message: String) -> String {
-        var text = message
-        if text.hasPrefix("✓ ") { text = String(text.dropFirst(2)) }
-        text = text.replacingOccurrences(of: "climatise to ", with: "start climate at ")
-        text = text.replacingOccurrences(of: "stop climatisation", with: "stop climate")
-        return text.capitalizingFirstLetter
     }
 }

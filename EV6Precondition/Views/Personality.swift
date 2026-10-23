@@ -39,8 +39,7 @@ struct LaunchSplash: View {
                     .blur(radius: car ? 0 : 6)
 
                 VStack(spacing: 8) {
-                    KiaLogo().frame(width: 74, height: 18)
-                    Text("MY EV6")
+                    Text(AppInfo.name.uppercased())
                         .font(.system(size: 15, weight: .heavy))
                         .tracking(8)
                         .foregroundStyle(.white.opacity(0.85))

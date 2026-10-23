@@ -75,323 +75,314 @@ final class BatteryReportStore {
     }
 }
 
+/// The battery report: a grade, checks, every cell and module, temperatures, lifetime use and
+/// history, with a PDF to share.
 struct BatteryHealthView: View {
-    @Environment(CarModel.self) private var car
+    @Environment(Preferences.self) private var prefs
     @Environment(OBDService.self) private var obd
     @State private var reports = BatteryReportStore.shared
     @State private var showingAdapters = false
+    @State private var pdf: URL?
+
+    private var analysis: BatteryAnalysis? { reports.report.map(BatteryAnalysis.init) }
 
     var body: some View {
-        List {
-            if let soh = car.snapshot?.details?.batteryHealthPercent, reports.report?.sohPercent == nil {
-                Section {
-                    LabeledContent("State of health (Kia Connect)", value: String(format: "%.1f%%", soh))
+        ScrollView {
+            VStack(spacing: 16) {
+                if let analysis {
+                    GradeCard(analysis: analysis, car: prefs.car.name)
                 }
-            }
-
-            Section {
-                Button {
-                    if let elm = obd.elm { Task { await reports.scan(elm, odometerKm: car.snapshot?.details?.odometerKm) } }
-                } label: {
-                    HStack {
-                        Label("Read battery", systemImage: "waveform.path.ecg")
-                        Spacer()
-                        if reports.scanning { ProgressView() }
+                readCard
+                if let analysis {
+                    ChecksCard(checks: analysis.checks)
+                    if analysis.cellCount > 1 {
+                        Card("Cells") { CellsSection(analysis: analysis) }
+                        Card("Modules") { ModuleGrid(modules: analysis.modules, mean: analysis.meanVolts ?? 0) }
                     }
-                }
-                .disabled(reports.scanning || obd.carState != .connected)
-                if obd.carState != .connected, !reports.scanning {
-                    Text("Connect an adapter first")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                if let progress = reports.progress {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ProgressView(value: Double(progress.step), total: Double(progress.of))
-                        Text(progress.label).font(.caption).foregroundStyle(.secondary)
+                    Card("Pack") { PackRows(analysis: analysis) }
+                    if analysis.report.tyrePressuresPsi.contains(where: { $0 != nil }) {
+                        Card("Tyres") { TyreGrid(pressures: analysis.report.tyrePressuresPsi, temps: analysis.report.tyreTempsC) }
                     }
-                }
-                if let error = reports.error {
-                    Label(error.capitalizingFirst, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .font(.subheadline)
-                }
-            } footer: {
-                Text("Plug the OBD adapter in under the dashboard, switch the car on and connect below, then tap Read battery. It takes about 10 seconds and changes nothing on the car.")
-            }
-
-            if let report = reports.report {
-                ReportSections(report: report, problems: reports.problems, miles: car.settings.useMiles)
-            }
-
-            if reports.history.filter({ $0.sohPercent != nil }).count >= 2 {
-                HealthHistorySection(history: reports.history)
-            }
-        }
-        .listStyle(.insetGrouped)
-        .navigationTitle("Battery health")
-        .task { await reports.load() }
-        .safeAreaInset(edge: .bottom) {
-            ConnectionBar(showingAdapters: $showingAdapters)
-        }
-        .sheet(isPresented: $showingAdapters) {
-            AdapterPicker(link: obd.link)
-        }
-    }
-}
-
-// MARK: - History
-
-/// State of health and cell balance over time: the numbers that matter for the battery's life and
-/// the car's resale value.
-private struct HealthHistorySection: View {
-    let history: [HealthPoint]
-
-    private var soh: [HealthPoint] { history.filter { $0.sohPercent != nil } }
-
-    var body: some View {
-        Section {
-            Chart(soh) { p in
-                LineMark(x: .value("Date", p.takenAt), y: .value("SOH", p.sohPercent ?? 0))
-                    .interpolationMethod(.monotone)
-                PointMark(x: .value("Date", p.takenAt), y: .value("SOH", p.sohPercent ?? 0))
-                    .symbolSize(24)
-            }
-            .chartYScale(domain: .automatic(includesZero: false))
-            .chartYAxisLabel("SOH %")
-            .frame(height: 180)
-            .padding(.vertical, 6)
-            if let first = soh.first?.sohPercent, let last = soh.last?.sohPercent {
-                LabeledContent("Change since first read", value: String(format: "%+.1f%%", last - first))
-            }
-            let spreads = history.compactMap(\.cellSpreadMV)
-            if let latest = spreads.last {
-                LabeledContent("Cell spread, latest", value: String(format: "%.0f mV", latest))
-            }
-        } header: {
-            Text("History")
-        } footer: {
-            Text("Read it once a month or so to see the trend. If the cell spread keeps climbing past about 50 mV, get it checked.")
-        }
-    }
-}
-
-// MARK: - Adapter picker
-
-struct AdapterPicker: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var link: OBDLink
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ForEach(link.visibleAdapters) { adapter in
-                        Button {
-                            link.connect(adapter)
-                        } label: {
-                            HStack {
-                                Label(adapter.name, systemImage: adapter.likelyOBD ? "car.side" : "dot.radiowaves.left.and.right")
-                                Spacer()
-                                if case .connecting(let name) = link.state, name == adapter.name { ProgressView() }
-                                if case .ready(let name) = link.state, name == adapter.name {
-                                    Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
-                                }
+                    if reports.history.filter({ $0.sohPercent != nil }).count >= 2 {
+                        Card("History") { HealthHistory(history: reports.history) }
+                    }
+                    if !reports.problems.isEmpty {
+                        Card("Couldn't read") {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(reports.problems, id: \.self) { Text($0).font(.footnote).foregroundStyle(.secondary) }
                             }
-                        }
-                        .foregroundStyle(.primary)
-                    }
-                    if link.visibleAdapters.isEmpty {
-                        HStack {
-                            Text(link.state == .scanning ? "Searching for adapters…" : "No adapters found")
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            if link.state == .scanning { ProgressView() }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    Toggle("Show all Bluetooth devices", isOn: $link.showAllDevices)
-                } header: {
-                    Text("Bluetooth")
-                } footer: {
-                    if case .failed(let reason) = link.state {
-                        Text(reason).foregroundStyle(.orange)
-                    } else if link.state == .bluetoothOff {
-                        Text("Turn Bluetooth on in Control Centre.")
-                    } else if link.state == .bluetoothDenied {
-                        Text("Allow Bluetooth for My EV6 in iOS Settings.")
-                    } else {
-                        Text("Connect your adapter here, not in iOS Settings. Bluetooth LE and Wi-Fi adapters work.")
-                    }
                 }
-
-                Section {
-                    Button("Connect to a Wi-Fi adapter") { link.connectWiFi() }
-                } footer: {
-                    Text("Join the adapter's Wi-Fi network in iOS Settings first (it's usually called WiFi_OBDII or similar). Uses 192.168.0.10, port 35000.")
-                }
-            }
-            .navigationTitle("OBD adapter")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-                if link.isReady {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Disconnect", role: .destructive) { link.disconnect() }
-                    }
-                }
-            }
-            .onAppear { link.startScan() }
-            .onDisappear { link.stopScan() }
-            .onChange(of: link.isReady) { _, ready in if ready { dismiss() } }
-        }
-        .presentationDetents([.medium, .large])
-    }
-}
-
-// MARK: - Report
-
-private struct ReportSections: View {
-    let report: BatteryReport
-    let problems: [String]
-    let miles: Bool
-
-    var body: some View {
-        Section {
-            HealthGauge(soh: report.sohPercent, description: report.packDescription)
-                .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
-            ForEach(report.findings, id: \.self) { finding in
-                Label(finding, systemImage: "info.circle")
-                    .font(.subheadline)
-            }
-        } footer: {
-            Text("Read \(report.takenAt.formatted(date: .abbreviated, time: .shortened))")
-        }
-
-        if !report.cellVolts.isEmpty {
-            Section {
-                CellChart(cells: report.cellVolts)
-                    .frame(height: 180)
-                    .padding(.vertical, 8)
-                if let hi = report.cellVolts.max(), let lo = report.cellVolts.min() {
-                    LabeledContent("Highest", value: volts(hi) + (report.cellMaxNumber.map { " · cell \($0)" } ?? ""))
-                    LabeledContent("Lowest", value: volts(lo) + (report.cellMinNumber.map { " · cell \($0)" } ?? ""))
-                }
-                if let spread = report.cellSpreadMillivolts {
-                    LabeledContent("Spread", value: String(format: "%.0f mV", spread))
-                }
-            } header: {
-                Text("Cells")
-            }
-        }
-
-        Section("Pack") {
-            row("Charge (battery's own reading)", report.socBMSPercent.map { String(format: "%.1f%%", $0) })
-            row("Charge (dashboard)", report.socDisplayPercent.map { String(format: "%.1f%%", $0) })
-            row("Voltage", report.packVolts.map { String(format: "%.1f V", $0) })
-            row("Current", report.packAmps.map { String(format: "%.1f A", $0) })
-            row("Power", report.powerKW.map { String(format: "%.1f kW", $0) })
-            row("Max charge power", report.availableChargePowerKW.map { String(format: "%.0f kW", $0) })
-        }
-
-        Section("Temperatures") {
-            row("Battery", temperatureRange)
-            row("Coolant inlet", report.inletC.map { Describe.temp($0) })
-            if !report.moduleTempsC.isEmpty {
-                row("Modules", report.moduleTempsC.map { String(format: "%.0f", $0) }.joined(separator: " · ") + " °C")
-            }
-        }
-
-        Section("Since new") {
-            row("Charged", report.cumulativeChargedKWh.map { String(format: "%.0f kWh", $0) })
-            row("Used", report.cumulativeDischargedKWh.map { String(format: "%.0f kWh", $0) })
-            row("Equivalent full cycles", report.cumulativeChargedKWh.map { String(format: "%.0f", $0 / 77.4) })
-            row("Operating time", report.operatingHours.map { String(format: "%.0f h", $0) })
-        }
-
-        if report.tyrePressuresPsi.contains(where: { $0 != nil }) {
-            Section("Tyres") {
-                TyreGrid(pressures: report.tyrePressuresPsi, temps: report.tyreTempsC)
-                    .padding(.vertical, 6)
-            }
-        }
-
-        if !problems.isEmpty {
-            Section("Couldn't read") {
-                ForEach(problems, id: \.self) { Text($0).font(.footnote).foregroundStyle(.secondary) }
-            }
-        }
-    }
-
-    private var temperatureRange: String? {
-        switch (report.batteryMinC, report.batteryMaxC) {
-        case let (lo?, hi?): return String(format: "%.0f – %.0f °C", lo, hi)
-        case let (nil, hi?): return Describe.temp(hi)
-        default: return nil
-        }
-    }
-
-    private func volts(_ v: Double) -> String { String(format: "%.2f V", v) }
-
-    @ViewBuilder
-    private func row(_ title: String, _ value: String?) -> some View {
-        if let value { LabeledContent(title, value: value) }
-    }
-}
-
-private struct HealthGauge: View {
-    let soh: Double?
-    let description: String?
-
-    private var tint: Color {
-        guard let soh else { return .secondary }
-        if soh >= 95 { return .green }
-        if soh >= 85 { return .yellow }
-        return .orange
-    }
-
-    var body: some View {
-        HStack(spacing: 20) {
-            Gauge(value: min(max((soh ?? 0) - 70, 0), 30), in: 0...30) {
-                Text("SOH")
-            } currentValueLabel: {
-                Text(soh.map { String(format: "%.1f", $0) } ?? "–")
-                    .font(.system(.title3, design: .rounded).weight(.semibold))
-            }
-            .gaugeStyle(.accessoryCircularCapacity)
-            .tint(tint)
-            .scaleEffect(1.5)
-            .frame(width: 90, height: 90)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("State of health").font(.headline)
-                Text(soh.map { String(format: "%.1f%% of original capacity", $0) } ?? "Not reported")
-                    .font(.subheadline)
+                Text(BatteryPDF.caveat)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                if let description {
-                    Text(description).font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+            }
+            .padding(16)
+        }
+        .background(Color.black)
+        .navigationTitle("Battery")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ConnectionButton(showingAdapters: $showingAdapters)
+            }
+            ToolbarItem(placement: .topBarLeading) {
+                if let pdf {
+                    ShareLink(item: pdf) { Label("PDF report", systemImage: "doc.richtext") }
                 }
+            }
+        }
+        .task { await reports.load() }
+        .task(id: reports.report?.takenAt) { makePDF() }
+        .onChange(of: prefs.useMiles) { makePDF() }
+        .sheet(isPresented: $showingAdapters) { AdapterPicker(link: obd.link) }
+    }
+
+    private func makePDF() {
+        guard let analysis else {
+            pdf = nil
+            return
+        }
+        pdf = BatteryPDF.make(analysis, history: reports.history, car: prefs.car.name, miles: prefs.useMiles)
+    }
+
+    private var readCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                if let elm = obd.elm { Task { await reports.scan(elm) } }
+            } label: {
+                HStack {
+                    Label(reports.report == nil ? "Read battery" : "Read again", systemImage: "waveform.path.ecg")
+                        .font(.headline)
+                    Spacer()
+                    if reports.scanning { ProgressView() }
+                }
+                .frame(maxWidth: .infinity, minHeight: 34)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.mint)
+            .foregroundStyle(Color.black)
+            .disabled(reports.scanning || obd.carState != .connected)
+            if let progress = reports.progress {
+                ProgressView(value: Double(progress.step), total: Double(progress.of)) {
+                    Text(progress.label).font(.caption).foregroundStyle(.secondary)
+                }
+                .tint(.mint)
+            } else if obd.carState != .connected {
+                Text("Connect your adapter with the car switched on. Reading takes about 10 seconds and changes nothing on the car.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("For the most telling cell readings, read after the car has rested for an hour or so, not straight after driving or charging.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            if let error = reports.error {
+                Label(error.capitalizingFirst, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.subheadline)
+            }
+        }
+        .padding(16)
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+// MARK: - Pieces, shared with the PDF
+
+/// A titled panel.
+struct Card<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.headline)
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+extension BatteryAnalysis.Status {
+    var color: Color {
+        switch self {
+        case .good: return .green
+        case .fair: return .yellow
+        case .attention: return .orange
+        case .unknown: return .gray
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .good: return "checkmark.circle.fill"
+        case .fair: return "minus.circle.fill"
+        case .attention: return "exclamationmark.triangle.fill"
+        case .unknown: return "questionmark.circle.fill"
+        }
+    }
+}
+
+struct GradeCard: View {
+    let analysis: BatteryAnalysis
+    let car: String
+
+    private var soh: Double? { analysis.report.sohPercent }
+    private var tint: Color {
+        switch analysis.grade {
+        case "A": return .green
+        case "B": return .mint
+        case "C": return .yellow
+        default: return .orange
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 18) {
+            ZStack {
+                Circle().stroke(Color.primary.opacity(0.1), lineWidth: 12)
+                Circle()
+                    .trim(from: 0, to: min(max(((soh ?? 0) - 60) / 40, 0), 1))
+                    .stroke(tint.gradient, style: StrokeStyle(lineWidth: 12, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                VStack(spacing: 0) {
+                    Text(soh.map { String(format: "%.1f", $0) } ?? "–")
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                    Text("% SOH").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 112, height: 112)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(analysis.grade)
+                        .font(.system(size: 40, weight: .heavy, design: .rounded))
+                        .foregroundStyle(tint)
+                    Text("Overall").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                if let now = analysis.estimatedKWh, let new = analysis.nominalKWh {
+                    Text(String(format: "About %.1f of %.1f kWh", now, new)).font(.subheadline.weight(.semibold))
+                } else if let new = analysis.nominalKWh {
+                    Text(String(format: "%.1f kWh pack", new)).font(.subheadline.weight(.semibold))
+                }
+                Text("\(car) · \(analysis.report.takenAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
+        .padding(18)
+        .background(
+            LinearGradient(colors: [tint.opacity(0.22), Color.primary.opacity(0.04)], startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+        )
     }
 }
 
-private struct CellChart: View {
+struct ChecksCard: View {
+    let checks: [BatteryAnalysis.Check]
+
+    var body: some View {
+        Card("Checks") {
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(checks) { check in
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: check.status.symbol)
+                            .foregroundStyle(check.status.color)
+                            .font(.title3)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(check.title).font(.subheadline.weight(.semibold))
+                                Spacer()
+                                Text(check.value).font(.subheadline).monospacedDigit().foregroundStyle(.secondary)
+                            }
+                            Text(check.detail).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct CellsSection: View {
+    let analysis: BatteryAnalysis
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            CellChart(cells: analysis.report.cellVolts, mean: analysis.meanVolts, outliers: Set(analysis.outliers.map(\.number)))
+                .frame(height: 170)
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                GridRow {
+                    stat("Average", analysis.meanVolts.map { String(format: "%.3f V", $0) })
+                    stat("Median", analysis.medianVolts.map { String(format: "%.3f V", $0) })
+                }
+                GridRow {
+                    stat("Spread", analysis.spreadMV.map { String(format: "%.0f mV", $0) })
+                    stat("Std deviation", analysis.standardDeviationMV.map { String(format: "%.1f mV", $0) })
+                }
+            }
+            HStack(alignment: .top, spacing: 16) {
+                cellList("Lowest", analysis.weakest)
+                cellList("Highest", analysis.strongest)
+            }
+        }
+    }
+
+    private func stat(_ title: String, _ value: String?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(value ?? "–").font(.subheadline.weight(.semibold)).monospacedDigit()
+        }
+    }
+
+    private func cellList(_ title: String, _ cells: [BatteryAnalysis.Cell]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ForEach(cells, id: \.number) { cell in
+                HStack {
+                    Text("#\(cell.number)").frame(width: 40, alignment: .leading)
+                    Text(String(format: "%.3f", cell.volts))
+                    Text(String(format: "%+.0f", cell.deviationMV)).foregroundStyle(.secondary)
+                }
+                .font(.caption.monospacedDigit())
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct CellChart: View {
     let cells: [Double]
+    var mean: Double?
+    var outliers: Set<Int> = []
 
     private var points: [(Int, Double)] { cells.enumerated().map { ($0.offset + 1, $0.element) } }
 
     var body: some View {
-        let lo = (cells.min() ?? 3.5) - 0.02
-        let hi = (cells.max() ?? 4.2) + 0.02
-        Chart(points, id: \.0) { cell in
-            BarMark(
-                x: .value("Cell", cell.0),
-                yStart: .value("Base", lo),
-                yEnd: .value("Volts", cell.1)
-            )
-            .foregroundStyle(cell.1 == cells.min() ? Color.orange : Color.green.opacity(0.8))
+        let lo = (cells.min() ?? 3.5) - 0.01
+        let hi = (cells.max() ?? 4.2) + 0.005
+        let lowest = cells.min()
+        Chart {
+            ForEach(points, id: \.0) { cell in
+                BarMark(x: .value("Cell", cell.0), yStart: .value("Base", lo), yEnd: .value("Volts", cell.1))
+                    .foregroundStyle(cell.1 == lowest || outliers.contains(cell.0) ? Color.orange : Color.mint.opacity(0.85))
+            }
+            if let mean {
+                RuleMark(y: .value("Average", mean))
+                    .foregroundStyle(Color.primary.opacity(0.5))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            }
         }
         .chartYScale(domain: lo...hi)
         .chartYAxis {
@@ -404,7 +395,111 @@ private struct CellChart: View {
     }
 }
 
-private struct TyreGrid: View {
+/// Every module as a tile, shaded by how far its cells sit from the pack's average.
+struct ModuleGrid: View {
+    let modules: [BatteryAnalysis.Module]
+    let mean: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8), spacing: 6) {
+                ForEach(modules) { m in
+                    let dev = (m.meanVolts - mean) * 1000
+                    VStack(spacing: 1) {
+                        Text("\(m.number)").font(.system(size: 9, weight: .bold))
+                        Text(String(format: "%+.0f", dev)).font(.system(size: 9).monospacedDigit())
+                        if let t = m.temperatureC {
+                            Text(String(format: "%.0f°", t)).font(.system(size: 8)).opacity(0.7)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .background(color(dev).opacity(0.75), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .foregroundStyle(Color.black)
+                }
+            }
+            Text("Each tile is a module of six cells: its number, its average against the pack's in mV, and its temperature sensor.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func color(_ dev: Double) -> Color {
+        if dev < -15 { return .orange }
+        if dev < -6 { return .yellow }
+        if dev > 6 { return .cyan }
+        return .mint
+    }
+}
+
+struct PackRows: View {
+    let analysis: BatteryAnalysis
+    private var r: BatteryReport { analysis.report }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            row("Pack", analysis.report.packDescription)
+            row("Charge (battery's own)", r.socBMSPercent.map { String(format: "%.1f%%", $0) })
+            row("Charge (dashboard)", r.socDisplayPercent.map { String(format: "%.1f%%", $0) })
+            row("Voltage", r.packVolts.map { String(format: "%.1f V", $0) })
+            row("Current", r.packAmps.map { String(format: "%.1f A", $0) })
+            row("Max charge power now", r.availableChargePowerKW.map { String(format: "%.0f kW", $0) })
+            row("Battery temperature", temperatureRange)
+            row("Coolant inlet", r.inletC.map { String(format: "%.0f °C", $0) })
+            row("Charged since new", r.cumulativeChargedKWh.map { String(format: "%.0f kWh", $0) })
+            row("Used since new", r.cumulativeDischargedKWh.map { String(format: "%.0f kWh", $0) })
+            row("Equivalent full cycles", analysis.equivalentCycles.map { String(format: "%.0f", $0) })
+            row("Out / in since new", analysis.throughputRatio.map { String(format: "%.0f%%", $0 * 100) })
+            row("Operating time", r.operatingHours.map { String(format: "%.0f h", $0) })
+        }
+    }
+
+    private var temperatureRange: String? {
+        switch (r.batteryMinC, r.batteryMaxC) {
+        case let (lo?, hi?): return String(format: "%.0f – %.0f °C", lo, hi)
+        case let (nil, hi?): return String(format: "%.0f °C", hi)
+        default: return nil
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ title: String, _ value: String?) -> some View {
+        if let value {
+            HStack {
+                Text(title).foregroundStyle(.secondary)
+                Spacer()
+                Text(value).monospacedDigit()
+            }
+            .font(.subheadline)
+        }
+    }
+}
+
+struct HealthHistory: View {
+    let history: [HealthPoint]
+
+    private var soh: [HealthPoint] { history.filter { $0.sohPercent != nil } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Chart(soh) { p in
+                LineMark(x: .value("Date", p.takenAt), y: .value("SOH", p.sohPercent ?? 0))
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(.mint)
+                PointMark(x: .value("Date", p.takenAt), y: .value("SOH", p.sohPercent ?? 0))
+                    .symbolSize(24)
+                    .foregroundStyle(.mint)
+            }
+            .chartYScale(domain: .automatic(includesZero: false))
+            .chartYAxisLabel("SOH %")
+            .frame(height: 160)
+            if let first = soh.first?.sohPercent, let last = soh.last?.sohPercent {
+                Text(String(format: "%+.1f%% since the first read", last - first)).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+struct TyreGrid: View {
     let pressures: [Double?]
     let temps: [Double?]
     private let names = ["Front left", "Front right", "Rear left", "Rear right"]
@@ -432,6 +527,6 @@ private struct TyreGrid: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
-        .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }

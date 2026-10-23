@@ -2,34 +2,28 @@ import PreconditionKit
 import SwiftUI
 
 /// Live gauges while you drive or charge.
-struct DashboardView: View {
+struct DashboardGauges: View {
     @Environment(OBDService.self) private var obd
-    @Environment(CarModel.self) private var car
+    @Environment(Preferences.self) private var prefs
 
-    static let gauges = ["socBMS", "battMax", "cabin", "outside", "cellSpread", "obdVoltage", "voltage", "rpmRear", "accelerator", "maxCharge"]
+    static let gauges = ["socBMS", "battMax", "cellSpread", "obdVoltage", "voltage", "maxCharge", "cabin", "outside", "rpmRear", "accelerator"]
     private var ids: [String] { ["speed", "power", "gear"] + Self.gauges }
-    private var miles: Bool { car.settings.useMiles }
+    private var miles: Bool { prefs.useMiles }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                NotConnectedHint()
-                hero
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                    ForEach(Self.gauges.compactMap(EV6Sensors.sensor)) { sensor in
-                        RingGauge(sensor: sensor, value: obd.latest[sensor.id], miles: miles)
-                    }
-                }
-                if obd.live {
-                    Text(String(format: "%.1f readings a second", obd.samplesPerSecond))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        VStack(spacing: 14) {
+            hero
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                ForEach(Self.gauges.compactMap(EV6Sensors.sensor)) { sensor in
+                    RingGauge(sensor: sensor, value: obd.latest[sensor.id], miles: miles)
                 }
             }
-            .padding(16)
+            if obd.live {
+                Text(String(format: "%.1f readings a second", obd.samplesPerSecond))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("Dashboard")
         .liveSensors(ids, screen: "dashboard")
     }
 

@@ -38,6 +38,8 @@ public final class FakeOBDAdapter: OBDTransport, @unchecked Sendable {
         case cruising(since: Date)
         /// Flat out from a standstill: 0–60 mph in about 5 s, like a 325 bhp AWD EV6.
         case launch(since: Date)
+        /// Steady at 130 km/h for a few seconds, then an emergency stop at about 1 g.
+        case brakeTest(since: Date)
     }
 
     private let state: Locked<(car: Car, header: UInt16, headers: Bool)>
@@ -64,6 +66,10 @@ public final class FakeOBDAdapter: OBDTransport, @unchecked Sendable {
             let t = max(0, now().timeIntervalSince(since))
             let v = 230 * (1 - exp(-t / 9.2))
             return (v, t < 12 ? 239 * min(1, 0.4 + t) : 60, 100)
+        case .brakeTest(let since):
+            let t = max(0, now().timeIntervalSince(since)) - 4
+            if t < 0 { return (130, 30, 30) }
+            return (max(0, 130 - 35 * t), t * 35 < 130 ? -120 : 0.4, 0)
         }
     }
 

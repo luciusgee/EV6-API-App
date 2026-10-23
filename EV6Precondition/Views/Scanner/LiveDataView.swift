@@ -5,7 +5,7 @@ import SwiftUI
 /// Graphs of the sensors you pick, with recording to CSV.
 struct LiveDataView: View {
     @Environment(OBDService.self) private var obd
-    @Environment(CarModel.self) private var car
+    @Environment(Preferences.self) private var prefs
     @AppStorage("liveSensors") private var selection = "power,speed,socBMS,battMax"
     @AppStorage("liveWindow") private var window = 120.0
     @State private var picking = false
@@ -26,14 +26,14 @@ struct LiveDataView: View {
             }
             ForEach(ids.compactMap(EV6Sensors.sensor)) { sensor in
                 Section {
-                    SensorChart(sensor: sensor, points: obd.history[sensor.id] ?? [], window: window, miles: car.settings.useMiles)
+                    SensorChart(sensor: sensor, points: obd.history[sensor.id] ?? [], window: window, miles: prefs.useMiles)
                         .frame(height: 150)
                         .padding(.vertical, 6)
                 } header: {
                     HStack {
                         Text(sensor.name)
                         Spacer()
-                        Text(sensor.display(obd.latest[sensor.id], miles: car.settings.useMiles))
+                        Text(sensor.display(obd.latest[sensor.id], miles: prefs.useMiles))
                             .monospacedDigit()
                             .foregroundStyle(.primary)
                     }
@@ -174,7 +174,7 @@ struct SensorPicker: View {
 /// Every sensor the car reports, grouped, updating live.
 struct AllSensorsView: View {
     @Environment(OBDService.self) private var obd
-    @Environment(CarModel.self) private var car
+    @Environment(Preferences.self) private var prefs
     @State private var search = ""
 
     private var sensors: [Sensor] {
@@ -194,7 +194,7 @@ struct AllSensorsView: View {
                                 SensorDetailView(sensor: sensor)
                             } label: {
                                 LabeledContent(sensor.name) {
-                                    Text(sensor.display(obd.latest[sensor.id], miles: car.settings.useMiles))
+                                    Text(sensor.display(obd.latest[sensor.id], miles: prefs.useMiles))
                                         .monospacedDigit()
                                 }
                             }
@@ -211,7 +211,7 @@ struct AllSensorsView: View {
 
 struct SensorDetailView: View {
     @Environment(OBDService.self) private var obd
-    @Environment(CarModel.self) private var car
+    @Environment(Preferences.self) private var prefs
     let sensor: Sensor
 
     private var points: [(Date, Double)] { obd.history[sensor.id] ?? [] }
@@ -219,17 +219,17 @@ struct SensorDetailView: View {
     var body: some View {
         List {
             Section {
-                Text(sensor.display(obd.latest[sensor.id], miles: car.settings.useMiles))
+                Text(sensor.display(obd.latest[sensor.id], miles: prefs.useMiles))
                     .font(.system(size: 44, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .frame(maxWidth: .infinity)
-                SensorChart(sensor: sensor, points: points, window: 300, miles: car.settings.useMiles)
+                SensorChart(sensor: sensor, points: points, window: 300, miles: prefs.useMiles)
                     .frame(height: 200)
             }
             Section {
                 if let lo = points.map(\.1).min(), let hi = points.map(\.1).max() {
-                    LabeledContent("Lowest", value: sensor.display(lo, miles: car.settings.useMiles))
-                    LabeledContent("Highest", value: sensor.display(hi, miles: car.settings.useMiles))
+                    LabeledContent("Lowest", value: sensor.display(lo, miles: prefs.useMiles))
+                    LabeledContent("Highest", value: sensor.display(hi, miles: prefs.useMiles))
                 }
                 LabeledContent("Module", value: ECU.named(sensor.request.header).name)
                 LabeledContent("Request", value: String(format: "%03X: %@", sensor.request.header, sensor.request.command))

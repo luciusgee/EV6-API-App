@@ -5,12 +5,11 @@ options:
   bundleIdPrefix: com.luciusgee
   deploymentTarget:
     iOS: "17.0"
-    watchOS: "10.0"
   createIntermediateGroups: true
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
 packages:
   PreconditionKit:
@@ -21,27 +20,11 @@ targets:
     platform: iOS
     sources:
       - path: EV6Precondition
-      - path: Shared
     dependencies:
       - package: PreconditionKit
-      - target: EV6Widgets
-      - target: EV6Watch
-        # Where Xcode puts a Watch app: EV6Precondition.app/Watch.
-        copy:
-          destination: productsDirectory
-          subpath: $(CONTENTS_FOLDER_PATH)/Watch
     info:
       path: EV6Precondition/Info.plist
       properties:
-        # Read at run time to name the Keychain group shared with the widgets.
-        AppIdentifierPrefix: $(AppIdentifierPrefix)
-        NSSupportsLiveActivities: true
-        # Background reads of the car for alerts and smart charging.
-        BGTaskSchedulerPermittedIdentifiers: [com.luciusgee.ev6precondition.refresh]
-        UIBackgroundModes: [fetch]
-        CFBundleURLTypes:
-          - CFBundleURLName: com.luciusgee.ev6precondition
-            CFBundleURLSchemes: [ev6]
         # Black, so the launch animation starts without a white flash.
         UILaunchScreen:
           UIColorName: LaunchBackground
@@ -55,96 +38,17 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: My EV6
+        INFOPLIST_KEY_CFBundleDisplayName: Volt Lab
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
         INFOPLIST_KEY_UIFileSharingEnabled: "YES"
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: "YES"
-        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: Connects to your OBD adapter to read the battery's health, cell voltages and tyre pressures straight from the car.
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connects to a Wi-Fi OBD adapter plugged into your car to read the battery's health.
-        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: Rules that start climate when you leave or arrive somewhere need to know when you cross that place's boundary, even with the app closed. Your location stays on your iPhone.
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Rules can check that your phone is near the car before starting its climate, so it doesn't run while you're somewhere else.
-  # Home Screen and Lock Screen widgets. They read what the app last saw from a shared Keychain item.
-  EV6Widgets:
-    type: app-extension
-    platform: iOS
-    sources:
-      - path: Widgets
-      - path: Shared
-    info:
-      path: Widgets/Info.plist
-      properties:
-        AppIdentifierPrefix: $(AppIdentifierPrefix)
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.widgetkit-extension
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.luciusgee.ev6precondition.widgets
-        PRODUCT_NAME: EV6Widgets
-        TARGETED_DEVICE_FAMILY: "1"
-        CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_ENTITLEMENTS: Widgets/EV6Widgets.entitlements
-        # Shared/Phone code that only the app may run checks this.
-        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WIDGET_EXTENSION
-        GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: My EV6
-        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        SKIP_INSTALL: "YES"
-
-  # The Watch app. It gets the car's state from the iPhone app and asks it to send commands.
-  EV6Watch:
-    type: application
-    platform: watchOS
-    sources:
-      - path: Watch
-      - path: Shared/CarGlance.swift
-      - path: Shared/GlanceKeychain.swift
-    dependencies:
-      - target: EV6Complications
-    info:
-      path: Watch/Info.plist
-      properties:
-        AppIdentifierPrefix: $(AppIdentifierPrefix)
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.luciusgee.ev6precondition.watchkitapp
-        PRODUCT_NAME: EV6Watch
-        CODE_SIGN_ENTITLEMENTS: Watch/EV6Watch.entitlements
-        TARGETED_DEVICE_FAMILY: "4"
-        CODE_SIGN_STYLE: Automatic
-        GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: My EV6
-        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.luciusgee.ev6precondition
-        INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: "NO"
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        SKIP_INSTALL: "YES"
-  # Watch face complications. They read what the Watch app last got from the iPhone, via the Keychain.
-  EV6Complications:
-    type: app-extension
-    platform: watchOS
-    sources:
-      - path: WatchWidgets
-      - path: Shared/CarGlance.swift
-      - path: Shared/GlanceKeychain.swift
-    info:
-      path: WatchWidgets/Info.plist
-      properties:
-        AppIdentifierPrefix: $(AppIdentifierPrefix)
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.widgetkit-extension
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.luciusgee.ev6precondition.watchkitapp.complications
-        PRODUCT_NAME: EV6Complications
-        TARGETED_DEVICE_FAMILY: "4"
-        CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_ENTITLEMENTS: WatchWidgets/EV6Complications.entitlements
-        GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: My EV6
-        SKIP_INSTALL: "YES"
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: Connects to your OBD adapter to read live data, battery health, trouble codes and speed for performance timing straight from the car.
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connects to a Wi-Fi OBD adapter plugged into your car.
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: The lap timer uses GPS to know when you cross your start/finish line. Your location stays on your iPhone.
+        INFOPLIST_KEY_NSMotionUsageDescription: Feels the moment the car pulls away, to start performance timing more precisely.
 schemes:
   EV6Precondition:
     build:

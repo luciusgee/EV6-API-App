@@ -43,7 +43,8 @@ struct OnboardingView: View {
     /// Scrolls when the content is taller than the page (large Dynamic Type, small phones),
     /// and stays vertically centred when it fits.
     private func pageLayout<Content: View>(icon: String, title: String, @ViewBuilder content: () -> Content) -> some View {
-        GeometryReader { geo in
+        let content = content()
+        return GeometryReader { geo in
             ScrollView {
                 VStack(spacing: 22) {
                     Spacer(minLength: 20)
@@ -53,7 +54,7 @@ struct OnboardingView: View {
                     Text(title)
                         .font(.largeTitle.weight(.bold))
                         .multilineTextAlignment(.center)
-                    content()
+                    content
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 28)
                     Spacer(minLength: 20)

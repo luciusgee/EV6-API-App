@@ -112,6 +112,14 @@ struct TroubleCodesView: View {
         error = nil
         progress = (0, ECU.egmp.count)
         defer { progress = nil }
+        // Any other car: the standard emission codes every OBD-II car keeps.
+        if Preferences.shared.platform == .generic {
+            modules = []
+            codes = [:]
+            emission = (try? await diag.emissionCodes()) ?? []
+            scanned = true
+            return
+        }
         do {
             modules = try await diag.scan { i, n in await MainActor.run { progress = (i, n) } }
             var found: [UInt16: [TroubleCode]] = [:]
@@ -289,7 +297,7 @@ struct ModulesView: View {
                 } header: {
                     Text("Standard OBD-II PIDs supported")
                 } footer: {
-                    Text("EVs only report a few standard values. The EV6's real data is in All sensors.")
+                    Text("Electric cars report only a few standard values; their own data is in All sensors.")
                 }
             }
         }

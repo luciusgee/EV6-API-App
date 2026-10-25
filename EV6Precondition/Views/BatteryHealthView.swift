@@ -83,14 +83,31 @@ struct BatteryHealthView: View {
     @State private var reports = BatteryReportStore.shared
     @State private var showingAdapters = false
     @State private var pdf: URL?
+    @State private var showingPro = false
+    @Environment(Store.self) private var store
 
-    private var analysis: BatteryAnalysis? { reports.report.map(BatteryAnalysis.init) }
+    private var analysis: BatteryAnalysis? {
+        reports.report.map { BatteryAnalysis($0, pack: prefs.pack(cells: $0.cellVolts.count)) }
+    }
 
     var body: some View {
+        if prefs.platform.hasBatteryData {
+            report
+        } else {
+            ContentUnavailableView {
+                Label("Battery data needs a supported EV", systemImage: "battery.100percent.bolt")
+            } description: {
+                Text("The battery report reads the battery management system of E-GMP cars: Kia EV6 and EV9, Hyundai Ioniq 5, 6 and 9, Genesis GV60 and Electrified GV70. Choose your car in More if it's one of these.")
+            }
+            .navigationTitle("Battery")
+        }
+    }
+
+    private var report: some View {
         ScrollView {
             VStack(spacing: 16) {
                 if let analysis {
-                    GradeCard(analysis: analysis, car: prefs.car.name)
+                    GradeCard(analysis: analysis, car: prefs.model.fullName)
                 }
                 readCard
                 if let analysis {
@@ -130,7 +147,11 @@ struct BatteryHealthView: View {
             }
             ToolbarItem(placement: .topBarLeading) {
                 if let pdf {
-                    ShareLink(item: pdf) { Label("PDF report", systemImage: "doc.richtext") }
+                    if store.isPro {
+                        ShareLink(item: pdf) { Label("PDF report", systemImage: "doc.richtext") }
+                    } else {
+                        Button { showingPro = true } label: { Label("PDF report", systemImage: "doc.richtext") }
+                    }
                 }
             }
         }
@@ -138,6 +159,7 @@ struct BatteryHealthView: View {
         .task(id: reports.report?.takenAt) { makePDF() }
         .onChange(of: prefs.useMiles) { makePDF() }
         .sheet(isPresented: $showingAdapters) { AdapterPicker(link: obd.link) }
+        .sheet(isPresented: $showingPro) { ProSheet() }
     }
 
     private func makePDF() {
@@ -145,7 +167,7 @@ struct BatteryHealthView: View {
             pdf = nil
             return
         }
-        pdf = BatteryPDF.make(analysis, history: reports.history, car: prefs.car.name, miles: prefs.useMiles)
+        pdf = BatteryPDF.make(analysis, history: reports.history, car: prefs.model.fullName, miles: prefs.useMiles)
     }
 
     private var readCard: some View {

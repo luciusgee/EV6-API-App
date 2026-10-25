@@ -2,8 +2,9 @@ import Foundation
 import PreconditionKit
 import UIKit
 
-/// One OBD connection for the whole app: the adapter (or the simulated EV6), the ELM327 session on top,
-/// and a single live-data loop that the gauges, graphs, recording, trip computer and timers all read.
+/// One OBD connection for the whole app: the adapter (or the simulated car), the ELM327 session on top,
+/// and a single live-data loop that the gauges, graphs, recording, trip computer, charge recorder and
+/// timers all read.
 @MainActor
 @Observable
 final class OBDService {
@@ -11,7 +12,7 @@ final class OBDService {
         case disconnected
         case connecting
         case connected
-        /// The adapter answers but the car doesn't (switched off, or not an E-GMP car).
+        /// The adapter answers but the car doesn't (switched off, or no OBD-II).
         case noAnswer(String)
     }
 
@@ -35,6 +36,16 @@ final class OBDService {
     let motion = MotionLaunch()
     /// The simulated car, in demo mode.
     private(set) var demo: FakeOBDAdapter?
+    /// What the car said about itself when it connected.
+    private(set) var vin: VIN?
+    /// Its battery answered like an E-GMP car.
+    private(set) var answersEGMP = false
+    /// Standard PIDs the car supports, for cars read with standard OBD-II.
+    private(set) var supportedPIDs: Set<UInt8> = []
+    /// The charge being recorded, while the car charges.
+    private(set) var charge: ChargeSession?
+    @ObservationIgnored private var notChargingSince: Date?
+    private let prefs = Preferences.shared
     private var wanted: [String: Set<String>] = [:]
     private var loop: Task<Void, Never>?
 
@@ -87,26 +98,54 @@ final class OBDService {
         do {
             try await elm.initialise()
             adapterVersion = await elm.adapterVersion
-            if await elm.ping(EGMP.bms) {
-                carState = .connected
-                restartIfNeeded()
-            } else {
-                carState = .noAnswer("No answer: switch the car on")
-            }
+            await identify(elm)
         } catch {
             carState = .noAnswer((error as? OBDError)?.description.capitalizingFirst ?? error.localizedDescription)
         }
+    }
+
+    /// Works out what the car is: an E-GMP battery, or standard OBD-II, and its VIN. With auto-detect on,
+    /// switches the chosen car to match.
+    private func identify(_ elm: ELM327) async {
+        let diagnostics = Diagnostics(elm: elm)
+        answersEGMP = await elm.ping(EGMP.bms)
+        supportedPIDs = []
+        if !answersEGMP { supportedPIDs = await diagnostics.supportedPIDs() }
+        guard answersEGMP || !supportedPIDs.isEmpty else {
+            carState = .noAnswer("No answer: switch the car on")
+            return
+        }
+        vin = await diagnostics.vin().flatMap(VIN.init)
+        if let vin { prefs.vin = vin.text }
+        if prefs.autoDetect {
+            let current = prefs.model
+            let makeMatches = vin?.make == nil || current.make == vin?.make
+            if current.platform != (answersEGMP ? .egmp : .generic) || !makeMatches {
+                prefs.modelId = Vehicles.guess(vin: vin, egmp: answersEGMP, cells: nil).id
+                prefs.packKWh = nil
+            }
+        }
+        carState = .connected
+        restartIfNeeded()
     }
 
     /// Checks again whether the car answers (after switching it on).
     func retryCar() async {
         guard let elm else { return await adapterReady() }
         carState = .connecting
-        carState = await elm.ping(EGMP.bms) ? .connected : .noAnswer("No answer: switch the car on")
-        restartIfNeeded()
+        await identify(elm)
     }
 
-    /// A simulated EV6 instead of a real one, to try everything without an adapter.
+    /// The sensors this car can be asked for.
+    var sensors: [Sensor] {
+        let all = prefs.platform.sensors
+        guard prefs.platform == .generic, !supportedPIDs.isEmpty else { return all }
+        return all.filter { GenericSensors.pidNumber($0).map(supportedPIDs.contains) ?? true }
+    }
+
+    func sensor(_ id: String) -> Sensor? { prefs.platform.sensor(id) }
+
+    /// A simulated EV6 instead of a real car, to try everything without an adapter.
     func startDemo() {
         disconnect()
         let fake = FakeOBDAdapter()
@@ -125,6 +164,7 @@ final class OBDService {
     }
 
     func disconnect() {
+        finishCharge()
         stopLive()
         demo = nil
         link.disconnect()
@@ -152,7 +192,7 @@ final class OBDService {
 
     private var wantedSensors: [Sensor] {
         let ids = wanted.values.reduce(into: Set<String>()) { $0.formUnion($1) }
-        return EV6Sensors.all.filter { ids.contains($0.id) }
+        return sensors.filter { ids.contains($0.id) }
     }
 
     private func restartIfNeeded() {
@@ -218,6 +258,28 @@ final class OBDService {
         if run != nil, let kmh = sample.values["speed"] {
             run?.add(at: sample.at, kmh: kmh, powerKW: sample.values["power"] ?? latest["power"], launchedAt: motion.launchedAt)
         }
+        recordCharge(sample)
+    }
+
+    /// Starts a charge session when the battery takes power standing still, and saves it a minute after
+    /// the power stops.
+    private func recordCharge(_ sample: LiveSample) {
+        guard let packKW = sample.values["power"] else { return }
+        if ChargeSession.isCharging(packKW: packKW, kmh: latest["speed"]) {
+            notChargingSince = nil
+            if charge == nil { charge = ChargeSession(started: sample.at) }
+            charge?.add(at: sample.at, packKW: packKW, socPercent: latest["socBMS"], batteryMaxC: latest["battMax"], batteryMinC: latest["battMin"])
+        } else if charge != nil {
+            let since = notChargingSince ?? sample.at
+            notChargingSince = since
+            if sample.at.timeIntervalSince(since) > 60 { finishCharge() }
+        }
+    }
+
+    func finishCharge() {
+        if let charge, charge.energyKWh > 0.05 { ChargeStore.shared.add(charge) }
+        charge = nil
+        notChargingSince = nil
     }
 
     // MARK: Recording
@@ -238,9 +300,9 @@ final class OBDService {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")
         f.dateFormat = "yyyy-MM-dd HHmmss"
-        let url = Self.recordingsFolder.appendingPathComponent("EV6 \(f.string(from: recording.started)).csv")
+        let url = Self.recordingsFolder.appendingPathComponent("Recording \(f.string(from: recording.started)).csv")
         try? FileManager.default.createDirectory(at: Self.recordingsFolder, withIntermediateDirectories: true)
-        try? recording.csv().write(to: url, atomically: true, encoding: .utf8)
+        try? recording.csv(sensors: sensors).write(to: url, atomically: true, encoding: .utf8)
         loadRecordings()
         return url
     }

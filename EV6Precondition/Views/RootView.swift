@@ -12,7 +12,7 @@ struct RootView: View {
     var body: some View {
         TabView {
             HomeView()
-                .tabItem { Label("Car", systemImage: "car.side.fill") }
+                .tabItem { Label("Car", systemImage: "car.fill") }
             PerformanceView()
                 .tabItem { Label("Performance", systemImage: "stopwatch.fill") }
             NavigationStack { BatteryHealthView() }
@@ -33,8 +33,12 @@ struct RootView: View {
         .sheet(isPresented: $whatsNew, onDismiss: { seen = WhatsNew.latest }) {
             WhatsNewSheet()
         }
+        .fullScreenCover(isPresented: Binding(get: { !splash && !prefs.onboarded }, set: { _ in })) {
+            OnboardingView(prefs: prefs)
+                .onDisappear { seen = WhatsNew.latest }
+        }
         .task {
-            guard seen < WhatsNew.latest else { return }
+            guard seen < WhatsNew.latest, prefs.onboarded else { return }
             try? await Task.sleep(for: .seconds(2.6))
             whatsNew = true
         }

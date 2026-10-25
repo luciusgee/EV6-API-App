@@ -112,7 +112,7 @@ extension Sensor {
     /// The value formatted for display, with gear letters and yes/no for switches.
     func display(_ v: Double?, miles: Bool) -> String {
         guard let v else { return "–" }
-        if id == "gear" { return EV6Sensors.gearName(v) }
+        if id == "gear" { return EGMPSensors.gearName(v) }
         if range == 0...1 && unit.isEmpty { return v >= 0.5 ? "Yes" : "No" }
         if miles, unit == "km/h" { return String(format: "%.0f mph", v / DisplayText.kmPerMile) }
         if miles, unit == "km" { return String(format: "%.0f mi", v / DisplayText.kmPerMile) }

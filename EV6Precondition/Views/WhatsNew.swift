@@ -23,6 +23,13 @@ enum WhatsNew {
     }
 
     static let releases: [Release] = [
+        Release(number: 2, title: "Ready for any car", items: [
+            Item("car.fill", "Your car, live", "A drawing of your car built from its own data: the battery filling with charge, tyre pressures at each wheel, and power flowing to the motors or in from the charger."),
+            Item("checkmark.seal", "Every E-GMP car, detected", "Kia EV6 and EV9, Hyundai Ioniq 5, 5 N, 6 and 9, Genesis GV60 and Electrified GV70, recognised from the VIN when you connect, with the right battery size."),
+            Item("gauge.with.dots.needle.67percent", "Any other car too", "Speed, engine data, emission codes and performance timing on almost any car with standard OBD-II."),
+            Item("bolt.car", "Charge curves", "Plug in with the app open to record the charge: power against charge, energy added and battery temperature (More › Charging)."),
+            Item("hand.raised", "Privacy and safety", "Nothing leaves your phone. A short safety note before timing, and credits for the open-source data behind the decoding."),
+        ]),
         Release(number: 1, title: "A proper EV scanner", items: [
             Item("stopwatch", "Performance timing", "0–60, 0–100 km/h, ¼ mile, standing mile, in-gear pulls and braking, timed from the car's own speed readings with splits, trap speed and power."),
             Item("flag.pattern.checkered.2.crossed", "Lap timer", "Set a start/finish line by driving across it; laps, best lap and a live delta from GPS."),

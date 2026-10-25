@@ -16,6 +16,8 @@ struct EV6PreconditionApp: App {
                 .environment(services.prefs)
                 .environment(services.battery)
                 .environment(services.runs)
+                .environment(services.charges)
+                .environment(services.store)
                 .task { await services.prepare() }
                 .preferredColorScheme(.dark)
         }

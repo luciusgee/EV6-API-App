@@ -11,6 +11,7 @@ struct PerformanceView: View {
     @AppStorage("runMotion") private var useMotion = true
     @State private var showing: RunResult?
     @State private var showingAdapters = false
+    @State private var confirmTrack = false
 
     private var type: RunType { RunType(rawValue: typeRaw) ?? .zeroTo60mph }
     private var miles: Bool { prefs.useMiles }
@@ -26,7 +27,7 @@ struct PerformanceView: View {
                     TimingQuality()
                     bests
                     NavigationLink {
-                        LapTimerView()
+                        ProLock(feature: "The lap timer") { LapTimerView() }
                     } label: {
                         ToolRow(title: "Lap timer", detail: "GPS laps with a start/finish line you set", systemImage: "flag.pattern.checkered.2.crossed", tint: .orange)
                     }
@@ -62,6 +63,15 @@ struct PerformanceView: View {
                 }
             }
             .sheet(isPresented: $showingAdapters) { AdapterPicker(link: obd.link) }
+            .alert("Closed roads only", isPresented: $confirmTrack) {
+                Button("I understand") {
+                    prefs.acceptedTrackUse = true
+                    arm()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Use performance timing only on closed roads, tracks and drag strips, never on public roads. Mount your phone and don't touch it while driving.")
+            }
             .sheet(item: $showing) { run in
                 NavigationStack { RunResultView(run: run) }
             }
@@ -126,8 +136,12 @@ struct PerformanceView: View {
     }
 
     private func arm() {
+        guard prefs.acceptedTrackUse else {
+            confirmTrack = true
+            return
+        }
         var timer = RunTimer(type: type, rollout: rollout)
-        timer.note(soc: obd.latest["socBMS"], batteryC: obd.latest["battMax"], car: prefs.car.shortName)
+        timer.note(soc: obd.latest["socBMS"], batteryC: obd.latest["battMax"], car: prefs.model.fullName)
         obd.run = timer
         if useMotion && type.standingStart { obd.motion.start() }
         obd.demoDrive(for: type)

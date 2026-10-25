@@ -10,8 +10,10 @@ struct LiveDataView: View {
     @AppStorage("liveWindow") private var window = 120.0
     @State private var picking = false
     @State private var saved: URL?
+    @State private var showingPro = false
+    @Environment(Store.self) private var store
 
-    private var ids: [String] { selection.split(separator: ",").map(String.init).filter { EV6Sensors.sensor($0) != nil } }
+    private var ids: [String] { selection.split(separator: ",").map(String.init).filter { obd.sensor($0) != nil } }
 
     var body: some View {
         List {
@@ -24,7 +26,7 @@ struct LiveDataView: View {
                 }
                 .pickerStyle(.segmented)
             }
-            ForEach(ids.compactMap(EV6Sensors.sensor)) { sensor in
+            ForEach(ids.compactMap(obd.sensor)) { sensor in
                 Section {
                     SensorChart(sensor: sensor, points: obd.history[sensor.id] ?? [], window: window, miles: prefs.useMiles)
                         .frame(height: 150)
@@ -64,6 +66,10 @@ struct LiveDataView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if obd.recording == nil {
                     Button {
+                        if !store.isPro {
+                            showingPro = true
+                            return
+                        }
                         saved = nil
                         obd.startRecording(ids)
                     } label: {
@@ -82,6 +88,7 @@ struct LiveDataView: View {
         .sheet(isPresented: $picking) {
             SensorPicker(selection: $selection)
         }
+        .sheet(isPresented: $showingPro) { ProSheet() }
         .liveSensors(ids, screen: "live")
     }
 }
@@ -126,6 +133,7 @@ struct SensorChart: View {
 
 struct SensorPicker: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(OBDService.self) private var obd
     @Binding var selection: String
     static let limit = 6
 
@@ -135,7 +143,7 @@ struct SensorPicker: View {
         NavigationStack {
             List {
                 ForEach(Sensor.Group.allCases, id: \.self) { group in
-                    let sensors = EV6Sensors.all.filter { $0.group == group }
+                    let sensors = obd.sensors.filter { $0.group == group }
                     if !sensors.isEmpty {
                         Section(group.rawValue) {
                             ForEach(sensors) { sensor in
@@ -179,7 +187,7 @@ struct AllSensorsView: View {
 
     private var sensors: [Sensor] {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        return q.isEmpty ? EV6Sensors.all : EV6Sensors.all.filter { $0.name.lowercased().contains(q) }
+        return q.isEmpty ? obd.sensors : obd.sensors.filter { $0.name.lowercased().contains(q) }
     }
 
     var body: some View {
@@ -205,7 +213,7 @@ struct AllSensorsView: View {
         }
         .searchable(text: $search, prompt: "Search sensors")
         .navigationTitle("All sensors")
-        .liveSensors(EV6Sensors.all.map(\.id), screen: "sensors")
+        .liveSensors(obd.sensors.map(\.id), screen: "sensors")
     }
 }
 

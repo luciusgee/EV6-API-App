@@ -1,20 +1,25 @@
 import PreconditionKit
 import SwiftUI
 
-/// Live gauges while you drive or charge.
+/// Live gauges while you drive or charge, chosen for the kind of car.
 struct DashboardGauges: View {
     @Environment(OBDService.self) private var obd
     @Environment(Preferences.self) private var prefs
 
-    static let gauges = ["socBMS", "battMax", "cellSpread", "obdVoltage", "voltage", "maxCharge", "cabin", "outside", "rpmRear", "accelerator"]
-    private var ids: [String] { ["speed", "power", "gear"] + Self.gauges }
+    private var electric: Bool { prefs.platform == .egmp }
+    private var gauges: [String] {
+        electric
+            ? ["socBMS", "battMax", "cellSpread", "obdVoltage", "voltage", "maxCharge", "cabin", "outside", "rpmRear", "accelerator"]
+            : ["rpm", "coolant", "throttle", "load", "intake", "obdVoltage", "fuel", "outside", "maf", "oil"]
+    }
+    private var ids: [String] { ["speed", "power", "gear"] + gauges }
     private var miles: Bool { prefs.useMiles }
 
     var body: some View {
         VStack(spacing: 14) {
             hero
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                ForEach(Self.gauges.compactMap(EV6Sensors.sensor)) { sensor in
+                ForEach(gauges.compactMap(obd.sensor).filter { s in obd.sensors.contains(s) }) { sensor in
                     RingGauge(sensor: sensor, value: obd.latest[sensor.id], miles: miles)
                 }
             }
@@ -24,12 +29,11 @@ struct DashboardGauges: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .liveSensors(ids, screen: "dashboard")
+        .liveSensors(ids.filter { obd.sensor($0) != nil }, screen: "dashboard")
     }
 
     private var hero: some View {
         let speed = obd.latest["speed"]
-        let power = obd.latest["power"]
         return VStack(spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -40,16 +44,25 @@ struct DashboardGauges: View {
                     Text(miles ? "mph" : "km/h").font(.headline).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(obd.latest["gear"].map(EV6Sensors.gearName) ?? "–")
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
-                    .foregroundStyle(.tint)
-                    .frame(width: 70, height: 70)
-                    .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                if electric {
+                    Text(obd.latest["gear"].map(EGMPSensors.gearName) ?? "–")
+                        .font(.system(size: 44, weight: .bold, design: .rounded))
+                        .foregroundStyle(.tint)
+                        .frame(width: 70, height: 70)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                } else {
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(obd.latest["rpm"].map { String(format: "%.0f", $0) } ?? "–")
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                        Text("rpm").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
-            PowerBar(kW: power)
+            if electric { PowerBar(kW: obd.latest["power"]) }
         }
         .padding(18)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .animation(.easeOut(duration: 0.2), value: speed)
     }
 }
@@ -66,7 +79,7 @@ struct PowerBar: View {
                 let mid = geo.size.width * Self.maxRegen / (Self.maxRegen + Self.maxDrive)
                 let p = kW ?? 0
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color(.systemFill))
+                    Capsule().fill(Color.white.opacity(0.1))
                     if p >= 0 {
                         Capsule().fill(Color.blue.gradient)
                             .frame(width: (geo.size.width - mid) * min(p / Self.maxDrive, 1))
@@ -143,7 +156,7 @@ struct RingGauge: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .animation(.easeOut(duration: 0.25), value: fraction)
         .accessibilityElement(children: .combine)
     }

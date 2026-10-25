@@ -64,3 +64,32 @@ struct LapSession: Codable, Identifiable, Equatable {
 
     var best: Lap? { laps.min { $0.seconds < $1.seconds } }
 }
+
+/// Every recorded charge, newest last.
+@MainActor
+@Observable
+final class ChargeStore {
+    static let shared = ChargeStore()
+
+    private(set) var sessions: [ChargeSession] = []
+    private let store: JSONFileStore<[ChargeSession]>
+
+    init() {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        store = JSONFileStore(url: support.appendingPathComponent("EV6Precondition/charges.json"), default: [])
+    }
+
+    func load() async {
+        sessions = await store.load()
+    }
+
+    func add(_ session: ChargeSession) {
+        sessions.append(session)
+        Task { await store.save(sessions) }
+    }
+
+    func delete(_ ids: Set<UUID>) {
+        sessions.removeAll { ids.contains($0.id) }
+        Task { await store.save(sessions) }
+    }
+}

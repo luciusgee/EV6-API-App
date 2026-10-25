@@ -10,22 +10,32 @@ enum AppInfo {
     }
 }
 
-/// The first tab: your car on a scan bay you can turn round, the connection, and live gauges.
+/// The first tab: the car drawn live from its own data, the connection, and live gauges.
 struct HomeView: View {
     @Environment(OBDService.self) private var obd
     @Environment(Preferences.self) private var prefs
     @Environment(BatteryReportStore.self) private var battery
     @State private var showingAdapters = false
 
+    private var electric: Bool { prefs.platform == .egmp }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    ScanBay()
+                    CarHeader()
                     if obd.carState != .connected {
                         ConnectPrompt(showingAdapters: $showingAdapters)
                     }
-                    if let report = battery.report {
+                    if let charge = obd.charge {
+                        NavigationLink {
+                            ChargingView()
+                        } label: {
+                            LiveChargeCard(session: charge, kW: -(obd.latest["power"] ?? 0))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if electric, let report = battery.report {
                         LastHealthCard(report: report)
                     }
                     DashboardGauges()
@@ -33,7 +43,7 @@ struct HomeView: View {
                 .padding(16)
             }
             .background(Color.black)
-            .navigationTitle(prefs.car.shortName)
+            .navigationTitle(prefs.model.name)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     ConnectionButton(showingAdapters: $showingAdapters)
@@ -44,75 +54,95 @@ struct HomeView: View {
     }
 }
 
-/// The car on a dark diagnostics backdrop. Drag to turn it round; the grid glows green while the car
-/// is connected.
-private struct ScanBay: View {
+/// The car from above with what it's doing, on a dark scan bay.
+private struct CarHeader: View {
     @Environment(OBDService.self) private var obd
     @Environment(Preferences.self) private var prefs
-    @State private var sweep = false
+    @Environment(BatteryReportStore.self) private var battery
 
     private var connected: Bool { obd.carState == .connected }
-    private var tint: Color { connected ? .green : .teal }
+    private var electric: Bool { prefs.platform == .egmp }
+
+    private var moduleDeviations: [Double] {
+        guard let report = battery.report else { return [] }
+        let a = BatteryAnalysis(report)
+        guard let mean = a.meanVolts else { return [] }
+        return a.modules.map { ($0.meanVolts - mean) * 1000 }
+    }
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            LinearGradient(
-                colors: [Color(red: 0.05, green: 0.09, blue: 0.11), Color(red: 0.02, green: 0.02, blue: 0.03)],
-                startPoint: .topTrailing, endPoint: .bottomLeading
+        HStack(alignment: .center, spacing: 8) {
+            ChassisView(
+                socPercent: obd.latest["socBMS"],
+                powerKW: obd.latest["power"],
+                charging: obd.charge != nil,
+                tyrePsi: ["FL", "FR", "RL", "RR"].map { obd.latest["psi\($0)"] },
+                modules: moduleDeviations,
+                electric: electric
             )
-            Canvas { context, size in
-                var path = Path()
-                stride(from: 0, through: size.width, by: 22).forEach { x in
-                    path.move(to: CGPoint(x: x, y: 0))
-                    path.addLine(to: CGPoint(x: x, y: size.height))
+            .frame(maxHeight: 300)
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(prefs.model.make.isEmpty ? "OBD-II" : prefs.model.make.uppercased())
+                        .font(.caption.weight(.heavy))
+                        .tracking(2)
+                        .foregroundStyle(.secondary)
+                    Text(prefs.model.name).font(.title2.weight(.bold))
+                    if let year = prefs.vin.flatMap(VIN.init)?.year {
+                        Text(String(year)).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                stride(from: 0, through: size.height, by: 22).forEach { y in
-                    path.move(to: CGPoint(x: 0, y: y))
-                    path.addLine(to: CGPoint(x: size.width, y: y))
-                }
-                context.stroke(path, with: .color(tint.opacity(0.10)), lineWidth: 0.5)
-            }
-            .allowsHitTesting(false)
-            GeometryReader { geo in
-                LinearGradient(colors: [.clear, tint.opacity(0.35), .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: 60)
-                    .offset(x: sweep ? geo.size.width : -60)
-                    .blendMode(.plusLighter)
-            }
-            .allowsHitTesting(false)
-            Ellipse()
-                .fill(tint.opacity(0.25))
-                .frame(width: 280, height: 28)
-                .blur(radius: 18)
-                .frame(maxWidth: .infinity)
-                .offset(y: -40)
-                .allowsHitTesting(false)
-            CarHeroImage(paint: prefs.paint)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 44)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(prefs.car.name.uppercased()).font(.system(size: 13, weight: .heavy)).tracking(3)
-                HStack(spacing: 6) {
-                    Circle().fill(connected ? Color.green : Color.secondary).frame(width: 7, height: 7)
-                    Text(connected ? (obd.demo != nil ? "Demo car connected" : "Connected · live data") : "Drag to turn the car round")
-                        .font(.caption)
-                        .opacity(0.85)
+                stat("Status", connected ? (obd.charge != nil ? "Charging" : obd.demo != nil ? "Demo" : "Live") : "Offline",
+                     tint: connected ? .green : .secondary)
+                if electric {
+                    stat("Power", obd.latest["power"].map { String(format: "%.1f kW", $0) } ?? "–")
+                    stat("Battery", obd.latest["battMax"].map { String(format: "%.0f °C", $0) } ?? "–")
+                } else {
+                    stat("Engine", obd.latest["rpm"].map { String(format: "%.0f rpm", $0) } ?? "–")
+                    stat("Coolant", obd.latest["coolant"].map { String(format: "%.0f °C", $0) } ?? "–")
                 }
             }
-            .foregroundStyle(.white)
-            .padding(16)
-            .allowsHitTesting(false)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: 280)
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(tint.opacity(0.25), lineWidth: 1)
+        .padding(16)
+        .background(
+            RadialGradient(colors: [(connected ? Color.green : Color.teal).opacity(0.14), Color.white.opacity(0.03)], center: .leading, startRadius: 10, endRadius: 300),
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+        )
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .liveSensors(electric ? ["socBMS", "power", "battMax", "speed", "psiFL", "psiFR", "psiRL", "psiRR"] : ["rpm", "coolant", "speed"], screen: "home")
+    }
+
+    private func stat(_ title: String, _ value: String, tint: Color = .primary) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(.headline).monospacedDigit().foregroundStyle(tint)
         }
-        .onAppear {
-            withAnimation(.linear(duration: 3.5).repeatForever(autoreverses: false)) { sweep = true }
+    }
+}
+
+/// The charge under way, from the home screen.
+private struct LiveChargeCard: View {
+    let session: ChargeSession
+    let kW: Double
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "bolt.car.fill")
+                .font(.title2)
+                .foregroundStyle(.green)
+                .symbolEffect(.pulse)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(format: "Charging at %.1f kW", max(kW, 0))).font(.headline)
+                Text(String(format: "%.1f kWh added in %@", session.energyKWh, DisplayText.duration(minutes: Int(session.duration / 60))))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
         }
+        .padding(14)
+        .background(Color.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 

@@ -61,8 +61,9 @@ public struct BatteryAnalysis: Equatable, Sendable {
     public let weakest: [Cell]
     /// Highest first.
     public let strongest: [Cell]
-    /// Cells well below the rest: more than 3 standard deviations, and at least 15 mV.
+    /// Cells well below the rest: more than 3 standard deviations, and more than two reading steps.
     public let outliers: [Cell]
+    /// Empty when the cell count isn't a whole number of modules, rather than inventing boundaries.
     public let modules: [Module]
 
     // Use
@@ -72,11 +73,15 @@ public struct BatteryAnalysis: Equatable, Sendable {
     public let temperatureSpreadC: Double?
 
     public let checks: [Check]
-    /// A to D.
+    /// A to D: set by state of health; the other checks can lower it by one step at most.
     public let grade: String
 
     /// E-GMP modules hold six cells in series.
     public static let cellsPerModule = 6
+    /// The BMS reports cell voltages in 20 mV steps, so smaller differences can't be seen.
+    public static let cellResolutionMV = 20.0
+    /// Below this current, either way, the pack counts as at rest.
+    static let restAmps = 5.0
 
     /// A guess when the car's model isn't known.
     public static func nominalKWh(cells: Int) -> Double? {
@@ -111,10 +116,13 @@ public struct BatteryAnalysis: Equatable, Sendable {
             let byVolts = all.sorted { $0.volts < $1.volts }
             weakest = Array(byVolts.prefix(5))
             strongest = Array(byVolts.suffix(5).reversed())
-            outliers = byVolts.filter { $0.deviationMV < -max(3 * sd, 15) }
+            // A single reading step is noise, not a weak cell: ask for more than two.
+            outliers = byVolts.filter { $0.deviationMV < -max(3 * sd, 2 * Self.cellResolutionMV) }
             var modules: [Module] = []
             let temps = report.moduleTempsC
-            for start in stride(from: 0, to: cells.count, by: Self.cellsPerModule) {
+            // Only group whole modules: a pack that doesn't divide by six has a layout we don't know.
+            let groups = cells.count % Self.cellsPerModule == 0 ? cells.count : 0
+            for start in stride(from: 0, to: groups, by: Self.cellsPerModule) {
                 let slice = cells[start..<min(start + Self.cellsPerModule, cells.count)]
                 let n = start / Self.cellsPerModule
                 // The BMS reports fewer temperature sensors than modules: share them out evenly.
@@ -154,20 +162,32 @@ public struct BatteryAnalysis: Equatable, Sendable {
         checks.append(Self.balanceCheck(spreadMV))
         if !weakest.isEmpty {
             let w = weakest[0]
-            let status: Status = w.deviationMV > -25 ? .good : w.deviationMV > -50 ? .fair : .attention
+            // Judged as the findings are: a cell that stands out needs attention. Otherwise in reading
+            // steps, as the balance check is: two steps low (rounded) is still closely matched.
+            let low = (-w.deviationMV).rounded()
+            let status: Status = !outliers.isEmpty ? .attention : low <= 2 * Self.cellResolutionMV ? .good : .fair
             checks.append(Check(
                 title: "Weakest cell", status: status,
                 value: String(format: "Cell %d, %.0f mV below average", w.number, -w.deviationMV),
                 detail: outliers.isEmpty
                     ? "No cell stands out from the rest."
-                    : "\(outliers.count) cell\(outliers.count == 1 ? "" : "s") sit well below the rest. One reading isn't conclusive: read again after a full charge and compare."
+                    : "\(outliers.count) cell\(outliers.count == 1 ? " sits" : "s sit") well below the rest. One reading isn't conclusive: read again after a full charge and compare."
+                    + " Cells are read in 20 mV steps."
             ))
         }
         if let spread = temperatureSpreadC {
-            let status: Status = spread <= 5 ? .good : spread <= 10 ? .fair : .attention
+            // With current flowing the pack is charging or driving, and uneven heat is expected.
+            let atRest = report.packAmps.map { abs($0) < Self.restAmps } ?? true
+            let measured: Status = spread <= 5 ? .good : spread <= 10 ? .fair : .attention
+            let status: Status = atRest || measured == .good ? measured : .unknown
+            let detail: String
+            switch status {
+            case .good: detail = "The pack's temperature is even."
+            case .unknown: detail = "Some of the pack is warmer than the rest, but current is flowing, so this isn't judged. Read again when the car has rested."
+            default: detail = "Some of the pack is warmer than the rest. Normal straight after rapid charging or hard driving; worth a second look if it persists when the car has rested."
+            }
             checks.append(Check(
-                title: "Temperature spread", status: status, value: String(format: "%.0f °C", spread),
-                detail: status == .good ? "The pack's temperature is even." : "Some of the pack is warmer than the rest. Normal straight after rapid charging or hard driving; worth a second look if it persists when the car has rested."
+                title: "Temperature spread", status: status, value: String(format: "%.0f °C", spread), detail: detail
             ))
         }
         if let cycles = equivalentCycles {
@@ -179,12 +199,15 @@ public struct BatteryAnalysis: Equatable, Sendable {
         }
         self.checks = checks
 
-        let worst = checks.map(\.status).filter { $0 != .unknown }.max() ?? .unknown
-        switch (report.sohPercent ?? 0, worst) {
-        case (95..., .good): grade = "A"
-        case (90..., .good), (95..., .fair): grade = "B"
-        case (80..., .good), (80..., .fair): grade = "C"
-        default: grade = report.sohPercent == nil ? "–" : "D"
+        if let soh = report.sohPercent {
+            let grades = ["A", "B", "C", "D"]
+            var step = soh >= 95 ? 0 : soh >= 90 ? 1 : soh >= 80 ? 2 : 3
+            // The other checks can take off one step at most: any attention, or a fair one on an A.
+            let worst = checks.dropFirst().map(\.status).filter { $0 != .unknown }.max() ?? .good
+            if worst == .attention || (worst == .fair && step == 0) { step += 1 }
+            grade = grades[min(step, grades.count - 1)]
+        } else {
+            grade = "–"
         }
     }
 
@@ -206,10 +229,13 @@ public struct BatteryAnalysis: Equatable, Sendable {
         guard let spread else {
             return Check(title: "Cell balance", status: .unknown, value: "Not read", detail: "The cell voltages weren't read.")
         }
-        let status: Status = spread <= 30 ? .good : spread <= 70 ? .fair : .attention
+        // Readings come in 20 mV steps: two steps apart is still closely matched. Rounded first, as the
+        // report's findings are, so a 40 mV spread that comes out as 40.00000000004 is still balanced.
+        let s = spread.rounded()
+        let status: Status = s <= 2 * cellResolutionMV ? .good : s <= 5 * cellResolutionMV ? .fair : .attention
         let detail: String
         switch status {
-        case .good: detail = "Cells are closely matched."
+        case .good: detail = "Cells are closely matched (they're read in 20 mV steps)."
         case .fair: detail = "A little apart. Charging to 100% now and then gives the battery time to balance them."
         default: detail = "Wider than usual. Balance after a full charge and read again; if it stays wide, have it checked."
         }

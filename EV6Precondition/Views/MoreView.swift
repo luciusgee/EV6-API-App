@@ -75,13 +75,18 @@ struct MoreView: View {
                 } header: {
                     Text("Connection")
                 } footer: {
-                    Text("Works with Bluetooth LE and Wi-Fi ELM327 adapters such as the Veepeak OBDCheck BLE, OBDLink CX and vLinker. The demo car is a simulated EV6, for trying everything without one.")
+                    Text("Works with Bluetooth LE and Wi-Fi ELM327 adapters such as the Veepeak OBDCheck BLE, OBDLink CX and vLinker. The demo car is a simulated EV6, for trying the app without one.")
                 }
 
                 Section("About") {
                     Button("What's new") { whatsNew = true }
                     if Store.paywallEnabled {
                         Button("Restore purchase") { Task { await store.restore() } }
+                            .disabled(store.busy)
+                        // A successful restore shows as Pro unlocking; anything else says why here.
+                        if let error = store.error {
+                            Text(error).font(.footnote).foregroundStyle(.orange)
+                        }
                     }
                     NavigationLink("Privacy") { InfoPage(title: "Privacy", text: AboutText.privacy) }
                     NavigationLink("Safety and disclaimer") { InfoPage(title: "Safety", text: AboutText.disclaimer) }
@@ -133,9 +138,12 @@ struct CarPicker: View {
             HStack {
                 Text(name).foregroundStyle(.primary)
                 Spacer()
-                if prefs.modelId == model.id { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                if prefs.modelId == model.id {
+                    Image(systemName: "checkmark").foregroundStyle(.tint).accessibilityHidden(true)
+                }
             }
         }
+        .accessibilityAddTraits(prefs.modelId == model.id ? .isSelected : [])
     }
 }
 
@@ -161,7 +169,7 @@ enum AboutText {
 
     Everything the app reads from your car (live data, battery reports, runs, laps, charges and recordings) is stored only on this iPhone, and goes nowhere unless you share it yourself.
 
-    Bluetooth is used only to talk to your OBD adapter. Location is used only by the lap timer, while it's open, to see when you cross your start/finish line. Motion is used only to feel the moment the car pulls away during a timed run.
+    Bluetooth is used only to talk to your OBD adapter. Location is used only by the lap timer, while you set up or run a session (even if you switch tabs during one), to see when you cross your start/finish line. Motion is used only to feel the moment the car pulls away during a timed run.
 
     Purchases are handled by Apple; the app never sees your payment details.
     """

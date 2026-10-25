@@ -48,10 +48,10 @@ public struct VehicleModel: Codable, Hashable, Sendable, Identifiable {
 
     public var fullName: String { make.isEmpty ? name : "\(make) \(name)" }
 
-    /// The pack with this many cells; with more than one, the newest unless the year says otherwise.
+    /// The pack with this many cells; with more than one, the oldest unless the year says it is 2025 or later.
     public func pack(cells: Int, year: Int? = nil) -> PackSpec? {
         let matches = packs.filter { $0.cells == cells }
-        guard matches.count > 1, let year else { return matches.last }
+        guard matches.count > 1, let year else { return matches.first }
         // E-GMP cars moved from 77.4 to 84 kWh (and 58 to 63) with the 2024–25 updates.
         return year >= 2025 ? matches.last : matches.first
     }
@@ -90,7 +90,8 @@ public enum Vehicles {
         if let cells, let match = candidates.first(where: { m in m.packs.contains { $0.cells == cells } }) {
             return match
         }
-        return candidates.first ?? all[0]
+        // A VIN from a maker with no E-GMP cars: don't call it a Kia.
+        return candidates.first ?? generic
     }
 }
 
@@ -119,14 +120,24 @@ public struct VIN: Equatable, Sendable {
         guard t.count == 17, !t.contains("I"), !t.contains("O"), !t.contains("Q") else { return nil }
         text = t
         make = Self.makers[String(t.prefix(3))]
-        year = Self.year(t[t.index(t.startIndex, offsetBy: 9)])
+        year = Self.year(t)
     }
 
-    /// The 10th character, read for 2010–2039.
-    static func year(_ c: Character) -> Int? {
+    /// The 10th character names the year in a 30-year cycle (A = 1980 or 2010 … 9 = 2009 or 2039).
+    /// North American VINs say which cycle with the 7th character (a letter means 2010 on); for the rest,
+    /// the later cycle unless that would be more than a year in the future.
+    static func year(_ vin: String, now: Date = Date()) -> Int? {
+        let chars = Array(vin)
+        guard chars.count == 17 else { return nil }
         let letters = Array("ABCDEFGHJKLMNPRSTVWXY")
-        if let i = letters.firstIndex(of: c) { return 2010 + i }
-        if let d = c.wholeNumberValue, d > 0 { return 2030 + d }
-        return nil
+        let early: Int
+        if let i = letters.firstIndex(of: chars[9]) { early = 1980 + i }
+        else if let d = chars[9].wholeNumberValue, d > 0 { early = 2000 + d }
+        else { return nil }
+        if let first = chars[0].wholeNumberValue, (1...5).contains(first) {
+            return chars[6].isLetter ? early + 30 : early
+        }
+        let thisYear = Calendar(identifier: .gregorian).component(.year, from: now)
+        return early + 30 > thisYear + 1 ? early : early + 30
     }
 }

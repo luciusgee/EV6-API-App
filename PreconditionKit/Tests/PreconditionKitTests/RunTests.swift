@@ -135,6 +135,126 @@ final class RunTests: XCTestCase {
         XCTAssertEqual(RunType.eightyTo120kmh.category, .rolling)
         XCTAssertEqual(RunType.standingMile.category, .distance)
     }
+
+    func testACreepToTheLineIsNotTheStart() {
+        var timer = RunTimer(type: .zeroTo60mph)
+        timer.add(at: t0.addingTimeInterval(-1), kmh: 0)
+        timer.add(at: t0, kmh: 2)
+        timer.add(at: t0.addingTimeInterval(0.5), kmh: 3)
+        timer.add(at: t0.addingTimeInterval(1), kmh: 0)
+        XCTAssertEqual(timer.state, .armed)
+        let launch = t0.addingTimeInterval(5)
+        drive(&timer, from: 0, accel: 40, dt: 0.3, seconds: 4, start: launch)
+        guard case .finished(let r) = timer.state else { return XCTFail("\(timer.state)") }
+        XCTAssertEqual(r.seconds, 96.56064 / 40 - 0.5 / 40, accuracy: 0.02)
+        XCTAssertEqual(r.date.timeIntervalSince(launch), 0.0125, accuracy: 0.02)
+    }
+
+    func testAGapAbandonsTheAttempt() {
+        var timer = RunTimer(type: .zeroTo60mph)
+        timer.add(at: t0.addingTimeInterval(-1), kmh: 0)
+        timer.add(at: t0, kmh: 10)
+        timer.add(at: t0.addingTimeInterval(0.3), kmh: 20)
+        guard case .running = timer.state else { return XCTFail("\(timer.state)") }
+        timer.add(at: t0.addingTimeInterval(0.3 + RunTimer.maxGap + 0.5), kmh: 100)
+        if case .finished = timer.state { XCTFail("finished across a gap") }
+    }
+
+    func testTickAbandonsARunWhoseReadingsStopped() {
+        var timer = RunTimer(type: .zeroTo60mph)
+        timer.add(at: t0.addingTimeInterval(-1), kmh: 0)
+        timer.add(at: t0, kmh: 10)
+        timer.add(at: t0.addingTimeInterval(0.3), kmh: 20)
+        guard case .running = timer.state else { return XCTFail("\(timer.state)") }
+        // Within the gap: still running.
+        timer.tick(now: t0.addingTimeInterval(0.3 + RunTimer.maxGap - 0.1))
+        guard case .running = timer.state else { return XCTFail("\(timer.state)") }
+        timer.tick(now: t0.addingTimeInterval(0.3 + RunTimer.maxGap + 0.1))
+        guard case .waiting = timer.state else { return XCTFail("\(timer.state)") }
+        XCTAssertTrue(timer.trace.isEmpty)
+        // A fresh stop arms it again.
+        timer.add(at: t0.addingTimeInterval(5), kmh: 0)
+        XCTAssertEqual(timer.state, .armed)
+    }
+
+    func testTickAbandonsARunPastTheTimeLimit() {
+        var timer = RunTimer(type: .quarterMile)
+        timer.add(at: t0.addingTimeInterval(-1), kmh: 0)
+        // So slow it is still short of the quarter mile when the time limit comes (it passes walking
+        // pace about 5 s in, so the clock is just short of the limit at the last reading).
+        drive(&timer, from: 0, accel: 0.1, dt: 0.5, seconds: RunTimer.maxSeconds + 3)
+        guard case .running(let since) = timer.state else { return XCTFail("\(timer.state)") }
+        timer.tick(now: since.addingTimeInterval(RunTimer.maxSeconds - 0.5))
+        guard case .running = timer.state else { return XCTFail("abandoned too soon: \(timer.state)") }
+        timer.tick(now: since.addingTimeInterval(RunTimer.maxSeconds + 0.1))
+        guard case .waiting = timer.state else { return XCTFail("\(timer.state)") }
+    }
+
+    func testTickLeavesOtherStatesAlone() {
+        var timer = RunTimer(type: .zeroTo60mph)
+        timer.add(at: t0, kmh: 0)
+        XCTAssertEqual(timer.state, .armed)
+        timer.tick(now: t0.addingTimeInterval(60))
+        XCTAssertEqual(timer.state, .armed)
+    }
+
+    func testRolloutSplitsCountFromZero() {
+        var timer = RunTimer(type: .quarterMile, rollout: true)
+        timer.add(at: t0.addingTimeInterval(-1), kmh: 0)
+        drive(&timer, from: 0, accel: 10, dt: 0.25, seconds: 20)
+        guard case .finished(let r) = timer.state else { return XCTFail("\(timer.state)") }
+        let speeds = r.splits.filter { $0.kind == .speedMph }.map(\.label)
+        XCTAssertFalse(speeds.isEmpty)
+        XCTAssertTrue(speeds.allSatisfy { $0.hasPrefix("0–") }, "\(speeds)")
+    }
+
+    func testAnAbortedMotionLaunchIsForgotten() {
+        var timer = RunTimer(type: .zeroTo60mph)
+        timer.add(at: t0, kmh: 0)
+        timer.add(at: t0.addingTimeInterval(0.4), kmh: 8, launchedAt: t0.addingTimeInterval(0.1))
+        guard case .running = timer.state else { return XCTFail("\(timer.state)") }
+        timer.add(at: t0.addingTimeInterval(0.8), kmh: 0)
+        XCTAssertEqual(timer.state, .armed)
+        drive(&timer, from: 0, accel: 40, dt: 0.3, seconds: 4, start: t0.addingTimeInterval(3))
+        guard case .finished(let r) = timer.state else { return XCTFail("\(timer.state)") }
+        XCTAssertFalse(r.motionLaunch)
+    }
+
+    func testNotedContextSurvivesATimeout() {
+        var timer = RunTimer(type: .zeroTo200kmh)
+        timer.note(soc: 80, batteryC: 25, car: "EV6")
+        timer.add(at: t0, kmh: 0)
+        timer.add(at: t0.addingTimeInterval(1), kmh: 10)
+        timer.add(at: t0.addingTimeInterval(200), kmh: 100)
+        guard case .waiting = timer.state else { return XCTFail("\(timer.state)") }
+        timer.add(at: t0.addingTimeInterval(299), kmh: 0)
+        drive(&timer, from: 0, accel: 40, dt: 0.3, seconds: 6, start: t0.addingTimeInterval(300))
+        guard case .finished(let r) = timer.state else { return XCTFail("\(timer.state)") }
+        XCTAssertEqual(r.socPercent, 80)
+        XCTAssertEqual(r.car, "EV6")
+    }
+
+    func testPromptsMatchTheArmMargin() {
+        XCTAssertEqual(RunTimer.waitingWords(.brake60mph), "Get above 63 mph")
+        XCTAssertEqual(RunTimer.waitingWords(.brake100kmh), "Get above 103 km/h")
+        XCTAssertEqual(RunType.brake60mph.instructions, "Get above 63 mph, then brake hard to a stop.")
+    }
+
+    func testOldRunsStillDecode() throws {
+        // Saved before rollout, motion launch, splits and the trace were kept.
+        let json = """
+        [{"id":"8C2F4C1E-2F5A-4B8E-9C1D-3E6F7A8B9C0D","type":"zeroTo60mph","date":780000000,"seconds":3.4,
+          "metres":45,"endKmh":96.6,"peakKmh":96.6,"readingsPerSecond":8},
+         {"id":"9C2F4C1E-2F5A-4B8E-9C1D-3E6F7A8B9C0D","type":"renamedType","date":780000000,"seconds":3.4}]
+        """
+        let runs = try JSONDecoder().decode(LossyArray<RunResult>.self, from: Data(json.utf8)).elements
+        XCTAssertEqual(runs.count, 1)
+        XCTAssertEqual(runs[0].type, .zeroTo60mph)
+        XCTAssertFalse(runs[0].rollout)
+        XCTAssertFalse(runs[0].motionLaunch)
+        XCTAssertTrue(runs[0].splits.isEmpty)
+        XCTAssertTrue(runs[0].trace.isEmpty)
+    }
 }
 
 final class LapTimerTests: XCTestCase {
@@ -204,5 +324,50 @@ final class LapTimerTests: XCTestCase {
         timer.add(at: t0.addingTimeInterval(4), point: at(5, -10))
         timer.add(at: t0.addingTimeInterval(5), point: at(5, 10))
         XCTAssertEqual(timer.lapStart!.timeIntervalSince(t0), 4.5, accuracy: 0.01)
+    }
+
+    /// Drives `path` (metres from the origin) at `speed` m/s, a fix every half second.
+    private func drive(_ timer: inout LapTimer, _ path: [(Double, Double)], start: Date, speed: Double, kmh: Double? = nil, course: Double? = nil) -> Date {
+        var t = start
+        for (a, b) in zip(path, path.dropFirst()) {
+            let length = hypot(b.0 - a.0, b.1 - a.1)
+            let steps = max(1, Int(length / (speed * 0.5)))
+            for i in 1...steps {
+                let f = Double(i) / Double(steps)
+                t = t.addingTimeInterval(length / speed / Double(steps))
+                timer.add(at: t, point: at(a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f), kmh: kmh ?? speed * 3.6, course: course)
+            }
+        }
+        return t
+    }
+
+    func testFirstLapCountsFromSetLine() {
+        var timer = LapTimer(line: FinishLine(centre: origin, heading: 0), startedAt: t0)
+        XCTAssertEqual(timer.lapStart, t0)
+        // Off the line north, round the 100 m square and back across it: 400 m at 10 m/s.
+        _ = drive(&timer, [(0, 0), (0, 90), (-100, 90), (-100, -10), (0, -10), (0, 10)], start: t0, speed: 10)
+        XCTAssertEqual(timer.laps.count, 1)
+        XCTAssertEqual(timer.laps.first?.seconds ?? 0, 40, accuracy: 0.1)
+    }
+
+    func testIgnoresSlowAndWrongCourseCrossings() {
+        var timer = LapTimer(line: FinishLine(centre: origin, heading: 0), startedAt: t0)
+        let start = t0.addingTimeInterval(20)
+        timer.add(at: start, point: at(0, -10))
+        // Crawling across (GPS wobble while parked), and heading the wrong way by the course.
+        timer.add(at: start.addingTimeInterval(1), point: at(0, 2), kmh: 5)
+        timer.add(at: start.addingTimeInterval(2), point: at(0, -10), kmh: 40, course: 180)
+        timer.add(at: start.addingTimeInterval(3), point: at(0, 2), kmh: 40, course: 180)
+        XCTAssertTrue(timer.laps.isEmpty)
+        XCTAssertEqual(timer.lapStart, t0)
+        timer.add(at: start.addingTimeInterval(4), point: at(0, -10), kmh: 40, course: 0)
+        timer.add(at: start.addingTimeInterval(5), point: at(0, 2), kmh: 40, course: 0)
+        XCTAssertEqual(timer.laps.count, 1)
+    }
+
+    func testLapsRoundTripAndOldLapsDecode() throws {
+        let laps = try JSONDecoder().decode([Lap].self, from: Data(#"[{"number":1,"seconds":61.2}]"#.utf8))
+        XCTAssertEqual(laps.first?.seconds, 61.2)
+        XCTAssertEqual(laps.first?.metres, 0)
     }
 }

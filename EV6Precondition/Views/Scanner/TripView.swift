@@ -7,6 +7,8 @@ struct TripView: View {
     @Environment(Preferences.self) private var prefs
 
     private var miles: Bool { prefs.useMiles }
+    /// Only E-GMP cars report battery power; other cars get distance and speed only.
+    private var electric: Bool { prefs.platform == .egmp }
 
     var body: some View {
         List {
@@ -15,7 +17,7 @@ struct TripView: View {
                 if obd.trip == nil {
                     Button {
                         obd.trip = TripComputer(started: Date())
-                        obd.want(["speed", "power"], for: "trip")
+                        obd.want(electric ? ["speed", "power"] : ["speed"], for: "trip")
                     } label: {
                         Label("Start Trip", systemImage: "play.fill").frame(maxWidth: .infinity)
                     }
@@ -32,25 +34,31 @@ struct TripView: View {
                     .buttonStyle(.bordered)
                 }
             } footer: {
-                Text("Keep this screen open with the adapter connected: the trip adds up speed and battery power several times a second. The screen stays on while it runs.")
+                Text(electric
+                     ? "Keep this screen open with the adapter connected: the trip adds up speed and battery power several times a second. The screen stays on while it runs."
+                     : "Keep this screen open with the adapter connected: the trip adds up speed and distance several times a second. The screen stays on while it runs.")
             }
             if let trip = obd.trip {
                 Section {
                     stat("Distance", miles ? String(format: "%.1f mi", trip.distanceKm / DisplayText.kmPerMile) : String(format: "%.1f km", trip.distanceKm))
                     stat("Time", Duration.seconds(trip.seconds).formatted(.time(pattern: .hourMinuteSecond)))
                     stat("Average speed", trip.averageSpeedKmh.map { miles ? String(format: "%.0f mph", $0 / DisplayText.kmPerMile) : String(format: "%.0f km/h", $0) } ?? "–")
-                    stat("Efficiency", DisplayText.efficiency(kWhPer100km: trip.kWhPer100km, miles: miles) ?? "–")
-                }
-                Section("Energy") {
-                    stat("Used", String(format: "%.2f kWh", trip.usedKWh))
-                    stat("Recovered by regen", String(format: "%.2f kWh", trip.regenKWh) + (trip.regenShare.map { String(format: " (%.0f%%)", $0 * 100) } ?? ""))
-                    stat("Net", String(format: "%.2f kWh", trip.netKWh))
-                    stat("Peak power", String(format: "%.0f kW", trip.maxPowerKW))
-                    stat("Peak regen", String(format: "%.0f kW", trip.maxRegenKW))
                     stat("Top speed", miles ? String(format: "%.0f mph", trip.maxSpeedKmh / DisplayText.kmPerMile) : String(format: "%.0f km/h", trip.maxSpeedKmh))
+                    if electric {
+                        stat("Efficiency", DisplayText.efficiency(kWhPer100km: trip.kWhPer100km, miles: miles) ?? "–")
+                    }
                 }
-                Section {
-                    PowerBar(kW: obd.latest["power"])
+                if electric {
+                    Section("Energy") {
+                        stat("Used", String(format: "%.2f kWh", trip.usedKWh))
+                        stat("Recovered by regen", String(format: "%.2f kWh", trip.regenKWh) + (trip.regenShare.map { String(format: " (%.0f%%)", $0 * 100) } ?? ""))
+                        stat("Net", String(format: "%.2f kWh", trip.netKWh))
+                        stat("Peak power", String(format: "%.0f kW", trip.maxPowerKW))
+                        stat("Peak regen", String(format: "%.0f kW", trip.maxRegenKW))
+                    }
+                    Section {
+                        PowerBar(kW: obd.latest["power"])
+                    }
                 }
             }
         }
@@ -65,25 +73,35 @@ struct TripView: View {
 struct RecordingsView: View {
     @Environment(OBDService.self) private var obd
 
+    /// Leaves out files the user has since deleted or renamed in the Files app.
+    private var recordings: [URL] {
+        obd.recordings.filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     var body: some View {
+        let files = recordings
         List {
             Section {
-                if obd.recordings.isEmpty {
+                if files.isEmpty {
                     Text("No recordings yet. In Live Data, pick your sensors and tap ⏺ to record them to a spreadsheet file.")
                         .foregroundStyle(.secondary)
                 }
-                ForEach(obd.recordings, id: \.self) { url in
+                ForEach(files, id: \.self) { url in
                     ShareLink(item: url) {
                         Label(url.deletingPathExtension().lastPathComponent, systemImage: "tablecells")
                     }
                 }
                 .onDelete { offsets in
-                    for o in offsets { obd.deleteRecording(obd.recordings[o]) }
+                    // Capture the files first: each delete reloads obd.recordings.
+                    for url in offsets.map({ files[$0] }) { obd.deleteRecording(url) }
                 }
             } footer: {
-                Text("CSV files: open them in Numbers or Excel, or share them. They're also in the Files app under On My iPhone › EV6.")
+                Text("CSV files: open them in Numbers or Excel, or share them. They're also in the Files app under On My iPhone › \(AppInfo.name) › Recordings.")
             }
         }
         .navigationTitle("Recordings")
+        // Picks up files added or renamed in the Files app.
+        .onAppear { obd.loadRecordings() }
+        .refreshable { obd.loadRecordings() }
     }
 }

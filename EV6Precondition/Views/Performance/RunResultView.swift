@@ -6,16 +6,19 @@ import SwiftUI
 struct RunResultView: View {
     @Environment(Preferences.self) private var prefs
     @Environment(RunStore.self) private var store
+    @Environment(OBDService.self) private var obd
     @Environment(\.dismiss) private var dismiss
     let run: RunResult
 
     private var miles: Bool { prefs.useMiles }
     private var isBest: Bool { store.best(run.type)?.id == run.id }
+    /// A demo car run: shown, never saved, so it isn't in the store.
+    private var isDemo: Bool { obd.demo != nil && !store.runs.contains { $0.id == run.id } }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                RunCard(run: run, miles: miles, best: isBest)
+                RunCard(run: run, miles: miles, best: isBest, demo: isDemo)
                 stats
                 if !run.splits.isEmpty { splits }
                 if run.trace.count > 2 { charts }
@@ -40,7 +43,7 @@ struct RunResultView: View {
 
     @MainActor
     private var shareImage: Image? {
-        let renderer = ImageRenderer(content: RunCard(run: run, miles: miles, best: isBest).frame(width: 390).padding(20).background(Color.black).environment(\.colorScheme, .dark))
+        let renderer = ImageRenderer(content: RunCard(run: run, miles: miles, best: isBest, demo: isDemo).frame(width: 390).padding(20).background(Color.black).environment(\.colorScheme, .dark))
         renderer.scale = 3
         return renderer.uiImage.map { Image(uiImage: $0) }
     }
@@ -163,13 +166,19 @@ struct RunCard: View {
     let run: RunResult
     let miles: Bool
     let best: Bool
+    /// Simulated: stamped so a shared image can't pass for a real run.
+    var demo = false
 
     var body: some View {
         VStack(spacing: 6) {
             HStack {
                 Text(run.type.title.uppercased()).font(.caption.weight(.heavy)).tracking(2)
                 Spacer()
-                if best {
+                if demo {
+                    Label("DEMO – simulated data", systemImage: "play.rectangle")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.orange)
+                } else if best {
                     Label("Personal best", systemImage: "trophy.fill")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(.yellow)

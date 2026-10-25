@@ -6,6 +6,7 @@ struct OnboardingView: View {
     @Environment(OBDService.self) private var obd
     @Bindable var prefs: Preferences
     @State private var page = 0
+    @ScaledMetric(relativeTo: .largeTitle) private var iconSize: CGFloat = 60
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,51 +35,58 @@ struct OnboardingView: View {
         .buttonStyle(.borderedProminent)
         .tint(.red)
         .padding(.horizontal, 24)
+        .padding(.top, 12)
         .padding(.bottom, 50)
+        .background(.black)
     }
 
+    /// Scrolls when the content is taller than the page (large Dynamic Type, small phones),
+    /// and stays vertically centred when it fits.
     private func pageLayout<Content: View>(icon: String, title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 22) {
-            Spacer(minLength: 20)
-            Image(systemName: icon)
-                .font(.system(size: 60, weight: .semibold))
-                .foregroundStyle(.orange)
-            Text(title)
-                .font(.largeTitle.weight(.bold))
-                .multilineTextAlignment(.center)
-            content()
-                .padding(.horizontal, 28)
-            Spacer(minLength: 20)
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: 22) {
+                    Spacer(minLength: 20)
+                    Image(systemName: icon)
+                        .font(.system(size: iconSize, weight: .semibold))
+                        .foregroundStyle(.orange)
+                    Text(title)
+                        .font(.largeTitle.weight(.bold))
+                        .multilineTextAlignment(.center)
+                    content()
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 28)
+                    Spacer(minLength: 20)
+                }
+                .frame(maxWidth: .infinity, minHeight: geo.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
         }
     }
 
     private var welcome: some View {
-        VStack {
-            pageLayout(icon: "gauge.with.dots.needle.67percent", title: AppInfo.name) {
-                VStack(alignment: .leading, spacing: 14) {
-                    point("waveform.path.ecg", "Live data from your car's own systems")
-                    point("battery.100percent.bolt", "A detailed battery health report, with PDF")
-                    point("stopwatch", "0–60, quarter mile, braking and lap timing")
-                    point("exclamationmark.triangle", "Read and clear trouble codes")
-                    point("bolt.car", "Charge curves as you charge")
-                }
+        pageLayout(icon: "gauge.with.dots.needle.67percent", title: AppInfo.name) {
+            VStack(alignment: .leading, spacing: 14) {
+                point("waveform.path.ecg", "Live data from your car's own systems")
+                point("battery.100percent.bolt", "A detailed battery health report, with PDF")
+                point("stopwatch", "0–60, quarter mile, braking and lap timing")
+                point("exclamationmark.triangle", "Read and clear trouble codes")
+                point("bolt.car", "Charge curves as you charge")
             }
-            next()
         }
+        .safeAreaInset(edge: .bottom) { next() }
     }
 
     private var adapter: some View {
-        VStack {
-            pageLayout(icon: "cable.connector", title: "What you need") {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("A Bluetooth LE (or Wi-Fi) ELM327 OBD adapter, such as the Veepeak OBDCheck BLE, OBDLink CX or vLinker MC+.")
-                    Text("Plug it into the OBD port, usually under the dashboard by the driver's knees, and switch the car on.")
-                    Text("Classic Bluetooth adapters don't work with iPhone.").foregroundStyle(.secondary)
-                }
-                .font(.body)
+        pageLayout(icon: "cable.connector", title: "What you need") {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("A Bluetooth LE (or Wi-Fi) ELM327 OBD adapter, such as the Veepeak OBDCheck BLE, OBDLink CX or vLinker MC+.")
+                Text("Plug it into the OBD port, usually under the dashboard by the driver's knees, and switch the car on.")
+                Text("Classic Bluetooth adapters don't work with iPhone.").foregroundStyle(.secondary)
             }
-            next()
+            .font(.body)
         }
+        .safeAreaInset(edge: .bottom) { next() }
     }
 
     private var car: some View {
@@ -98,15 +106,15 @@ struct OnboardingView: View {
     }
 
     private var safety: some View {
-        VStack {
-            pageLayout(icon: "exclamationmark.shield", title: "Drive safely") {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Performance timing is for closed roads, tracks and drag strips only. Never on public roads.")
-                    Text("Mount your phone and don't touch it while driving: runs start and stop by themselves.")
-                    Text("Readings and battery reports are estimates from the car's OBD data, not a manufacturer's diagnosis.")
-                        .foregroundStyle(.secondary)
-                }
+        pageLayout(icon: "exclamationmark.shield", title: "Drive safely") {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Performance timing is for closed roads, tracks and drag strips only. Never on public roads.")
+                Text("Mount your phone and don't touch it while driving: runs start and stop by themselves.")
+                Text("Readings and battery reports are estimates from the car's OBD data, not a manufacturer's diagnosis.")
+                    .foregroundStyle(.secondary)
             }
+        }
+        .safeAreaInset(edge: .bottom) {
             VStack(spacing: 12) {
                 Button {
                     finish()
@@ -121,7 +129,9 @@ struct OnboardingView: View {
                 }
             }
             .padding(.horizontal, 24)
+            .padding(.top, 12)
             .padding(.bottom, 50)
+            .background(.black)
         }
     }
 

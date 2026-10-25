@@ -36,8 +36,21 @@ final class BatteryAnalysisTests: XCTestCase {
         let a = BatteryAnalysis(report(soh: 92, cells: cells))
         XCTAssertEqual(a.outliers.map(\.number), [8])
         XCTAssertEqual(a.checks.first { $0.title == "Weakest cell" }?.status, .attention)
-        XCTAssertEqual(a.checks.first { $0.title == "Cell balance" }?.status, .attention)
-        XCTAssertEqual(a.grade, "D")
+        // 80 mV apart is four reading steps: fair, not attention.
+        XCTAssertEqual(a.checks.first { $0.title == "Cell balance" }?.status, .fair)
+        // B by health, one step down for the weak cell.
+        XCTAssertEqual(a.grade, "C")
+    }
+
+    func testBalanceCheckAgreesWithTheFindings() {
+        // (3.84 - 3.80) * 1000 is a hair over 40 in floating point: still two reading steps.
+        let close = report(cells: [3.80, 3.84])
+        XCTAssertEqual(BatteryAnalysis(close).checks.first { $0.title == "Cell balance" }?.status, .good)
+        XCTAssertTrue(close.findings.contains("Cells balanced within 40 mV."))
+
+        let apart = report(cells: [3.80, 3.88])
+        XCTAssertEqual(BatteryAnalysis(apart).checks.first { $0.title == "Cell balance" }?.status, .fair)
+        XCTAssertTrue(apart.findings.contains("Cells 80 mV apart: charge to 100% now and then to let them balance."))
     }
 
     func testWithoutCells() {
@@ -50,5 +63,42 @@ final class BatteryAnalysisTests: XCTestCase {
         XCTAssertEqual(a.spreadMV ?? 0, 20, accuracy: 0.01)
         XCTAssertTrue(a.modules.isEmpty)
         XCTAssertEqual(a.grade, "C")
+    }
+
+    func testOneReadingStepIsNotAWeakCell() {
+        var cells = Array(repeating: 3.80, count: 192)
+        cells[50] = 3.78
+        let a = BatteryAnalysis(report(cells: cells))
+        XCTAssertTrue(a.outliers.isEmpty)
+        XCTAssertEqual(a.checks.first { $0.title == "Weakest cell" }?.status, .good)
+    }
+
+    func testTwoReadingStepsLowIsStillAnAPack() {
+        var cells = Array(repeating: 3.88, count: 192)
+        cells[0] = 3.84
+        let a = BatteryAnalysis(report(soh: 96, cells: cells))
+        XCTAssertTrue(a.outliers.isEmpty)
+        XCTAssertEqual(a.checks.first { $0.title == "Weakest cell" }?.status, .good)
+        XCTAssertEqual(a.checks.first { $0.title == "Cell balance" }?.status, .good)
+        XCTAssertEqual(a.grade, "A")
+    }
+
+    func testPacksThatArentWholeModulesHaveNoModuleMap() {
+        let a = BatteryAnalysis(report(cells: Array(repeating: 3.8, count: 160)))
+        XCTAssertEqual(a.cellCount, 160)
+        XCTAssertTrue(a.modules.isEmpty)
+    }
+
+    func testTemperatureSpreadIsOnlyJudgedAtRest() {
+        var r = report(soh: 100, cells: (0..<192).map { 3.85 + Double($0 % 2) * 0.002 })
+        r.moduleTempsC = [20, 31] + Array(repeating: 25, count: 14)
+        r.packAmps = -150
+        let charging = BatteryAnalysis(r)
+        XCTAssertEqual(charging.checks.first { $0.title == "Temperature spread" }?.status, .unknown)
+        XCTAssertEqual(charging.grade, "A")
+        r.packAmps = 0
+        let resting = BatteryAnalysis(r)
+        XCTAssertEqual(resting.checks.first { $0.title == "Temperature spread" }?.status, .attention)
+        XCTAssertEqual(resting.grade, "B")
     }
 }

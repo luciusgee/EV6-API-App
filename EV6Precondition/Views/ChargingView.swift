@@ -58,7 +58,7 @@ struct ChargingView: View {
         }
         .background(Color.black)
         .navigationTitle("Charging")
-        .liveSensors(["power", "socBMS", "battMax", "battMin", "speed", "maxCharge"], screen: "charging")
+        .liveSensors(["power", "socBMS", "battMax", "battMin", "speed", "maxCharge", "charged"], screen: "charging")
     }
 
     private func summary(_ s: ChargeSession) -> String {

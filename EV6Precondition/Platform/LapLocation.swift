@@ -11,6 +11,8 @@ final class LapLocation: NSObject, CLLocationManagerDelegate {
     private(set) var denied = false
     /// Called with every fix.
     @ObservationIgnored var onFix: ((CLLocation) -> Void)?
+    /// Whether the lap timer wants fixes; authorization changes only restart GPS when it does.
+    @ObservationIgnored private var wanted = false
 
     override init() {
         super.init()
@@ -21,15 +23,17 @@ final class LapLocation: NSObject, CLLocationManagerDelegate {
     }
 
     func start() {
+        wanted = true
         switch manager.authorizationStatus {
         case .notDetermined: manager.requestWhenInUseAuthorization()
-        case .denied, .restricted: denied = true
+        case .denied, .restricted: denied = true; return
         default: break
         }
         manager.startUpdatingLocation()
     }
 
     func stop() {
+        wanted = false
         manager.stopUpdatingLocation()
     }
 
@@ -46,7 +50,7 @@ final class LapLocation: NSObject, CLLocationManagerDelegate {
         let status = manager.authorizationStatus
         MainActor.assumeIsolated {
             denied = status == .denied || status == .restricted
-            if status == .authorizedWhenInUse || status == .authorizedAlways { self.manager.startUpdatingLocation() }
+            if wanted, status == .authorizedWhenInUse || status == .authorizedAlways { self.manager.startUpdatingLocation() }
         }
     }
 }

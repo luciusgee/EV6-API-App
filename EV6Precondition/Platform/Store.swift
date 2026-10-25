@@ -30,7 +30,17 @@ final class Store {
             }
         }
         await refresh()
-        product = try? await Product.products(for: [Self.productID]).first
+        await loadProduct()
+    }
+
+    /// Fetches the Pro product; nil when the App Store can't be reached or doesn't list it.
+    func loadProduct() async {
+        do {
+            product = try await Product.products(for: [Self.productID]).first
+            if product != nil { error = nil }
+        } catch {
+            product = nil
+        }
     }
 
     func refresh() async {
@@ -44,15 +54,22 @@ final class Store {
     func buy() async {
         guard let product else { return }
         busy = true
+        error = nil
         defer { busy = false }
         do {
             switch try await product.purchase() {
             case .success(let verification):
-                if case .verified(let t) = verification {
+                switch verification {
+                case .verified(let t):
                     await t.finish()
                     purchased = true
+                case .unverified:
+                    error = "The App Store couldn't verify this purchase. Try Restore purchase, or try again later."
                 }
-            case .pending, .userCancelled:
+            case .pending:
+                // Ask to Buy, or the bank's confirmation: it finishes later through Transaction.updates.
+                error = "Waiting for approval. Pro unlocks once the purchase is approved."
+            case .userCancelled:
                 break
             @unknown default:
                 break
@@ -64,8 +81,17 @@ final class Store {
 
     func restore() async {
         busy = true
+        error = nil
         defer { busy = false }
-        try? await AppStore.sync()
+        do {
+            try await AppStore.sync()
+        } catch StoreKitError.userCancelled {
+            return
+        } catch {
+            self.error = error.localizedDescription
+            return
+        }
         await refresh()
+        if !purchased { error = "No previous Pro purchase was found for this Apple ID." }
     }
 }

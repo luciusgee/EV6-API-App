@@ -22,7 +22,8 @@ public struct BatteryReport: Codable, Equatable, Sendable {
     public var cellMaxNumber: Int?
     public var cellMinVolts: Double?
     public var cellMinNumber: Int?
-    /// Every cell, in order (0x0102–0x010C), when read.
+    /// Every cell, in order (0x0102–0x010C), when read. Left empty when a block before the last one read
+    /// was missing, so cell numbers and the cell count (used to find the pack) are never shifted.
     public var cellVolts: [Double]
     public var cumulativeChargedAh: Double?
     public var cumulativeDischargedAh: Double?
@@ -63,19 +64,53 @@ public struct BatteryReport: Codable, Equatable, Sendable {
     public var findings: [String] {
         var out: [String] = []
         if let soh = sohPercent {
-            if soh >= 95 { out.append(String(format: "Battery health %.1f%%: excellent.", soh)) }
-            else if soh >= 85 { out.append(String(format: "Battery health %.1f%%: normal ageing.", soh)) }
+            // Same thresholds as BatteryAnalysis.healthCheck and balanceCheck, so the PDF agrees with itself.
+            if soh >= 90 { out.append(String(format: "Battery health %.1f%%: excellent.", soh)) }
+            else if soh >= 80 { out.append(String(format: "Battery health %.1f%%: normal ageing.", soh)) }
             else { out.append(String(format: "Battery health %.1f%%: below the usual range; worth a dealer check (battery warranties typically cover 70%% for 8 years).", soh)) }
         }
-        if let spread = cellSpreadMillivolts {
-            if spread <= 40 { out.append(String(format: "Cells balanced within %.0f mV.", spread)) }
-            else if spread <= 100 { out.append(String(format: "Cells %.0f mV apart: charge to 100%% now and then to let them balance.", spread)) }
+        if let raw = cellSpreadMillivolts {
+            // Rounded to whole mV so a 40 mV spread that comes out as 40.00000000004 still counts as 40.
+            let spread = raw.rounded()
+            let step = BatteryAnalysis.cellResolutionMV
+            if spread <= 2 * step { out.append(String(format: "Cells balanced within %.0f mV.", spread)) }
+            else if spread <= 5 * step { out.append(String(format: "Cells %.0f mV apart: charge to 100%% now and then to let them balance.", spread)) }
             else { out.append(String(format: "Cells %.0f mV apart: unusually wide; keep an eye on it.", spread)) }
         }
         if let hi = batteryMaxC, let lo = batteryMinC, hi - lo > 8 {
             out.append(String(format: "Battery temperatures differ by %.0f °C.", hi - lo))
         }
         return out
+    }
+}
+
+extension BatteryReport {
+    /// Lenient, so a report saved by another build still loads: anything missing is left empty.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(takenAt: try c.decode(Date.self, forKey: .takenAt))
+        sohPercent = try c.decodeIfPresent(Double.self, forKey: .sohPercent)
+        socBMSPercent = try c.decodeIfPresent(Double.self, forKey: .socBMSPercent)
+        socDisplayPercent = try c.decodeIfPresent(Double.self, forKey: .socDisplayPercent)
+        packVolts = try c.decodeIfPresent(Double.self, forKey: .packVolts)
+        packAmps = try c.decodeIfPresent(Double.self, forKey: .packAmps)
+        availableChargePowerKW = try c.decodeIfPresent(Double.self, forKey: .availableChargePowerKW)
+        batteryMaxC = try c.decodeIfPresent(Double.self, forKey: .batteryMaxC)
+        batteryMinC = try c.decodeIfPresent(Double.self, forKey: .batteryMinC)
+        inletC = try c.decodeIfPresent(Double.self, forKey: .inletC)
+        cellMaxVolts = try c.decodeIfPresent(Double.self, forKey: .cellMaxVolts)
+        cellMinVolts = try c.decodeIfPresent(Double.self, forKey: .cellMinVolts)
+        cumulativeChargedAh = try c.decodeIfPresent(Double.self, forKey: .cumulativeChargedAh)
+        cumulativeDischargedAh = try c.decodeIfPresent(Double.self, forKey: .cumulativeDischargedAh)
+        cumulativeChargedKWh = try c.decodeIfPresent(Double.self, forKey: .cumulativeChargedKWh)
+        cumulativeDischargedKWh = try c.decodeIfPresent(Double.self, forKey: .cumulativeDischargedKWh)
+        operatingHours = try c.decodeIfPresent(Double.self, forKey: .operatingHours)
+        cellMaxNumber = try c.decodeIfPresent(Int.self, forKey: .cellMaxNumber)
+        cellMinNumber = try c.decodeIfPresent(Int.self, forKey: .cellMinNumber)
+        moduleTempsC = try c.decodeIfPresent([Double].self, forKey: .moduleTempsC) ?? []
+        cellVolts = try c.decodeIfPresent([Double].self, forKey: .cellVolts) ?? []
+        tyrePressuresPsi = try c.decodeIfPresent([Double?].self, forKey: .tyrePressuresPsi) ?? []
+        tyreTempsC = try c.decodeIfPresent([Double?].self, forKey: .tyreTempsC) ?? []
     }
 }
 
@@ -133,13 +168,16 @@ public enum EGMP {
 
     /// One block of 32 cells: a presence bitmap, then one byte per cell in 20 mV steps.
     public static func cells(_ d: [UInt8]) -> [Double] {
+        cellSlots(d).compactMap { $0 }
+    }
+
+    /// The same block by position within it (as OVMS numbers them): nil for a cell that isn't present
+    /// or whose byte is missing from a short reply.
+    public static func cellSlots(_ d: [UInt8]) -> [Double?] {
         guard let present = u32(d, 0) else { return [] }
-        var out: [Double] = []
-        for i in 0..<32 where present & (0x8000_0000 >> i) != 0 {
-            guard let raw = u8(d, 4 + i) else { break }
-            out.append(Double(raw) * 0.02)
+        return (0..<32).map { i in
+            present & (0x8000_0000 >> i) != 0 ? u8(d, 4 + i).map { Double($0) * 0.02 } : nil
         }
-        return out
     }
 
     public static func applyTyres(_ d: [UInt8], to r: inout BatteryReport) {
@@ -204,18 +242,33 @@ public struct BatteryScanner: Sendable {
         } catch { problems.append("health: \(error)") }
 
         if includeCells {
-            var cells: [Double] = []
+            // By absolute cell index (block offset + position), so a missed block leaves a gap, not a shift.
+            var slots = [Double?](repeating: nil, count: (EGMP.cellBlocks.map(\.1).max() ?? 0) + 32)
             for (request, first) in EGMP.cellBlocks {
                 await next("Reading cells \(first + 1)–\(first + 32)")
-                do {
-                    cells += EGMP.cells(try await elm.read(request))
-                    anySuccess = true
-                } catch {
-                    // The 58 kWh pack has fewer cells; later blocks may be absent.
-                    if first < 96 { problems.append("cells \(first + 1)–\(first + 32): \(error)") }
+                // Every pack has the first three blocks: give a dropped reply one more go.
+                let attempts = first < 96 ? 2 : 1
+                for attempt in 1...attempts {
+                    do {
+                        for (i, v) in EGMP.cellSlots(try await elm.read(request)).enumerated() { slots[first + i] = v }
+                        anySuccess = true
+                        break
+                    } catch {
+                        // The 58 kWh pack has fewer cells; later blocks may be absent.
+                        if attempt == attempts, first < 96 { problems.append("cells \(first + 1)–\(first + 32): \(error)") }
+                    }
                 }
             }
-            report.cellVolts = cells
+            // The pack's cell count is the highest cell read + 1 (OVMS's iq_last_voltage_cell), and only
+            // holds when every cell below it was read too.
+            if let last = slots.lastIndex(where: { $0 != nil }) {
+                let read = slots[...last].compactMap { $0 }
+                if read.count == last + 1 {
+                    report.cellVolts = read
+                } else {
+                    problems.append("cells: \(last + 1 - read.count) of \(last + 1) missing, so the cell-by-cell readings were left out; scan again to read them")
+                }
+            }
         }
 
         await next("Reading tyre sensors")

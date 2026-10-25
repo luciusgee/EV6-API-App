@@ -192,6 +192,7 @@ struct ConnectionSheet: View {
 
 struct AdapterPicker: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(OBDService.self) private var obd
     @Bindable var link: OBDLink
 
     var body: some View {
@@ -215,10 +216,11 @@ struct AdapterPicker: View {
                     }
                     if link.visibleAdapters.isEmpty {
                         HStack {
-                            Text(link.state == .scanning ? "Searching for adapters…" : "No adapters found")
+                            // Scanning can run while an adapter stays connected, so not `state`.
+                            Text(link.isScanning ? "Searching for adapters…" : "No adapters found")
                                 .foregroundStyle(.secondary)
                             Spacer()
-                            if link.state == .scanning { ProgressView() }
+                            if link.isScanning { ProgressView() }
                         }
                     }
                     Toggle("Show all Bluetooth devices", isOn: $link.showAllDevices)
@@ -250,7 +252,8 @@ struct AdapterPicker: View {
                 }
                 if link.isReady {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Disconnect", role: .destructive) { link.disconnect() }
+                        // Through the service, so a demo is ended and the user's car put back too.
+                        Button("Disconnect", role: .destructive) { obd.disconnect() }
                     }
                 }
             }

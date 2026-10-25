@@ -6,14 +6,20 @@ import SwiftUI
 struct LiveDataView: View {
     @Environment(OBDService.self) private var obd
     @Environment(Preferences.self) private var prefs
-    @AppStorage("liveSensors") private var selection = "power,speed,socBMS,battMax"
+    // Each platform keeps its own picks, so switching car type doesn't count ids the picker can't show.
+    @AppStorage("liveSensors") private var egmpSelection = "power,speed,socBMS,battMax"
+    @AppStorage("liveSensorsGeneric") private var genericSelection = "speed,rpm,coolant,throttle"
     @AppStorage("liveWindow") private var window = 120.0
     @State private var picking = false
     @State private var saved: URL?
     @State private var showingPro = false
     @Environment(Store.self) private var store
 
-    private var ids: [String] { selection.split(separator: ",").map(String.init).filter { obd.sensor($0) != nil } }
+    private var selection: Binding<String> {
+        prefs.platform == .generic ? $genericSelection : $egmpSelection
+    }
+
+    private var ids: [String] { selection.wrappedValue.split(separator: ",").map(String.init).filter { obd.sensor($0) != nil } }
 
     var body: some View {
         List {
@@ -43,7 +49,7 @@ struct LiveDataView: View {
             }
             if let recording = obd.recording {
                 Section {
-                    Label(String(format: "Recording · %.0f s · %d rows", recording.duration, recording.samples.count), systemImage: "record.circle")
+                    Label(String(format: "Recording · %.0f s · %d rows", recording.duration, recording.rows), systemImage: "record.circle")
                         .foregroundStyle(.red)
                         .symbolEffect(.pulse)
                 }
@@ -86,7 +92,7 @@ struct LiveDataView: View {
             }
         }
         .sheet(isPresented: $picking) {
-            SensorPicker(selection: $selection)
+            SensorPicker(selection: selection)
         }
         .sheet(isPresented: $showingPro) { ProSheet() }
         .liveSensors(ids, screen: "live")
@@ -137,7 +143,8 @@ struct SensorPicker: View {
     @Binding var selection: String
     static let limit = 6
 
-    private var ids: [String] { selection.split(separator: ",").map(String.init) }
+    /// Only ids this car knows, so the count, the limit and what's saved match the rows shown.
+    private var ids: [String] { selection.split(separator: ",").map(String.init).filter { obd.sensor($0) != nil } }
 
     var body: some View {
         NavigationStack {

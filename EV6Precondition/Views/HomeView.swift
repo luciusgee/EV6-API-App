@@ -43,7 +43,7 @@ struct HomeView: View {
                 .padding(16)
             }
             .background(Color.black)
-            .navigationTitle(prefs.model.name)
+            .navigationTitle(prefs.carName)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     ConnectionButton(showingAdapters: $showingAdapters)
@@ -51,6 +51,15 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showingAdapters) { AdapterPicker(link: obd.link) }
         }
+    }
+}
+
+private extension Preferences {
+    /// What to call the car on Home: the model for E-GMP cars; for any other car, the make from its VIN.
+    /// "Any other car" stays as the picker label only.
+    var carName: String {
+        guard platform == .generic else { return model.name }
+        return vin.flatMap(VIN.init)?.make ?? "Your car"
     }
 }
 
@@ -87,7 +96,7 @@ private struct CarHeader: View {
                         .font(.caption.weight(.heavy))
                         .tracking(2)
                         .foregroundStyle(.secondary)
-                    Text(prefs.model.name).font(.title2.weight(.bold))
+                    Text(prefs.carName).font(.title2.weight(.bold))
                     if let year = prefs.vin.flatMap(VIN.init)?.year {
                         Text(String(year)).font(.caption).foregroundStyle(.secondary)
                     }
@@ -110,7 +119,7 @@ private struct CarHeader: View {
             in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-        .liveSensors(electric ? ["socBMS", "power", "battMax", "speed", "psiFL", "psiFR", "psiRL", "psiRR"] : ["rpm", "coolant", "speed"], screen: "home")
+        .liveSensors(electric ? ["socBMS", "power", "battMax", "speed", "charged", "psiFL", "psiFR", "psiRL", "psiRR"] : ["rpm", "coolant", "speed"], screen: "home")
     }
 
     private func stat(_ title: String, _ value: String, tint: Color = .primary) -> some View {

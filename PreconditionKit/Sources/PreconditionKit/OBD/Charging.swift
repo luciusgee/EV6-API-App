@@ -18,10 +18,21 @@ public struct ChargeSession: Codable, Equatable, Sendable, Identifiable {
     public var started: Date
     public private(set) var updated: Date
     public private(set) var points: [ChargePoint] = []
-    /// Energy into the battery, kWh.
-    public private(set) var energyKWh: Double = 0
+    /// Energy into the battery from the power readings, kWh. Gaps (the phone asleep) add nothing.
+    public private(set) var integratedKWh: Double = 0
     public private(set) var peakKW: Double = 0
     private var last: Last?
+    /// The BMS's "charged since new" counter (kWh) at the first and latest readings, when read.
+    public private(set) var counterStartKWh: Double?
+    public private(set) var counterLatestKWh: Double?
+
+    /// Energy into the battery, kWh: the BMS's own counter when it was read (it keeps counting through
+    /// gaps in the readings), else the power readings added up.
+    public var energyKWh: Double {
+        guard let a = counterStartKWh, let b = counterLatestKWh, b >= a else { return integratedKWh }
+        // The counter moves in 0.1 kWh steps: the readings are finer while nothing was missed.
+        return max(integratedKWh, b - a)
+    }
 
     private struct Last: Codable, Equatable, Sendable {
         var at: Date
@@ -36,19 +47,48 @@ public struct ChargeSession: Codable, Equatable, Sendable, Identifiable {
         updated = started
     }
 
+    enum CodingKeys: String, CodingKey {
+        case id, started, updated, points, integratedKWh = "energyKWh", peakKW, last, counterStartKWh, counterLatestKWh
+    }
+
+    /// Lenient, so a session saved by an older or newer build still loads.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        started = try c.decode(Date.self, forKey: .started)
+        updated = try c.decodeIfPresent(Date.self, forKey: .updated) ?? started
+        points = (try? c.decodeIfPresent(LossyArray<ChargePoint>.self, forKey: .points))??.elements ?? []
+        integratedKWh = try c.decodeIfPresent(Double.self, forKey: .integratedKWh) ?? 0
+        peakKW = try c.decodeIfPresent(Double.self, forKey: .peakKW) ?? 0
+        last = try? c.decodeIfPresent(Last.self, forKey: .last)
+        counterStartKWh = try c.decodeIfPresent(Double.self, forKey: .counterStartKWh)
+        counterLatestKWh = try c.decodeIfPresent(Double.self, forKey: .counterLatestKWh)
+    }
+
     /// Charging: power flowing into the battery and the car standing still.
     public static func isCharging(packKW: Double?, kmh: Double?) -> Bool {
         guard let packKW else { return false }
         return packKW < -0.8 && (kmh ?? 0) < 1
     }
 
-    /// `packKW` is the battery's own sign: negative while charging.
-    public mutating func add(at: Date, packKW: Double, socPercent: Double?, batteryMaxC: Double? = nil, batteryMinC: Double? = nil) {
+    /// `packKW` is the battery's own sign: negative while charging. `chargedKWh` is the BMS's cumulative
+    /// "charged since new" counter, when read.
+    public mutating func add(
+        at: Date, packKW: Double, socPercent: Double?, batteryMaxC: Double? = nil, batteryMinC: Double? = nil,
+        chargedKWh: Double? = nil
+    ) {
         let kW = max(0, -packKW)
         if let last {
             let dt = at.timeIntervalSince(last.at)
             // A gap (the phone slept) adds nothing rather than guessing.
-            if dt > 0 && dt < 60 { energyKWh += (last.kW + kW) / 2 * dt / 3600 }
+            if dt > 0 && dt < 60 { integratedKWh += (last.kW + kW) / 2 * dt / 3600 }
+        }
+        if let chargedKWh, chargedKWh > 0 {
+            // A counter that goes backwards is a misread or another module: start it again from here.
+            if counterStartKWh == nil || chargedKWh < (counterLatestKWh ?? 0) {
+                counterStartKWh = chargedKWh - integratedKWh
+            }
+            counterLatestKWh = chargedKWh
         }
         last = Last(at: at, kW: kW)
         updated = at
@@ -82,9 +122,11 @@ public struct ChargeSession: Codable, Equatable, Sendable, Identifiable {
         return best.keys.sorted().map { ($0, best[$0]!) }
     }
 
-    /// Minutes from one charge to another, from this session's own points.
+    /// Minutes from one charge to another, from this session's own points. Nil unless the
+    /// session started at or below `a`, so a charge from 50% never passes for a 10–80% time.
     public func minutes(from a: Double, to b: Double) -> Double? {
-        guard let start = points.first(where: { ($0.socPercent ?? -1) >= a }),
+        guard let s0 = startSoc, s0 <= a + 0.5,
+              let start = points.first(where: { ($0.socPercent ?? -1) >= a }),
               let end = points.first(where: { ($0.socPercent ?? -1) >= b }), end.seconds > start.seconds else { return nil }
         return (end.seconds - start.seconds) / 60
     }

@@ -179,14 +179,34 @@ public struct Diagnostics: Sendable {
         return Self.parseUDS(data, ecu: ecu.header)
     }
 
-    /// Standard OBD-II: stored (mode 03) and pending (mode 07) emission codes from every ECU.
+    /// Standard OBD-II: stored (mode 03) and pending (mode 07) emission codes from every ECU, each tagged
+    /// with the ECU that reported it (0x7E0…). A code both stored and pending comes back once, with both
+    /// status bits. NO DATA counts as "no codes" (some ECUs answer that way); throws only when neither
+    /// mode got any answer at all.
     public func emissionCodes() async throws -> [TroubleCode] {
         var out: [TroubleCode] = []
+        var answered = false
+        var lastError: Error?
         for (service, status) in [(UInt8(0x03), UInt8(0x08)), (0x07, 0x04)] {
-            if let data = try? await elm.read(OBDRequest(header: OBDRequest.broadcast, service: service)) {
-                out += Self.parseOBD(data, status: status)
+            do {
+                let replies = try await elm.readAll(OBDRequest(header: OBDRequest.broadcast, service: service))
+                answered = true
+                for ecu in replies.keys.sorted() {
+                    for code in Self.parseOBD(replies[ecu] ?? [], status: status, ecu: ecu) {
+                        if let i = out.firstIndex(where: { $0.code == code.code && $0.ecuHeader == code.ecuHeader }) {
+                            out[i].status |= code.status
+                        } else {
+                            out.append(code)
+                        }
+                    }
+                }
+            } catch OBDError.noData {
+                answered = true
+            } catch {
+                lastError = error
             }
         }
+        if !answered, let lastError { throw lastError }
         return out
     }
 
@@ -234,16 +254,23 @@ public struct Diagnostics: Sendable {
         return text.count >= 17 ? String(text.suffix(17)) : (text.isEmpty ? nil : text)
     }
 
-    /// Mode 01 PIDs the car supports (from the 0x00, 0x20, 0x40… bitmaps).
+    /// Mode 01 PIDs the car supports (from the 0x00, 0x20, 0x40… bitmaps), across every ECU that answers.
+    /// Each ECU's last bit says whether it has a next block; that block is only asked for while one does,
+    /// and only taken from the ECUs that said so.
     public func supportedPIDs() async -> Set<UInt8> {
         var out = Set<UInt8>()
         var base: UInt8 = 0
+        var continuing: Set<UInt16>? = nil // nil: the first block, any ECU counts
         while true {
-            guard let data = try? await elm.read(OBDRequest(header: OBDRequest.broadcast, service: 0x01, parameter: [base])), data.count >= 4 else { break }
-            let bits = UInt32(data[0]) << 24 | UInt32(data[1]) << 16 | UInt32(data[2]) << 8 | UInt32(data[3])
-            for i in 0..<32 where bits & (0x8000_0000 >> UInt32(i)) != 0 { out.insert(base &+ UInt8(i + 1)) }
-            // The last bit says whether the next block exists.
-            guard bits & 1 != 0, base < 0xC0 else { break }
+            guard let replies = try? await elm.readAll(OBDRequest(header: OBDRequest.broadcast, service: 0x01, parameter: [base])) else { break }
+            var next = Set<UInt16>()
+            for (ecu, data) in replies where data.count >= 4 && (continuing?.contains(ecu) ?? true) {
+                let bits = UInt32(data[0]) << 24 | UInt32(data[1]) << 16 | UInt32(data[2]) << 8 | UInt32(data[3])
+                for i in 0..<32 where bits & (0x8000_0000 >> UInt32(i)) != 0 { out.insert(base &+ UInt8(i + 1)) }
+                if bits & 1 != 0 { next.insert(ecu) }
+            }
+            guard !next.isEmpty, base < 0xC0 else { break }
+            continuing = next
             base &+= 0x20
         }
         return out

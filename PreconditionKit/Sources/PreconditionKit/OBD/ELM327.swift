@@ -13,6 +13,8 @@ public enum OBDError: Error, Equatable, Sendable, CustomStringConvertible {
     case noData
     /// "CAN ERROR", "BUS INIT… ERROR", "UNABLE TO CONNECT".
     case busError(String)
+    /// The adapter searched every OBD-II protocol and nothing answered (`ELM327.searchProtocol`).
+    case unsupportedProtocol
     /// The module refused the request (UDS negative response code).
     case rejected(UInt8)
     case unexpected(String)
@@ -22,7 +24,8 @@ public enum OBDError: Error, Equatable, Sendable, CustomStringConvertible {
         case .notConnected: return "adapter not connected"
         case .timeout: return "the adapter didn't answer"
         case .noData: return "no answer from the car; switch it on (ready or accessory) and try again"
-        case .busError(let text): return "can't talk to the car (\(text.lowercased())); is the adapter fully plugged in?"
+        case .busError(let text): return "can't talk to the car (\(text.lowercased())); is the adapter fully plugged in and the car switched on?"
+        case .unsupportedProtocol: return "no answer from the car; switch it on (ready or accessory) and try again. If it is already on, this adapter can't talk to this car's OBD protocol"
         case .rejected(let code): return String(format: "the car refused the request (NRC 0x%02X)", code)
         case .unexpected(let text): return "unexpected answer: \(text)"
         }
@@ -32,7 +35,8 @@ public enum OBDError: Error, Equatable, Sendable, CustomStringConvertible {
 /// One diagnostic request to an ECU: UDS "read data by identifier" (0x22), an OBD-II mode (0x01, 0x03,
 /// 0x09…), trouble codes (0x19, 0x14) or tester present (0x3E).
 public struct OBDRequest: Hashable, Sendable {
-    /// 11-bit request CAN id, e.g. 0x7E4 for the battery management system; 0x7DF asks every ECU.
+    /// 11-bit request CAN id, e.g. 0x7E4 for the battery management system; 0x7DF asks every ECU. On a
+    /// 29-bit CAN car 0x7E0…0x7E7 stand for ECU addresses 0x10…0x17 (`ISOTP.address(ecuHeader:)`).
     public var header: UInt16
     public var service: UInt8
     public var parameter: [UInt8]
@@ -62,7 +66,8 @@ public struct OBDRequest: Hashable, Sendable {
 }
 
 /// Talks ELM327: sets the adapter up for 500 kbit/s 11-bit CAN (the E-GMP diagnostic bus), then sends
-/// requests one at a time, whichever screen asks.
+/// requests one at a time, whichever screen asks. `searchProtocol` moves a car on another bus to
+/// whichever OBD-II protocol it answers on.
 public actor ELM327 {
     private let transport: OBDTransport
     private var currentHeader: UInt16?
@@ -70,6 +75,13 @@ public actor ELM327 {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     public private(set) var adapterVersion: String?
     public private(set) var initialised = false
+    /// ELM327 protocol number (ATDPN): "6" is 11-bit 500k CAN, "7"/"9" 29-bit CAN, "8" 11-bit 250k
+    /// CAN, "1"…"5" J1850, ISO 9141 and KWP2000.
+    public private(set) var protocolNumber = "6"
+
+    public var isCAN: Bool { !["1", "2", "3", "4", "5"].contains(protocolNumber) }
+    /// 29-bit CAN ids: 18DB33F1 asks every ECU, ECUs answer on 18DAF1xx.
+    public var uses29BitIDs: Bool { ["7", "9", "A"].contains(protocolNumber) }
 
     public init(transport: OBDTransport) {
         self.transport = transport
@@ -94,6 +106,7 @@ public actor ELM327 {
         defer { release() }
         currentHeader = nil
         initialised = false
+        protocolNumber = "6"
         for command in Self.setup {
             let reply = try await transport.exchange(command)
             if command == "ATZ" {
@@ -110,24 +123,110 @@ public actor ELM327 {
         if !initialised { try await initialise() }
     }
 
+    /// Lets the adapter search every OBD-II protocol (ATSP0) and returns the one the car answered on
+    /// (ATDPN). For standard OBD-II when 0100 gets no answer on the default 11-bit 500k CAN setup; the
+    /// search can take several seconds. Throws `.unsupportedProtocol` when nothing answers.
+    public func searchProtocol() async throws -> String {
+        await acquire()
+        defer { release() }
+        currentHeader = nil
+        do {
+            return try await runProtocolSearch()
+        } catch {
+            // The adapter is left on ATSP0 (or half set up): the next `initialiseIfNeeded` runs the
+            // whole setup again, back on 11-bit 500k CAN, rather than every request searching.
+            initialised = false
+            protocolNumber = "6"
+            currentHeader = nil
+            throw error
+        }
+    }
+
+    private func runProtocolSearch() async throws -> String {
+        // Defaults first (ATD), so the search goes out on the standard OBD-II request headers.
+        for command in ["ATD", "ATE0", "ATL0", "ATS1", "ATH1", "ATAT1", "ATCAF1", "ATSP0"] {
+            let reply = try await transport.exchange(command)
+            if command == "ATSP0", Self.lines(reply).contains("?") { throw OBDError.unexpected("ATSP0 → ?") }
+        }
+        do {
+            _ = try ISOTP.checkedLines(try await transport.exchange("0100"))
+        } catch let error as OBDError where error != .notConnected {
+            throw OBDError.unsupportedProtocol
+        }
+        let reply = try await transport.exchange("ATDPN")
+        if let line = Self.lines(reply).first(where: { $0.count <= 2 && $0.uppercased() != "OK" }) {
+            let number = line.uppercased().hasPrefix("A") && line.count == 2 ? String(line.uppercased().dropFirst()) : line.uppercased()
+            if "123456789ABC".contains(number), number.count == 1 { protocolNumber = number }
+        }
+        if !isCAN {
+            // J1850 and K-line frames have no ISO-TP layer: read them as plain data lines.
+            _ = try await transport.exchange("ATH0")
+        } else if uses29BitIDs {
+            _ = try await transport.exchange("ATCP18")
+        }
+        return protocolNumber
+    }
+
+    private func setHeader(_ header: UInt16) async throws {
+        guard currentHeader != header else { return }
+        let command: String
+        if !isCAN {
+            // J1850 and K-line only carry standard OBD-II here, on the adapter's default headers.
+            guard header == OBDRequest.broadcast else { throw OBDError.noData }
+            currentHeader = header
+            return
+        } else if uses29BitIDs {
+            command = header == OBDRequest.broadcast
+                ? "ATSHDB33F1" : String(format: "ATSHDA%02XF1", ISOTP.address(ecuHeader: header))
+        } else {
+            command = String(format: "ATSH%03X", header)
+        }
+        let reply = try await transport.exchange(command)
+        guard Self.lines(reply).contains(where: { $0.uppercased() == "OK" }) else {
+            throw OBDError.unexpected("ATSH → \(reply.trimmingCharacters(in: .whitespacesAndNewlines))")
+        }
+        currentHeader = header
+    }
+
     /// The whole answer, starting with the response byte (0x62, 0x7F…).
     public func send(_ request: OBDRequest) async throws -> [UInt8] {
         await acquire()
         defer { release() }
-        if currentHeader != request.header {
-            let reply = try await transport.exchange(String(format: "ATSH%03X", request.header))
-            guard Self.lines(reply).contains(where: { $0.uppercased() == "OK" }) else {
-                throw OBDError.unexpected("ATSH → \(reply.trimmingCharacters(in: .whitespacesAndNewlines))")
-            }
-            currentHeader = request.header
-        }
+        try await setHeader(request.header)
         let reply = try await transport.exchange(request.command)
+        if !isCAN { return try ISOTP.plainMessage(from: reply) }
         return try ISOTP.message(from: reply, responseHeader: request.responseHeader)
+    }
+
+    /// Every ECU's whole answer, keyed by the ECU's request header (a reply on 0x7E8 → 0x7E0). For a
+    /// broadcast, where several ECUs answer; with headers off (or on J1850/K-line) the ECUs can't be told
+    /// apart and the answer comes under the request's header.
+    public func sendAll(_ request: OBDRequest) async throws -> [UInt16: [UInt8]] {
+        await acquire()
+        defer { release() }
+        try await setHeader(request.header)
+        let reply = try await transport.exchange(request.command)
+        if !isCAN { return [request.header: try ISOTP.plainMessage(from: reply)] }
+        return try ISOTP.messagesByECU(from: reply, responseHeader: request.responseHeader)
     }
 
     /// The data after the positive-response byte and the echoed parameter.
     public func read(_ request: OBDRequest) async throws -> [UInt8] {
-        let message = try await send(request)
+        try Self.payload(try await send(request), for: request)
+    }
+
+    /// `read` for every ECU that answers positively, keyed like `sendAll`. Throws only when none does.
+    public func readAll(_ request: OBDRequest) async throws -> [UInt16: [UInt8]] {
+        var out: [UInt16: [UInt8]] = [:]
+        var firstError: Error?
+        for (ecu, message) in try await sendAll(request) {
+            do { out[ecu] = try Self.payload(message, for: request) } catch { firstError = firstError ?? error }
+        }
+        if out.isEmpty { throw firstError ?? OBDError.noData }
+        return out
+    }
+
+    static func payload(_ message: [UInt8], for request: OBDRequest) throws -> [UInt8] {
         guard let first = message.first else { throw OBDError.noData }
         if first == 0x7F {
             throw OBDError.rejected(message.count > 2 ? message[2] : 0)
@@ -151,9 +250,70 @@ public actor ELM327 {
 }
 
 /// Reassembles an ISO 15765-2 (ISO-TP) message from what the ELM327 prints, with headers on
-/// ("7EC 10 3E 62 01 01 …") or off ("03E" then "0: 62 01 01 …"), with or without spaces.
+/// ("7EC 10 3E 62 01 01 …", or "18DAF110 10 3E …" on 29-bit CAN) or off ("03E" then "0: 62 01 01 …"),
+/// with or without spaces.
 public enum ISOTP {
     public static func message(from reply: String, responseHeader: UInt16?) throws -> [UInt8] {
+        let lines = try checkedLines(reply)
+        if lines.contains(where: { $0.contains(":") }) {
+            return try indexed(lines)
+        }
+        let frames = try parseFrames(lines)
+        let sawHeaders = frames.contains { $0.ecu != nil }
+        // Only the wanted ECU, or the first one to answer.
+        guard let wanted = responseHeader.map({ $0 &- 8 }) ?? frames.lazy.compactMap(\.ecu).first else {
+            return try assemble(frames.map(\.data), sawHeaders: sawHeaders)
+        }
+        return try assemble(frames.filter { $0.ecu == nil || $0.ecu == wanted }.map(\.data), sawHeaders: sawHeaders)
+    }
+
+    /// Every ECU's complete message, keyed by the ECU's request header (0x7E8 → 0x7E0). Without headers
+    /// the whole reply is one message, keyed by the request header (`responseHeader` − 8, else 0x7DF).
+    public static func messagesByECU(from reply: String, responseHeader: UInt16?) throws -> [UInt16: [UInt8]] {
+        let lines = try checkedLines(reply)
+        let fallback = responseHeader.map { $0 &- 8 } ?? OBDRequest.broadcast
+        if lines.contains(where: { $0.contains(":") }) {
+            return [fallback: try indexed(lines)]
+        }
+        let frames = try parseFrames(lines)
+        let sawHeaders = frames.contains { $0.ecu != nil }
+        var order: [UInt16] = []
+        var byECU: [UInt16: [[UInt8]]] = [:]
+        for frame in frames {
+            let ecu = frame.ecu ?? fallback
+            if responseHeader != nil, ecu != fallback { continue } // another ECU
+            if byECU[ecu] == nil { order.append(ecu) }
+            byECU[ecu, default: []].append(frame.data)
+        }
+        var out: [UInt16: [UInt8]] = [:]
+        var firstError: Error?
+        for ecu in order {
+            // One ECU's garbled or pending answer doesn't lose the others'.
+            do { out[ecu] = try assemble(byECU[ecu] ?? [], sawHeaders: sawHeaders) } catch { firstError = firstError ?? error }
+        }
+        if out.isEmpty { throw firstError ?? OBDError.noData }
+        return out
+    }
+
+    /// J1850 and K-line with headers off: each line is one whole message (no ISO-TP layer). Mode 09
+    /// answers come one numbered line at a time, and mode 03/07 with three codes a line: those are joined.
+    static func plainMessage(from reply: String) throws -> [UInt8] {
+        let messages = try checkedLines(reply).map { try bytes($0) }.filter { !$0.isEmpty && !isPending($0) }
+        guard let first = messages.first else { throw OBDError.noData }
+        let rest = messages.dropFirst()
+        switch first[0] {
+        case 0x49 where first.count >= 3:
+            let parts = messages.filter { $0.count >= 3 && $0[0] == first[0] && $0[1] == first[1] }.sorted { $0[2] < $1[2] }
+            return parts[0] + parts.dropFirst().flatMap { $0.dropFirst(3) }
+        case 0x43, 0x47:
+            return first + rest.filter { $0[0] == first[0] }.flatMap { $0.dropFirst() }
+        default:
+            return first
+        }
+    }
+
+    /// The reply's lines without the adapter's progress messages; throws for its error messages.
+    static func checkedLines(_ reply: String) throws -> [String] {
         let lines = ELM327.lines(reply).filter { !$0.uppercased().hasPrefix("SEARCHING") && !$0.uppercased().hasPrefix("BUS INIT") }
         guard !lines.isEmpty else { throw OBDError.timeout }
         for line in lines {
@@ -162,11 +322,18 @@ public enum ISOTP {
             if upper.contains("ERROR") || upper.contains("UNABLE") || upper == "STOPPED" { throw OBDError.busError(line) }
             if upper == "?" { throw OBDError.unexpected("?") }
         }
+        return lines
+    }
 
-        if lines.contains(where: { $0.contains(":") }) {
-            return try indexed(lines)
-        }
-        return try framed(lines, responseHeader: responseHeader)
+    /// 29-bit CAN: ECU address 0x10…0x17 (answering on 18DAF110…) stands for 0x7E0…0x7E7, as on 11-bit
+    /// CAN; any other address xx for 0x6xx.
+    public static func ecuHeader(address: UInt8) -> UInt16 {
+        (0x10...0x17).contains(address) ? 0x7E0 + UInt16(address - 0x10) : 0x600 | UInt16(address)
+    }
+
+    /// The 29-bit ECU address an 11-bit-style request header stands for (the inverse of `ecuHeader`).
+    public static func address(ecuHeader header: UInt16) -> UInt8 {
+        (0x7E0...0x7E7).contains(header) ? 0x10 + UInt8(header - 0x7E0) : UInt8(header & 0xFF)
     }
 
     /// "Request received, response pending": the real answer follows.
@@ -192,25 +359,25 @@ public enum ISOTP {
         return Array(data.prefix(length))
     }
 
-    /// Headers on: each line is one CAN frame, "7EC" then the PCI byte and data. Returns the first
-    /// complete message from the wanted ECU (or the first ECU to answer), skipping "response pending".
-    private static func framed(_ lines: [String], responseHeader: UInt16?) throws -> [UInt8] {
-        var wanted = responseHeader.map { String(format: "%03X", $0) }
-        var frames: [[UInt8]] = []
-        var sawHeaders = false
-        for line in lines {
+    /// Headers on: each line is one CAN frame, "7EC" (or "18DAF1EC") then the PCI byte and data. The
+    /// ECU is its request header (`ecuHeader`); nil for a line without an id.
+    private static func parseFrames(_ lines: [String]) throws -> [(ecu: UInt16?, data: [UInt8])] {
+        try lines.map { line in
             let compact = line.replacingOccurrences(of: " ", with: "").uppercased()
-            if compact.count > 3, compact.count % 2 == 1 {
+            if compact.count > 3, compact.count % 2 == 1, let id = UInt16(compact.prefix(3), radix: 16) {
                 // An odd number of hex digits: an 11-bit id, then bytes.
-                sawHeaders = true
-                let id = String(compact.prefix(3))
-                if wanted == nil { wanted = id }
-                guard id == wanted else { continue } // another ECU
-                frames.append(try bytes(String(compact.dropFirst(3))))
-            } else {
-                frames.append(try bytes(compact))
+                return (id &- 8, try bytes(String(compact.dropFirst(3))))
             }
+            if compact.count > 8, compact.hasPrefix("18DAF1"), let address = UInt8(compact.dropFirst(6).prefix(2), radix: 16) {
+                // A 29-bit id answering the tester (F1), then bytes.
+                return (ecuHeader(address: address), try bytes(String(compact.dropFirst(8))))
+            }
+            return (nil, try bytes(compact))
         }
+    }
+
+    /// One ECU's CAN frames → its first complete message, skipping "response pending".
+    private static func assemble(_ frames: [[UInt8]], sawHeaders: Bool) throws -> [UInt8] {
         guard let first = frames.first, let pci = first.first else { throw OBDError.noData }
         if !sawHeaders && frames.count == 1 && pci >> 4 != 0 && pci >> 4 != 1 {
             // Plain response without PCI (CAF on, headers off, single frame).

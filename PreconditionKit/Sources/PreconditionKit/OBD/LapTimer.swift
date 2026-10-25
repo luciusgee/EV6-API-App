@@ -55,11 +55,22 @@ public struct Lap: Codable, Equatable, Sendable, Identifiable {
     public var id: Int { number }
 }
 
+extension Lap {
+    /// Lenient, so laps saved by another build still load.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        number = try c.decode(Int.self, forKey: .number)
+        seconds = try c.decode(Double.self, forKey: .seconds)
+        metres = try c.decodeIfPresent(Double.self, forKey: .metres) ?? 0
+        topKmh = try c.decodeIfPresent(Double.self, forKey: .topKmh) ?? 0
+    }
+}
+
 /// Times laps from GPS fixes crossing a start/finish line. Crossings are interpolated between fixes.
 public struct LapTimer: Sendable {
     public let line: FinishLine
     public private(set) var laps: [Lap] = []
-    /// When the lap under way started; nil until the car first crosses the line.
+    /// When the lap under way started; nil until the car first crosses the line, unless the timer was started on it.
     public private(set) var lapStart: Date?
     private var last: (at: Date, point: GeoPoint, ahead: Double, side: Double)?
     private var lapMetres = 0.0
@@ -70,9 +81,18 @@ public struct LapTimer: Sendable {
 
     /// Crossings closer together than this are GPS wobble, not laps.
     public static let minimumLap: Double = 15
+    /// Slower than this (km/h), a crossing is GPS wobble while parked or crawling near the line.
+    public static let minimumCrossingKmh: Double = 18
+    /// A crossing must be heading within this many degrees of the line's direction.
+    public static let maximumCrossingAngle: Double = 60
 
-    public init(line: FinishLine) {
+    /// `startedAt` is when the car was on the line as it was set: the first lap runs from then.
+    public init(line: FinishLine, startedAt: Date? = nil) {
         self.line = line
+        if let startedAt {
+            lapStart = startedAt
+            last = (startedAt, line.centre, 0, 0)
+        }
     }
 
     public var best: Lap? { laps.min { $0.seconds < $1.seconds } }
@@ -95,9 +115,9 @@ public struct LapTimer: Sendable {
         return here.seconds - bestSeconds
     }
 
-    /// Feeds one GPS fix. Returns the lap it completed, if it did.
+    /// Feeds one GPS fix, with its speed and course (degrees from north) when known. Returns the lap it completed, if it did.
     @discardableResult
-    public mutating func add(at: Date, point: GeoPoint, kmh: Double? = nil) -> Lap? {
+    public mutating func add(at: Date, point: GeoPoint, kmh: Double? = nil, course: Double? = nil) -> Lap? {
         let pos = line.position(point)
         defer { last = (at, point, pos.ahead, pos.side) }
         guard let last else { return nil }
@@ -106,7 +126,7 @@ public struct LapTimer: Sendable {
         if let kmh { lapTop = max(lapTop, kmh) }
 
         // Crossed from behind the line to ahead of it, near enough to the centre.
-        guard last.ahead < 0, pos.ahead >= 0 else {
+        guard last.ahead < 0, pos.ahead >= 0, isDriving(kmh: kmh, course: course) else {
             record(at: at)
             return nil
         }
@@ -138,6 +158,16 @@ public struct LapTimer: Sendable {
         current = []
         record(at: at)
         return done
+    }
+
+    /// Moving at speed the line's way, so a crossing is real and not jitter around a parked car.
+    private func isDriving(kmh: Double?, course: Double?) -> Bool {
+        if let kmh, kmh < Self.minimumCrossingKmh { return false }
+        if let course, course >= 0 {
+            let off = abs((course - line.heading).truncatingRemainder(dividingBy: 360))
+            if min(off, 360 - off) > Self.maximumCrossingAngle { return false }
+        }
+        return true
     }
 
     private mutating func record(at: Date) {

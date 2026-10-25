@@ -36,6 +36,13 @@ struct ChassisView: View {
         var parts: [String] = []
         if let socPercent { parts.append(String(format: "Battery %.0f percent", socPercent)) }
         if charging { parts.append("charging") }
+        else if flowing, let powerKW {
+            parts.append(String(format: powerKW > 0 ? "drawing %.0f kilowatts" : "regenerating %.0f kilowatts", abs(powerKW)))
+        }
+        for (i, name) in ["front left", "front right", "rear left", "rear right"].enumerated() {
+            guard tyrePsi.indices.contains(i), let psi = tyrePsi[i] else { continue }
+            parts.append("\(name) tyre " + String(format: "%.1f psi", psi) + (psi < 33 ? ", low" : ""))
+        }
         return parts.isEmpty ? "Your car" : parts.joined(separator: ", ")
     }
 
@@ -156,7 +163,8 @@ struct ChassisView: View {
             ZStack {
                 ForEach(0..<4, id: \.self) { i in
                     if tyrePsi.indices.contains(i), let psi = tyrePsi[i] {
-                        Text(String(format: "%.1f", psi))
+                        // The glyph marks a low tyre without relying on colour.
+                        Text(psi < 33 ? String(format: "! %.1f", psi) : String(format: "%.1f", psi))
                             .font(.caption2.weight(.semibold).monospacedDigit())
                             .foregroundStyle(psi < 33 ? .orange : .secondary)
                             .position(x: i % 2 == 0 ? wheels[i].minX - 18 : wheels[i].maxX + 18, y: wheels[i].midY)

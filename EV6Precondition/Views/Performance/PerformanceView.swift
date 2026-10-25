@@ -79,7 +79,8 @@ struct PerformanceView: View {
         .liveSensors(["speed", "power", "socBMS", "battMax"], screen: "performance")
         .onChange(of: finished) { _, result in
             guard let result else { return }
-            store.add(result)
+            // Simulated runs aren't the user's own: show them, but keep them out of bests and history.
+            if obd.demo == nil { store.add(result) }
             obd.motion.stop()
             obd.demoDrive(for: nil)
             showing = result
@@ -128,10 +129,14 @@ struct PerformanceView: View {
             .tint(.white)
         }
         if obd.carState != .connected {
-            Text(obd.adapterConnected ? "Waiting for the car to answer. Switch it on." : "Connect your adapter, or try the demo car in Settings.")
+            Text(obd.adapterConnected ? "Waiting for the car to answer. Switch it on." : "Connect your adapter, or try the demo car.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            if !obd.adapterConnected {
+                Button("Try the demo car") { obd.startDemo() }
+                    .font(.footnote.weight(.semibold))
+            }
         }
     }
 
@@ -213,6 +218,7 @@ private struct RunTypePicker: View {
                                         .background(selection == type ? Color.red : Color.white.opacity(0.09), in: Capsule())
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityAddTraits(selection == type ? .isSelected : [])
                                 .sensoryFeedback(.selection, trigger: selection)
                             }
                         }

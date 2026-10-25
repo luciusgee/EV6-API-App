@@ -86,6 +86,20 @@ final class ScannerTests: XCTestCase {
         XCTAssertEqual(r.duration, 1)
     }
 
+    func testRecordingColumnsFixedAtStartAndDrainedInChunks() {
+        // Columns fixed from the catalog at the start: a later drain with no (or another) catalog keeps them.
+        var r = DataRecording(started: t0, sensorIds: ["speed", "nope", "power"], sensors: EGMPSensors.all)
+        XCTAssertEqual(r.header(), "time_s,\"Speed (km/h)\",\"Battery power (kW)\"\n")
+        r.add(LiveSample(at: t0.addingTimeInterval(0.5), values: ["speed": 12, "power": 30.25]))
+        XCTAssertEqual(r.drain(), "0.50,12.0,30.2\n")
+        XCTAssertTrue(r.pending.isEmpty)
+        r.add(LiveSample(at: t0.addingTimeInterval(1), values: ["power": 1]))
+        XCTAssertEqual(r.drain(sensors: []), "1.00,,1.0\n")
+        XCTAssertEqual(r.drain(), "")
+        XCTAssertEqual(r.rows, 2)
+        XCTAssertEqual(r.duration, 1)
+    }
+
     // MARK: Diagnostics
 
     func testScanReadAndClearTroubleCodes() async throws {

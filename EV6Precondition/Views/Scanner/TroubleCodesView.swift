@@ -15,6 +15,8 @@ struct TroubleCodesView: View {
     @State private var detail: TroubleCode?
 
     private var total: Int { codes.values.reduce(0) { $0 + $1.count } + emission.count }
+    /// Any other car: only the standard emission codes, no modules to walk.
+    private var generic: Bool { Preferences.shared.platform == .generic }
 
     var body: some View {
         List {
@@ -24,13 +26,13 @@ struct TroubleCodesView: View {
                     Task { await scan() }
                 } label: {
                     HStack {
-                        Label(scanned ? "Scan Again" : "Scan All Modules", systemImage: "magnifyingglass")
+                        Label(scanned ? "Scan Again" : generic ? "Read Trouble Codes" : "Scan All Modules", systemImage: "magnifyingglass")
                         Spacer()
                         if progress != nil { ProgressView() }
                     }
                 }
                 .disabled(obd.carState != .connected || progress != nil)
-                if let progress {
+                if let progress, !generic {
                     ProgressView(value: Double(progress.0), total: Double(max(progress.1, 1))) {
                         Text("Checking module \(progress.0) of \(progress.1)").font(.caption)
                     }
@@ -39,10 +41,16 @@ struct TroubleCodesView: View {
                     Text(error).foregroundStyle(.orange).font(.footnote)
                 }
             } footer: {
-                if scanned && progress == nil {
+                if scanned && progress == nil && generic {
+                    Text(total == 0
+                        ? "No emission trouble codes stored."
+                        : "\(total) emission code\(total == 1 ? "" : "s").")
+                } else if scanned && progress == nil {
                     Text(total == 0
                         ? "No trouble codes in \(modules.count) modules."
                         : "\(total) code\(total == 1 ? "" : "s") in \(modules.count) modules.")
+                } else if generic {
+                    Text("Reads the engine's stored and pending emission codes (OBD-II) with the car switched on.")
                 } else {
                     Text("Asks each module for its stored, pending and active codes. Takes about 20 seconds with the car switched on.")
                 }
@@ -92,7 +100,9 @@ struct TroubleCodesView: View {
                 if let ecu = confirmClear { Task { await clear([ecu]) } }
             }
         } message: {
-            Text("Clearing doesn't fix anything: a real fault comes straight back. Note the codes first.")
+            Text("Clearing doesn't fix anything: a real fault comes straight back. Note the codes first. The car must be switched on, and not driving."
+                + (confirmClear.map { Self.safety.contains($0.header) } == true
+                    ? " This is a safety system: have a real fault here checked before driving." : ""))
         }
         .confirmationDialog("Clear all trouble codes?", isPresented: $confirmClearAll, titleVisibility: .visible) {
             Button("Clear All Codes", role: .destructive) {
@@ -110,13 +120,15 @@ struct TroubleCodesView: View {
         guard let elm = obd.elm else { return }
         let diag = Diagnostics(elm: elm)
         error = nil
-        progress = (0, ECU.egmp.count)
+        progress = (0, generic ? 0 : ECU.egmp.count)
         defer { progress = nil }
         // Any other car: the standard emission codes every OBD-II car keeps.
-        if Preferences.shared.platform == .generic {
+        if generic {
             modules = []
             codes = [:]
-            emission = (try? await diag.emissionCodes()) ?? []
+            emission = []
+            guard let found = await readEmission(diag) else { return }
+            emission = found
             scanned = true
             return
         }
@@ -127,7 +139,7 @@ struct TroubleCodesView: View {
                 found[ecu.header] = (try? await diag.troubleCodes(ecu)) ?? []
             }
             codes = found
-            emission = (try? await diag.emissionCodes()) ?? []
+            emission = await readEmission(diag) ?? []
             scanned = true
         } catch {
             self.error = (error as? OBDError)?.description.capitalizingFirst ?? error.localizedDescription
@@ -136,6 +148,10 @@ struct TroubleCodesView: View {
 
     private func clear(_ ecus: [ECU], emission clearEmission: Bool = false) async {
         guard let elm = obd.elm else { return }
+        if let kmh = await speed(elm), kmh > 0 {
+            error = "Stop the car before clearing codes."
+            return
+        }
         let diag = Diagnostics(elm: elm)
         var failed: [String] = []
         for ecu in ecus {
@@ -146,11 +162,58 @@ struct TroubleCodesView: View {
                 failed.append(ecu.name)
             }
         }
+        var emissionFailed = false
         if clearEmission {
-            try? await diag.clearEmissionCodes()
-            emission = (try? await diag.emissionCodes()) ?? []
+            do {
+                try await diag.clearEmissionCodes()
+            } catch {
+                emissionFailed = true
+            }
+            if let found = try? await diag.emissionCodes() { emission = Self.merged(found) }
         }
-        error = failed.isEmpty ? nil : "Couldn't clear: \(failed.joined(separator: ", ")). Some modules only clear with the car in ready mode."
+        if !failed.isEmpty {
+            error = "Couldn't clear: \(failed.joined(separator: ", ")). Some modules only clear with the car in ready mode."
+        } else if emissionFailed {
+            error = "Couldn't clear the emission codes. The car must be switched on, with the engine off."
+        } else {
+            error = nil
+        }
+    }
+
+    /// Brakes and stability (IEB/ESC), and airbags (SRS).
+    private static let safety: Set<UInt16> = [0x7D1, 0x7D2]
+
+    /// The car's speed now: the live reading if it's from the last few seconds, else one fresh read.
+    /// Nil when the car doesn't say (some modules answer with no speed), so clearing isn't blocked forever.
+    private func speed(_ elm: ELM327) async -> Double? {
+        if obd.live, let last = obd.history["speed"]?.last, Date().timeIntervalSince(last.0) < 5 {
+            return last.1
+        }
+        guard let sensor = obd.sensor("speed"), let data = try? await elm.read(sensor.request) else { return nil }
+        return sensor.value(from: data)
+    }
+
+    /// The emission codes, or nil with `error` set when the car didn't answer.
+    private func readEmission(_ diag: Diagnostics) async -> [TroubleCode]? {
+        do {
+            return Self.merged(try await diag.emissionCodes())
+        } catch {
+            self.error = (error as? OBDError)?.description.capitalizingFirst ?? error.localizedDescription
+            return nil
+        }
+    }
+
+    /// A fault that is both stored (mode 03) and pending (mode 07) comes back twice: one row, both states.
+    private static func merged(_ list: [TroubleCode]) -> [TroubleCode] {
+        var out: [TroubleCode] = []
+        for code in list {
+            if let i = out.firstIndex(where: { $0.code == code.code }) {
+                out[i].status |= code.status
+            } else {
+                out.append(code)
+            }
+        }
+        return out
     }
 }
 

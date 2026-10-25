@@ -89,17 +89,28 @@ public enum RunType: String, Codable, CaseIterable, Identifiable, Sendable {
         if standingStart { return "Come to a stop. Timing starts the moment the car moves." }
         switch spec {
         case .accelerate(let from, _):
-            return "Drive steadily below \(Self.speedWords(from)), then accelerate hard through it."
+            return "Drive steadily below \(speedWords(from)), then accelerate hard through it."
         case .brake(let from):
-            return "Get above \(Self.speedWords(from)), then brake hard to a stop."
+            return "Get above \(speedWords(from + armMargin)), then brake hard to a stop."
         case .distance:
             return ""
         }
     }
 
-    static func speedWords(_ kmh: Double) -> String {
-        let mph = kmh / Self.mph
-        return abs(mph - mph.rounded()) < 0.05 ? "\(Int(mph.rounded())) mph" : "\(Int(kmh.rounded())) km/h"
+    /// The run is set in mph, so its prompts and margins are too.
+    public var inMiles: Bool {
+        switch self {
+        case .zeroTo60mph, .zeroTo100mph, .thirtyTo70mph, .fiftyTo70mph, .brake60mph: return true
+        default: return false
+        }
+    }
+
+    /// How far below (in-gear) or above (braking) the start speed the car must be to arm, km/h: a whole
+    /// number in the run's own unit, so the prompt matches it.
+    var armMargin: Double { inMiles ? 3 * Self.mph : 3 }
+
+    func speedWords(_ kmh: Double) -> String {
+        inMiles ? "\(Int((kmh / Self.mph).rounded())) mph" : "\(Int(kmh.rounded())) km/h"
     }
 
     public var standingStart: Bool {
@@ -162,12 +173,45 @@ public struct RunResult: Codable, Equatable, Sendable, Identifiable {
 
     /// Peak deceleration for braking, in g.
     public var peakDecelG: Double? {
-        guard type.category == .braking, trace.count > 2 else { return nil }
-        var best = 0.0
-        for (a, b) in zip(trace, trace.dropFirst()) where b.seconds > a.seconds {
-            best = max(best, (a.kmh - b.kmh) / 3.6 / (b.seconds - a.seconds) / 9.80665)
+        guard type.category == .braking, trace.count > 2, let first = trace.first, let end = trace.last else { return nil }
+        // Speeds are whole km/h at uneven intervals, so neighbouring readings give spikes: take the slope
+        // over at least half a second, and leave out the finish, which is interpolated or extrapolated.
+        let window = 0.5
+        let points = trace.dropLast()
+        var best: Double?
+        for (i, a) in points.enumerated() {
+            guard let b = points.dropFirst(i + 1).first(where: { $0.seconds - a.seconds >= window }) else { break }
+            best = max(best ?? 0, (a.kmh - b.kmh) / 3.6 / (b.seconds - a.seconds) / 9.80665)
         }
-        return best
+        // A stop too short for the window: the average over the whole of it.
+        if best == nil, end.seconds > first.seconds {
+            best = (first.kmh - end.kmh) / 3.6 / (end.seconds - first.seconds) / 9.80665
+        }
+        return best.map { max($0, 0) }
+    }
+}
+
+extension RunResult {
+    /// Lenient: fields added since a run was saved get their defaults, so older files still load. A
+    /// run whose type no longer exists fails on its own (stores skip it with `LossyArray`).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        type = try c.decode(RunType.self, forKey: .type)
+        date = try c.decode(Date.self, forKey: .date)
+        seconds = try c.decode(Double.self, forKey: .seconds)
+        metres = try c.decodeIfPresent(Double.self, forKey: .metres) ?? 0
+        endKmh = try c.decodeIfPresent(Double.self, forKey: .endKmh) ?? 0
+        peakPowerKW = try c.decodeIfPresent(Double.self, forKey: .peakPowerKW)
+        peakKmh = try c.decodeIfPresent(Double.self, forKey: .peakKmh) ?? endKmh
+        splits = (try? c.decodeIfPresent(LossyArray<RunSplit>.self, forKey: .splits))??.elements ?? []
+        trace = (try? c.decodeIfPresent(LossyArray<TracePoint>.self, forKey: .trace))??.elements ?? []
+        readingsPerSecond = try c.decodeIfPresent(Double.self, forKey: .readingsPerSecond) ?? 0
+        rollout = try c.decodeIfPresent(Bool.self, forKey: .rollout) ?? false
+        socPercent = try c.decodeIfPresent(Double.self, forKey: .socPercent)
+        batteryC = try c.decodeIfPresent(Double.self, forKey: .batteryC)
+        car = try c.decodeIfPresent(String.self, forKey: .car)
+        motionLaunch = try c.decodeIfPresent(Bool.self, forKey: .motionLaunch) ?? false
     }
 }
 
@@ -191,6 +235,9 @@ public struct RunTimer: Sendable {
     private var readings = 0
     private var context: (soc: Double?, batteryC: Double?, car: String?) = (nil, nil, nil)
     private var motionUsed = false
+    /// Without the motion sensor a standing start is only known to lie between the last still reading and
+    /// the first moving one: the next reading narrows it down.
+    private var startWindow: (still: Date, moving: Date)?
 
     /// Below this the car counts as stopped, km/h.
     public static let stopped = 0.5
@@ -198,6 +245,8 @@ public struct RunTimer: Sendable {
     public static let rolloutMetres = 0.3048
     /// A run that takes longer than this is abandoned.
     public static let maxSeconds: Double = 120
+    /// A gap between readings longer than this abandons the attempt: there is no telling what happened in it.
+    public static let maxGap: Double = 2.5
 
     public init(type: RunType, rollout: Bool = false) {
         self.type = type
@@ -207,14 +256,16 @@ public struct RunTimer: Sendable {
 
     static func waitingWords(_ type: RunType) -> String {
         switch type.spec {
-        case .accelerate(let from, _) where from >= 1: return "Get below \(RunType.speedWords(max(from - 8, 0)))"
-        case .brake(let from): return "Get above \(RunType.speedWords(from + 5))"
+        case .accelerate(let from, _) where from >= 1: return "Get below \(type.speedWords(max(from - type.armMargin, 0)))"
+        case .brake(let from): return "Get above \(type.speedWords(from + type.armMargin))"
         default: return "Come to a stop"
         }
     }
 
     public mutating func reset() {
+        let kept = context
         self = RunTimer(type: type, rollout: rollout)
+        context = kept
     }
 
     /// The battery and car at the start, kept with the result.
@@ -234,17 +285,19 @@ public struct RunTimer: Sendable {
             if ready(kmh) { state = .armed }
             return state
         case .armed:
-            guard let last, let t0 = startCrossing(last, (at, kmh)) else {
+            guard let last, at.timeIntervalSince(last.at) <= Self.maxGap, let t0 = startCrossing(last, (at, kmh)) else {
                 if !ready(kmh) && !starting(kmh) { state = .waiting(Self.waitingWords(type)) }
                 return state
             }
             var begin = t0
+            motionUsed = false
             // The car was still at the last reading and moving at this one, so a launch the motion
             // sensor felt in between is the true start.
             if type.standingStart, let launchedAt, launchedAt >= last.at.addingTimeInterval(-0.3), launchedAt <= at {
                 begin = launchedAt
                 motionUsed = true
             }
+            startWindow = type.standingStart && !motionUsed ? (last.at, at) : nil
             start = begin
             metres = 0
             readings = 0
@@ -264,23 +317,46 @@ public struct RunTimer: Sendable {
                 reset()
                 return state
             }
-            if aborted(kmh) {
-                state = .armed
-                trace = []
+            guard let last else { return state }
+            if at.timeIntervalSince(last.at) > Self.maxGap {
+                abandon()
+                state = ready(kmh) ? .armed : .waiting(Self.waitingWords(type))
                 return state
             }
-            guard let last else { return state }
+            if aborted(kmh) {
+                abandon()
+                state = .armed
+                return state
+            }
+            if let window = startWindow {
+                startWindow = nil
+                refineStart(window, next: (at, kmh))
+            }
             append(at: at, kmh: kmh, powerKW: powerKW, from: (last.at, last.kmh))
             return finishIfDone()
         }
+    }
+
+    /// Checks the clock between readings: a running attempt whose speed readings stopped coming more
+    /// than `maxGap` ago, or that has run past `maxSeconds`, is abandoned (it couldn't be timed anyway),
+    /// rather than left counting until a reading turns up.
+    @discardableResult
+    public mutating func tick(now: Date) -> State {
+        guard case .running(let since) = state else { return state }
+        let lastAt = last?.at ?? since
+        if now.timeIntervalSince(lastAt) > Self.maxGap || now.timeIntervalSince(since) > Self.maxSeconds {
+            abandon()
+            state = .waiting(Self.waitingWords(type))
+        }
+        return state
     }
 
     // MARK: Start and stop
 
     private func ready(_ kmh: Double) -> Bool {
         switch type.spec {
-        case .accelerate(let from, _) where from >= 1: return kmh < from - 3 && kmh > Self.stopped
-        case .brake(let from): return kmh > from + 3
+        case .accelerate(let from, _) where from >= 1: return kmh < from - type.armMargin && kmh > Self.stopped
+        case .brake(let from): return kmh > from + type.armMargin
         default: return kmh < Self.stopped
         }
     }
@@ -309,8 +385,36 @@ public struct RunTimer: Sendable {
         switch type.spec {
         case .accelerate(let from, _) where from >= 1: return kmh < from - 8
         case .brake(let from): return kmh > from + 5
-        default: return kmh < Self.stopped && metres > 2
+        // Stopping again, even after a creep up to the line, means the next pull-away is the start.
+        default: return kmh < Self.stopped
         }
+    }
+
+    /// Drops the attempt in progress, keeping what was noted at arm.
+    private mutating func abandon() {
+        trace = []
+        metres = 0
+        readings = 0
+        start = nil
+        startWindow = nil
+        motionUsed = false
+    }
+
+    /// The first moving reading puts a straight line from the last still one, which starts the clock too
+    /// early on a hard launch. With a second moving reading, run the line through both back to walking
+    /// pace instead, kept between the still reading and the first moving one.
+    private mutating func refineStart(_ window: (still: Date, moving: Date), next: (at: Date, kmh: Double)) {
+        guard start != nil, trace.count == 2, let last, last.at == window.moving else { return }
+        let dt = next.at.timeIntervalSince(last.at)
+        guard dt > 0, next.kmh > last.kmh, last.kmh > Self.stopped else { return }
+        let rate = (next.kmh - last.kmh) / dt
+        let fitted = last.at.addingTimeInterval(-(last.kmh - Self.stopped) / rate)
+        let begin = min(max(fitted, window.still), window.moving)
+        let moving = window.moving.timeIntervalSince(begin)
+        metres = (trace[0].kmh + last.kmh) / 2 / 3.6 * moving
+        trace = [trace[0], TracePoint(seconds: moving, kmh: last.kmh, metres: metres, powerKW: trace[1].powerKW)]
+        start = begin
+        state = .running(since: begin)
     }
 
     // MARK: Recording
@@ -438,8 +542,9 @@ public struct RunTimer: Sendable {
         case .accelerate:
             break
         }
-        // Speed marks passed on the way, in both units.
-        let lower = first.kmh
+        // Speed marks passed on the way, in both units. A standing start counts from 0 even when the
+        // trace starts a foot in, at the rollout speed.
+        let lower = type.standingStart ? 0 : first.kmh
         let upper = last.kmh
         for mph in stride(from: 10.0, through: 200, by: 10) {
             let v = mph * RunType.mph

@@ -29,6 +29,8 @@ final class OBDLink: NSObject {
     /// Called once the adapter can take commands.
     @ObservationIgnored var onReady: (() -> Void)?
     private(set) var adapters: [Adapter] = []
+    /// Kept apart from `state` so the picker can search while an adapter stays connected.
+    private(set) var isScanning = false
     var showAllDevices = false
 
     @ObservationIgnored private var central: CBCentralManager?
@@ -41,28 +43,45 @@ final class OBDLink: NSObject {
     @ObservationIgnored private var timeout: Task<Void, Never>?
     @ObservationIgnored private var wantsScan = false
     @ObservationIgnored private var pendingReconnect: UUID?
+    @ObservationIgnored private var connectWatchdog: Task<Void, Never>?
+    @ObservationIgnored private var erroredServices: Set<CBUUID> = []
+    /// ATSP0 was sent: the next OBD request runs the protocol search.
+    @ObservationIgnored private var searchPending = false
 
     private static let rememberedKey = "obdAdapterId"
     private static let rememberedNameKey = "obdAdapterName"
 
-    /// The adapter connected last time, reconnected to directly.
-    var rememberedName: String? { UserDefaults.standard.string(forKey: Self.rememberedNameKey) }
-    var hasRemembered: Bool { UserDefaults.standard.string(forKey: Self.rememberedKey) != nil }
+    /// The adapter connected last time, reconnected to directly. Stored so views update.
+    private(set) var rememberedName: String? = UserDefaults.standard.string(forKey: OBDLink.rememberedNameKey)
+    private var rememberedId: String? = UserDefaults.standard.string(forKey: OBDLink.rememberedKey)
+    var hasRemembered: Bool { rememberedId != nil }
 
     func forgetAdapter() {
         UserDefaults.standard.removeObject(forKey: Self.rememberedKey)
         UserDefaults.standard.removeObject(forKey: Self.rememberedNameKey)
+        rememberedId = nil
+        rememberedName = nil
+    }
+
+    private func remember(id: String, name: String) {
+        UserDefaults.standard.set(id, forKey: Self.rememberedKey)
+        UserDefaults.standard.set(name, forKey: Self.rememberedNameKey)
+        rememberedId = id
+        rememberedName = name
     }
 
     /// Reconnects to the remembered adapter; false when there isn't one.
     @discardableResult
     func reconnect() -> Bool {
-        guard let text = UserDefaults.standard.string(forKey: Self.rememberedKey) else { return false }
+        guard let text = rememberedId else { return false }
         if text == "wifi" {
             connectWiFi()
             return true
         }
         guard let id = UUID(uuidString: text) else { return false }
+        // Drop any earlier link or attempt so discovery chooses characteristics afresh.
+        stopScan()
+        disconnect()
         pendingReconnect = id
         state = .connecting(rememberedName ?? "OBD adapter")
         if central == nil {
@@ -84,8 +103,10 @@ final class OBDLink: NSObject {
             }
             peripherals[id] = p
             peripheral = p
+            erroredServices = []
             p.delegate = self
             central.connect(p)
+            startWatchdog()
         case .poweredOff: state = .bluetoothOff
         case .unauthorized: state = .bluetoothDenied
         default: break
@@ -112,18 +133,28 @@ final class OBDLink: NSObject {
 
     func stopScan() {
         wantsScan = false
+        isScanning = false
         central?.stopScan()
         if state == .scanning { state = .idle }
+    }
+
+    /// True while an adapter is connected or being connected; scanning leaves that state alone.
+    private var isLinked: Bool {
+        switch state {
+        case .ready, .connecting: return true
+        default: return false
+        }
     }
 
     private func beginScanIfPossible() {
         guard let central, wantsScan else { return }
         switch central.state {
         case .poweredOn:
-            state = .scanning
+            isScanning = true
+            if !isLinked { state = .scanning }
             central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
-        case .poweredOff: state = .bluetoothOff
-        case .unauthorized: state = .bluetoothDenied
+        case .poweredOff: if !isLinked { state = .bluetoothOff }
+        case .unauthorized: if !isLinked { state = .bluetoothDenied }
         default: break
         }
     }
@@ -133,9 +164,33 @@ final class OBDLink: NSObject {
         stopScan()
         disconnect()
         peripheral = p
+        erroredServices = []
         p.delegate = self
         state = .connecting(adapter.name)
         central.connect(p)
+        startWatchdog()
+    }
+
+    /// CoreBluetooth and NWConnection connects never time out on their own.
+    private func startWatchdog() {
+        connectWatchdog?.cancel()
+        connectWatchdog = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(12))
+            guard !Task.isCancelled, let self, case .connecting(let name) = self.state else { return }
+            self.disconnect()
+            self.state = .failed("Couldn't reach \(name). Is it plugged in and the car on?")
+        }
+    }
+
+    /// Gives up on a Bluetooth peripheral, keeping the reason on screen.
+    private func abandon(_ p: CBPeripheral, reason: String) {
+        connectWatchdog?.cancel()
+        // Cleared first so the disconnect callback for this cancel doesn't replace the reason with .idle.
+        if peripheral === p { peripheral = nil }
+        writeCharacteristic = nil
+        central?.cancelPeripheralConnection(p)
+        fail(OBDError.notConnected)
+        state = .failed(reason)
     }
 
     // MARK: Wi-Fi
@@ -152,20 +207,30 @@ final class OBDLink: NSObject {
                 guard let self, self.wifi === connection else { return }
                 switch s {
                 case .ready:
+                    self.connectWatchdog?.cancel()
                     self.state = .ready("Wi-Fi adapter")
-                    UserDefaults.standard.set("wifi", forKey: Self.rememberedKey)
-                    UserDefaults.standard.set("Wi-Fi adapter", forKey: Self.rememberedNameKey)
+                    self.remember(id: "wifi", name: "Wi-Fi adapter")
                     self.onReady?()
                     self.receiveWiFi(connection)
-                case .failed(let error), .waiting(let error):
+                case .failed(let error):
+                    self.connectWatchdog?.cancel()
+                    connection.cancel()
+                    self.wifi = nil
                     self.state = .failed("Wi-Fi adapter: \(error.localizedDescription). Join the adapter's Wi-Fi network first.")
                     self.fail(OBDError.notConnected)
+                case .waiting(let error):
+                    self.state = .failed("Wi-Fi adapter: \(error.localizedDescription). Join the adapter's Wi-Fi network first.")
+                    self.fail(OBDError.notConnected)
+                case .cancelled:
+                    // Cancelled by the system rather than by disconnect() (which lets go of it first).
+                    self.wifiClosed(connection)
                 default:
                     break
                 }
             }
         }
         connection.start(queue: .main)
+        startWatchdog()
     }
 
     private func receiveWiFi(_ connection: NWConnection) {
@@ -173,20 +238,36 @@ final class OBDLink: NSObject {
             Task { @MainActor in
                 guard let self, self.wifi === connection else { return }
                 if let data, let text = String(data: data, encoding: .ascii) { self.received(text) }
-                if error == nil && !done { self.receiveWiFi(connection) }
+                if error == nil && !done {
+                    self.receiveWiFi(connection)
+                } else {
+                    // The adapter closed the socket (switched off, or out of Wi-Fi range).
+                    self.wifiClosed(connection)
+                }
             }
         }
     }
 
+    /// The Wi-Fi socket ended without the user disconnecting: say so, so the service sees the link go.
+    private func wifiClosed(_ connection: NWConnection) {
+        guard wifi === connection else { return }
+        connectWatchdog?.cancel()
+        wifi = nil
+        connection.cancel()
+        fail(OBDError.notConnected)
+        state = .failed("Wi-Fi adapter disconnected")
+    }
+
     func disconnect() {
+        connectWatchdog?.cancel()
+        pendingReconnect = nil
         if let peripheral { central?.cancelPeripheralConnection(peripheral) }
         peripheral = nil
         writeCharacteristic = nil
         wifi?.cancel()
         wifi = nil
         fail(OBDError.notConnected)
-        if case .ready = state { state = .idle }
-        if case .connecting = state { state = .idle }
+        if isLinked { state = isScanning ? .scanning : .idle }
     }
 
     // MARK: Exchange
@@ -198,7 +279,12 @@ final class OBDLink: NSObject {
         let data = Data((command + "\r").utf8)
         return try await withCheckedThrowingContinuation { continuation in
             pending = continuation
-            let limit: Duration = command == "ATZ" ? .seconds(5) : .seconds(8)
+            // After ATSP0 the next OBD request makes the adapter search every protocol, which on a K-line
+            // car (5-baud init, then each protocol in turn) can take well over ten seconds.
+            if command == "ATSP0" { searchPending = true }
+            let searching = searchPending && !command.uppercased().hasPrefix("AT")
+            if searching { searchPending = false }
+            let limit: Duration = command == "ATZ" ? .seconds(5) : searching ? .seconds(20) : .seconds(8)
             timeout = Task { [weak self] in
                 try? await Task.sleep(for: limit)
                 guard !Task.isCancelled else { return }
@@ -262,16 +348,15 @@ final class OBDLink: NSObject {
                 return
             }
         }
-        state = .failed("\(p.name ?? "Adapter") doesn't look like an OBD adapter")
-        central?.cancelPeripheralConnection(p)
+        abandon(p, reason: "\(p.name ?? "Adapter") doesn't look like an OBD adapter")
     }
 
     private func use(_ p: CBPeripheral, notify: CBCharacteristic, write: CBCharacteristic) {
+        connectWatchdog?.cancel()
         writeCharacteristic = write
         p.setNotifyValue(true, for: notify)
         state = .ready(p.name ?? "OBD adapter")
-        UserDefaults.standard.set(p.identifier.uuidString, forKey: Self.rememberedKey)
-        UserDefaults.standard.set(p.name ?? "OBD adapter", forKey: Self.rememberedNameKey)
+        remember(id: p.identifier.uuidString, name: p.name ?? "OBD adapter")
         onReady?()
     }
 
@@ -285,7 +370,23 @@ final class OBDLink: NSObject {
 
 extension OBDLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        let power = central.state
         MainActor.assumeIsolated {
+            if power != .poweredOn {
+                // Below poweredOn CoreBluetooth invalidates peripherals without a disconnect callback.
+                isScanning = false
+                if peripheral != nil {
+                    connectWatchdog?.cancel()
+                    peripheral = nil
+                    writeCharacteristic = nil
+                    fail(OBDError.notConnected)
+                    switch power {
+                    case .poweredOff: state = .bluetoothOff
+                    case .unauthorized: state = .bluetoothDenied
+                    default: state = .idle
+                    }
+                }
+            }
             reconnectIfPossible()
             beginScanIfPossible()
         }
@@ -305,12 +406,26 @@ extension OBDLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        peripheral.discoverServices(nil)
+        let id = peripheral.identifier
+        MainActor.assumeIsolated {
+            // A stale attempt that finished after the user moved on.
+            guard self.peripheral?.identifier == id else {
+                central.cancelPeripheralConnection(peripheral)
+                return
+            }
+            peripheral.discoverServices(nil)
+        }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         let message = error?.localizedDescription ?? "couldn't connect"
-        MainActor.assumeIsolated { state = .failed(message) }
+        let id = peripheral.identifier
+        MainActor.assumeIsolated {
+            guard self.peripheral?.identifier == id else { return }
+            connectWatchdog?.cancel()
+            self.peripheral = nil
+            state = .failed(message)
+        }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
@@ -325,20 +440,43 @@ extension OBDLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        for service in peripheral.services ?? [] { peripheral.discoverCharacteristics(nil, for: service) }
+        let id = peripheral.identifier
+        let failure = error?.localizedDescription
+        MainActor.assumeIsolated {
+            guard self.peripheral?.identifier == id else { return }
+            let services = peripheral.services ?? []
+            if let failure {
+                abandon(peripheral, reason: "\(peripheral.name ?? "Adapter"): \(failure)")
+            } else if services.isEmpty {
+                abandon(peripheral, reason: "\(peripheral.name ?? "Adapter") doesn't look like an OBD adapter")
+            } else {
+                for service in services { peripheral.discoverCharacteristics(nil, for: service) }
+            }
+        }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        let id = peripheral.identifier
+        let failed = error != nil
         MainActor.assumeIsolated {
+            guard self.peripheral?.identifier == id else { return }
+            // A service whose discovery failed never gets characteristics; don't wait for it.
+            if failed { erroredServices.insert(service.uuid) }
             // Choose once every service has reported its characteristics.
-            guard writeCharacteristic == nil, (peripheral.services ?? []).allSatisfy({ $0.characteristics != nil }) else { return }
+            guard writeCharacteristic == nil,
+                  (peripheral.services ?? []).allSatisfy({ $0.characteristics != nil || erroredServices.contains($0.uuid) })
+            else { return }
             chooseCharacteristics(peripheral)
         }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard let data = characteristic.value, let text = String(data: data, encoding: .ascii) else { return }
-        MainActor.assumeIsolated { received(text) }
+        let id = peripheral.identifier
+        MainActor.assumeIsolated {
+            guard self.peripheral?.identifier == id else { return }
+            received(text)
+        }
     }
 }
 

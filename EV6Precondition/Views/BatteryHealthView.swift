@@ -8,7 +8,24 @@ struct HealthPoint: Codable, Equatable, Identifiable {
     var sohPercent: Double?
     var cellSpreadMV: Double?
     var odometerKm: Double?
+    /// The car it was read from. Missing on points saved before these were kept.
+    var vin: String?
+    var modelId: String?
     var id: Date { takenAt }
+
+    /// From this car. Points saved before the car was kept are counted as the user's own.
+    func belongs(to car: ReportCar?) -> Bool {
+        guard let car else { return true }
+        if let vin, let other = car.vin { return vin == other }
+        if let modelId { return modelId == car.modelId }
+        return true
+    }
+}
+
+/// The car a battery report was read from, so it's labelled and sized as that car whatever is chosen now.
+struct ReportCar: Codable, Equatable {
+    var vin: String?
+    var modelId: String
 }
 
 /// The last battery report, and every read's headline numbers, kept on the phone.
@@ -19,8 +36,14 @@ final class BatteryReportStore {
     static let shared = BatteryReportStore()
 
     private(set) var report: BatteryReport?
+    /// The car `report` came from; nil for reports read before this was kept.
+    private(set) var car: ReportCar?
     private(set) var history: [HealthPoint] = []
+    /// A read of the demo car: kept in memory only, never saved over or added to the user's own.
+    private(set) var demoReport: BatteryReport?
+    private(set) var demoCar: ReportCar?
     private let historyStore: JSONFileStore<[HealthPoint]>
+    private let carStore: JSONFileStore<ReportCar?>
     private(set) var problems: [String] = []
     private(set) var progress: BatteryScanner.Progress?
     private(set) var error: String?
@@ -30,31 +53,42 @@ final class BatteryReportStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         store = JSONFileStore(url: support.appendingPathComponent("EV6Precondition/battery-report.json"), default: nil)
         historyStore = JSONFileStore(url: support.appendingPathComponent("EV6Precondition/battery-history.json"), default: [])
+        carStore = JSONFileStore(url: support.appendingPathComponent("EV6Precondition/battery-report-car.json"), default: nil)
     }
 
     var scanning: Bool { progress != nil }
 
     func load() async {
         report = await store.load()
+        car = await carStore.load()
         history = await historyStore.load()
         // Reports read before the history existed.
         if history.isEmpty, let report {
-            history = [Self.point(report, odometerKm: nil)]
+            history = [Self.point(report, car: car, odometerKm: nil)]
             await historyStore.save(history)
         }
     }
 
-    static func point(_ r: BatteryReport, odometerKm: Double?) -> HealthPoint {
+    /// The reads of this car, oldest first.
+    func history(for car: ReportCar?) -> [HealthPoint] {
+        history.filter { $0.belongs(to: car) }
+    }
+
+    static func point(_ r: BatteryReport, car: ReportCar?, odometerKm: Double?) -> HealthPoint {
         var spread: Double?
         if let high = r.cellMaxVolts, let low = r.cellMinVolts { spread = (high - low) * 1000 }
-        return HealthPoint(takenAt: r.takenAt, sohPercent: r.sohPercent, cellSpreadMV: spread, odometerKm: odometerKm)
+        return HealthPoint(
+            takenAt: r.takenAt, sohPercent: r.sohPercent, cellSpreadMV: spread, odometerKm: odometerKm,
+            vin: car?.vin, modelId: car?.modelId
+        )
     }
 
     private func setProgress(_ p: BatteryScanner.Progress) {
         progress = p
     }
 
-    func scan(_ elm: ELM327, odometerKm: Double? = nil) async {
+    /// Reads the battery. A read of the demo car (`demo`) is kept apart and never saved.
+    func scan(_ elm: ELM327, car: ReportCar, demo: Bool, odometerKm: Double? = nil) async {
         guard !scanning else { return }
         error = nil
         problems = []
@@ -62,12 +96,20 @@ final class BatteryReportStore {
         let scanner = BatteryScanner(elm: elm)
         do {
             let (result, issues) = try await scanner.scan { p in await self.setProgress(p) }
-            report = result
             problems = issues
-            await store.save(result)
-            history.append(Self.point(result, odometerKm: odometerKm))
-            history.sort { $0.takenAt < $1.takenAt }
-            await historyStore.save(history)
+            if demo {
+                demoReport = result
+                demoCar = car
+            } else {
+                // History first, with no wait in between, so nothing sees the new report with the old history.
+                history.append(Self.point(result, car: car, odometerKm: odometerKm))
+                history.sort { $0.takenAt < $1.takenAt }
+                report = result
+                self.car = car
+                await store.save(result)
+                await carStore.save(car)
+                await historyStore.save(history)
+            }
         } catch {
             self.error = (error as? OBDError)?.description ?? error.localizedDescription
         }
@@ -86,8 +128,48 @@ struct BatteryHealthView: View {
     @State private var showingPro = false
     @Environment(Store.self) private var store
 
+    private var demo: Bool { obd.demo != nil }
+    /// The demo car's read while the demo runs, the user's own otherwise.
+    private var shown: BatteryReport? { demo ? reports.demoReport : reports.report }
+    private var shownCar: ReportCar? { demo ? reports.demoCar : reports.car }
+    /// The car the report came from; the one chosen now for reports read before that was kept.
+    private var reportModel: VehicleModel { shownCar.flatMap { Vehicles.model($0.modelId) } ?? prefs.model }
+    private var carName: String {
+        demo ? "\(reportModel.fullName) · DEMO DATA – not a real vehicle" : reportModel.fullName
+    }
+    /// The demo's history is never kept; the user's is only that car's reads.
+    private var history: [HealthPoint] { demo ? [] : reports.history(for: shownCar) }
+
+    /// Whether the report is from the car chosen now, so the chosen pack applies to it.
+    private var isCurrentCar: Bool {
+        guard let car = shownCar else { return true }
+        if car.modelId != prefs.modelId { return false }
+        if let vin = car.vin, let current = prefs.vin { return vin == current }
+        return true
+    }
+
     private var analysis: BatteryAnalysis? {
-        reports.report.map { BatteryAnalysis($0, pack: prefs.pack(cells: $0.cellVolts.count)) }
+        shown.map { r in
+            // No cells read (or left out over a gap): don't infer the pack from a partial count.
+            let cells: Int? = r.cellVolts.isEmpty ? nil : r.cellVolts.count
+            let pack = isCurrentCar
+                ? prefs.pack(cells: cells)
+                : cells.flatMap { reportModel.pack(cells: $0, year: shownCar?.vin.flatMap(VIN.init)?.year) }
+            return BatteryAnalysis(r, pack: pack)
+        }
+    }
+
+    /// Everything the PDF is made from, so it's remade when any of it changes.
+    private struct PDFInputs: Equatable {
+        var takenAt: Date?
+        var history: [HealthPoint]
+        var car: String
+        var pack: Double?
+        var miles: Bool
+    }
+
+    private var pdfInputs: PDFInputs {
+        PDFInputs(takenAt: shown?.takenAt, history: history, car: carName, pack: analysis?.nominalKWh, miles: prefs.useMiles)
     }
 
     var body: some View {
@@ -107,21 +189,23 @@ struct BatteryHealthView: View {
         ScrollView {
             VStack(spacing: 16) {
                 if let analysis {
-                    GradeCard(analysis: analysis, car: prefs.model.fullName)
+                    GradeCard(analysis: analysis, car: carName)
                 }
                 readCard
                 if let analysis {
                     ChecksCard(checks: analysis.checks)
                     if analysis.cellCount > 1 {
                         Card("Cells") { CellsSection(analysis: analysis) }
-                        Card("Modules") { ModuleGrid(modules: analysis.modules, mean: analysis.meanVolts ?? 0) }
+                        if !analysis.modules.isEmpty {
+                            Card("Modules") { ModuleGrid(modules: analysis.modules, mean: analysis.meanVolts ?? 0) }
+                        }
                     }
                     Card("Pack") { PackRows(analysis: analysis) }
                     if analysis.report.tyrePressuresPsi.contains(where: { $0 != nil }) {
                         Card("Tyres") { TyreGrid(pressures: analysis.report.tyrePressuresPsi, temps: analysis.report.tyreTempsC) }
                     }
-                    if reports.history.filter({ $0.sohPercent != nil }).count >= 2 {
-                        Card("History") { HealthHistory(history: reports.history) }
+                    if history.filter({ $0.sohPercent != nil }).count >= 2 {
+                        Card("History") { HealthHistory(history: history) }
                     }
                     if !reports.problems.isEmpty {
                         Card("Couldn't read") {
@@ -156,8 +240,7 @@ struct BatteryHealthView: View {
             }
         }
         .task { await reports.load() }
-        .task(id: reports.report?.takenAt) { makePDF() }
-        .onChange(of: prefs.useMiles) { makePDF() }
+        .task(id: pdfInputs) { makePDF() }
         .sheet(isPresented: $showingAdapters) { AdapterPicker(link: obd.link) }
         .sheet(isPresented: $showingPro) { ProSheet() }
     }
@@ -167,16 +250,20 @@ struct BatteryHealthView: View {
             pdf = nil
             return
         }
-        pdf = BatteryPDF.make(analysis, history: reports.history, car: prefs.model.fullName, miles: prefs.useMiles)
+        pdf = BatteryPDF.make(analysis, history: history, car: demo ? reportModel.fullName : carName, miles: prefs.useMiles, demo: demo)
     }
 
     private var readCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
-                if let elm = obd.elm { Task { await reports.scan(elm) } }
+                if let elm = obd.elm {
+                    let car = ReportCar(vin: obd.vin?.text ?? prefs.vin, modelId: prefs.modelId)
+                    let isDemo = demo
+                    Task { await reports.scan(elm, car: car, demo: isDemo) }
+                }
             } label: {
                 HStack {
-                    Label(reports.report == nil ? "Read battery" : "Read again", systemImage: "waveform.path.ecg")
+                    Label(shown == nil ? "Read battery" : "Read again", systemImage: "waveform.path.ecg")
                         .font(.headline)
                     Spacer()
                     if reports.scanning { ProgressView() }
@@ -421,28 +508,54 @@ struct CellChart: View {
 struct ModuleGrid: View {
     let modules: [BatteryAnalysis.Module]
     let mean: Double
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .caption2) private var big: CGFloat = 9
+    @ScaledMetric(relativeTo: .caption2) private var small: CGFloat = 8
+    @ScaledMetric(relativeTo: .caption2) private var height: CGFloat = 40
+
+    /// Fewer, wider tiles at the larger text sizes, so the numbers still fit.
+    private var columns: Int { typeSize.isAccessibilitySize ? 4 : 8 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8), spacing: 6) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: columns), spacing: 6) {
                 ForEach(modules) { m in
                     let dev = (m.meanVolts - mean) * 1000
                     VStack(spacing: 1) {
-                        Text("\(m.number)").font(.system(size: 9, weight: .bold))
-                        Text(String(format: "%+.0f", dev)).font(.system(size: 9).monospacedDigit())
+                        Text("\(m.number)").font(.system(size: big, weight: .bold))
+                        Text(String(format: "%+.0f", dev)).font(.system(size: big).monospacedDigit())
                         if let t = m.temperatureC {
-                            Text(String(format: "%.0f°", t)).font(.system(size: 8)).opacity(0.7)
+                            Text(String(format: "%.0f°", t)).font(.system(size: small)).opacity(0.7)
                         }
                     }
-                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .frame(maxWidth: .infinity, minHeight: height)
                     .background(color(dev).opacity(0.75), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .foregroundStyle(Color.black)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(label(m, dev))
+                    .accessibilityValue(status(dev))
                 }
             }
             Text("Each tile is a module of six cells: its number, its average against the pack's in mV, and its temperature sensor.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func label(_ m: BatteryAnalysis.Module, _ dev: Double) -> String {
+        let mV = Int(abs(dev).rounded())
+        var text = "Module \(m.number): "
+        text += mV == 0 ? "at the pack average" : "\(mV) millivolts \(dev > 0 ? "above" : "below") average"
+        if let t = m.temperatureC { text += String(format: ", %.0f °C", t) }
+        return text
+    }
+
+    /// What the tile's colour means.
+    private func status(_ dev: Double) -> String {
+        if dev < -15 { return "Well below the others" }
+        if dev < -6 { return "A little low" }
+        if dev > 6 { return "A little high" }
+        return "In line"
     }
 
     private func color(_ dev: Double) -> Color {

@@ -38,11 +38,12 @@ final class Preferences {
     var model: VehicleModel { Vehicles.model(modelId) ?? Vehicles.all[0] }
     var platform: Platform { model.platform }
 
-    /// The pack: the one chosen, else the one matching the cells read, else the newest.
+    /// The pack: the one chosen, else the one matching the cells read and the VIN's year. With no year,
+    /// the smaller (older, more common) pack, so the report doesn't claim capacity the car may not have.
     func pack(cells: Int?) -> PackSpec? {
         if let packKWh, let chosen = model.packs.first(where: { $0.kWh == packKWh }) { return chosen }
-        let year = vin.flatMap(VIN.init)?.year
-        if let cells, let p = model.pack(cells: cells, year: year) { return p }
-        return nil
+        guard let cells else { return nil }
+        if let year = vin.flatMap(VIN.init)?.year { return model.pack(cells: cells, year: year) }
+        return model.packs.first { $0.cells == cells }
     }
 }

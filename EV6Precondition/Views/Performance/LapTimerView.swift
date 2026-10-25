@@ -1,22 +1,22 @@
+import CoreLocation
 import PreconditionKit
 import SwiftUI
 import UIKit
 
-/// GPS lap timing: set the start/finish line by driving across it, then every crossing is a lap.
+/// GPS lap timing: arm the start/finish line while stopped on it, and it is set as you drive off. Every crossing after that is a lap.
 struct LapTimerView: View {
     @Environment(RunStore.self) private var store
     @Environment(Preferences.self) private var prefs
-    @State private var location = LapLocation()
-    @State private var timer: LapTimer?
-    @State private var started: Date?
-    @State private var flash: Lap?
+    /// Made on first appearance, not in init: the parent rebuilds this view on every speed sample.
+    @State private var model: LapSessionModel?
 
     private var miles: Bool { prefs.useMiles }
+    private var location: LapLocation? { model?.location }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                if let timer {
+                if let timer = model?.timer {
                     running(timer)
                 } else {
                     setup
@@ -28,30 +28,29 @@ struct LapTimerView: View {
         .background(Color.black)
         .navigationTitle("Lap timer")
         .navigationBarTitleDisplayMode(.inline)
+        // While a session runs, End session is the way out, so its laps are always saved.
+        .navigationBarBackButtonHidden(model?.timer != nil)
         .onAppear {
-            location.onFix = { fix in
-                guard timer != nil else { return }
-                let kmh = fix.speed >= 0 ? fix.speed * 3.6 : nil
-                if let lap = timer?.add(at: fix.timestamp, point: fix.geoPoint, kmh: kmh) {
-                    flash = lap
-                }
-            }
-            location.start()
-            UIApplication.shared.isIdleTimerDisabled = true
+            let model = self.model ?? LapSessionModel()
+            self.model = model
+            model.location.start()
+            ScreenAwake.hold(model.awakeReason)
         }
         .onDisappear {
-            end()
-            location.stop()
-            UIApplication.shared.isIdleTimerDisabled = false
+            // Switching tabs keeps an armed line or a running session going (GPS and screen on).
+            guard let model, model.timer == nil, !model.armed else { return }
+            model.location.stop()
+            ScreenAwake.release(model.awakeReason)
         }
-        .sensoryFeedback(.success, trigger: flash)
+        .sensoryFeedback(.success, trigger: model?.flash)
+        .sensoryFeedback(.start, trigger: model?.started)
     }
 
     // MARK: Setup
 
-    private var canSetLine: Bool {
-        guard let fix = location.latest else { return false }
-        return fix.course >= 0 && fix.speed > 3 && fix.horizontalAccuracy < 20
+    private var canArm: Bool {
+        guard let location, !location.denied else { return false }
+        return location.latest != nil
     }
 
     private var setup: some View {
@@ -60,30 +59,46 @@ struct LapTimerView: View {
                 .font(.system(size: 44))
                 .foregroundStyle(.orange)
                 .padding(.top, 8)
-            Text("Drive across your start/finish line and tap the button as you pass it. Every time you cross it the same way after that is a lap.")
+            Text("Stop on your start/finish line and tap Arm. The line is set as you drive off, facing the way you go. Every time you cross it the same way after that is a lap.")
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
+            Text("Closed circuits only, never on public roads. Mount your phone before you set off and don't touch it while driving.")
+                .font(.footnote.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.orange)
             gpsStatus
-            Button {
-                guard let fix = location.latest else { return }
-                timer = LapTimer(line: FinishLine(centre: fix.geoPoint, heading: fix.course))
-                // This fix is on the line: the next ones start the first lap.
-                started = Date()
-            } label: {
-                Label("Set line here", systemImage: "flag.checkered")
+            if model?.armed == true {
+                Label("Armed: drive off across the line", systemImage: "flag.checkered")
                     .font(.title3.weight(.heavy))
                     .textCase(.uppercase)
+                    .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, minHeight: 58)
-            }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .tint(.orange)
-            .disabled(!canSetLine)
-            if !canSetLine {
-                Text(location.latest == nil ? "Waiting for GPS…" : "Get moving (over 7 mph) with a good GPS signal to set the line.")
+                Text("The line is set once you pass \(DisplayText.speed(kmh: LapSessionModel.lineSpeed * 3.6, miles: miles)) with a good GPS signal.")
                     .font(.footnote)
+                    .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
+                Button("Cancel") { model?.armed = false }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+            } else {
+                Button {
+                    model?.armed = true
+                } label: {
+                    Label("Arm line", systemImage: "flag.checkered")
+                        .font(.title3.weight(.heavy))
+                        .textCase(.uppercase)
+                        .frame(maxWidth: .infinity, minHeight: 58)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .tint(.orange)
+                .disabled(!canArm)
+                if !canArm, location?.denied != true {
+                    Text("Waiting for GPS…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(18)
@@ -92,10 +107,10 @@ struct LapTimerView: View {
 
     private var gpsStatus: some View {
         HStack {
-            if location.denied {
+            if location?.denied == true {
                 Label("Location is off for this app: turn it on in Settings", systemImage: "location.slash")
                     .foregroundStyle(.orange)
-            } else if let fix = location.latest {
+            } else if let fix = location?.latest {
                 Label(String(format: "GPS ±%.0f m", fix.horizontalAccuracy), systemImage: "location.fill")
                     .foregroundStyle(fix.horizontalAccuracy < 10 ? .green : .yellow)
                 Spacer()
@@ -172,12 +187,10 @@ struct LapTimerView: View {
     }
 
     private func end() {
-        if let timer, let started {
-            let name = started.formatted(date: .abbreviated, time: .shortened)
-            store.add(LapSession(date: started, name: name, line: timer.line, laps: timer.laps))
-        }
-        timer = nil
-        started = nil
+        guard let model else { return }
+        model.save()
+        model.timer = nil
+        model.started = nil
     }
 
     // MARK: Past sessions
@@ -237,5 +250,62 @@ private struct LapList: View {
             }
         }
         .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+/// One lap session's GPS and timer. A class, so a tab switch doesn't lose it and its GPS callback needn't hold the view.
+@MainActor
+@Observable
+private final class LapSessionModel {
+    /// Speed (m/s) the car must be doing, with a good course, for a fix to set the line.
+    static let lineSpeed = 3.0
+
+    let location = LapLocation()
+    /// Waiting for the first good moving fix to set the line.
+    var armed = false
+    var timer: LapTimer?
+    var started: Date?
+    var flash: Lap?
+    /// The session's id in the store, kept so each lap updates the same saved session.
+    private var sessionId = UUID()
+    /// This screen's claim on keeping the display awake.
+    let awakeReason = "lap " + UUID().uuidString
+
+    init() {
+        location.onFix = { [weak self] fix in self?.add(fix) }
+    }
+
+    deinit {
+        // Popped without End session (tapping the tab again pops to the root): let the screen sleep again.
+        let reason = awakeReason
+        Task { @MainActor in ScreenAwake.release(reason) }
+    }
+
+    /// Saves the session as it stands (after every lap, and at the end), so its laps survive the
+    /// screen being popped or the app being stopped.
+    func save() {
+        guard let timer, let started, !timer.laps.isEmpty else { return }
+        let name = started.formatted(date: .abbreviated, time: .shortened)
+        RunStore.shared.upsert(LapSession(id: sessionId, date: started, name: name, line: timer.line, laps: timer.laps))
+    }
+
+    private func add(_ fix: CLLocation) {
+        if armed {
+            guard fix.course >= 0, fix.speed > Self.lineSpeed, fix.horizontalAccuracy < 20 else { return }
+            armed = false
+            // This fix is on the line: the first lap runs from it.
+            timer = LapTimer(line: FinishLine(centre: fix.geoPoint, heading: fix.course), startedAt: fix.timestamp)
+            started = fix.timestamp
+            sessionId = UUID()
+            return
+        }
+        guard timer != nil else { return }
+        // A poor fix can jump across the line: leave it out.
+        guard fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 20 else { return }
+        let kmh = fix.speed >= 0 ? fix.speed * 3.6 : nil
+        if let lap = timer?.add(at: fix.timestamp, point: fix.geoPoint, kmh: kmh, course: fix.course >= 0 ? fix.course : nil) {
+            flash = lap
+            save()
+        }
     }
 }

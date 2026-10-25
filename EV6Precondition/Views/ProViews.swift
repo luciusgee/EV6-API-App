@@ -43,6 +43,7 @@ struct ProLock<Content: View>: View {
 struct ProSheet: View {
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @State private var loading = false
 
     struct Feature: Identifiable {
         let icon: String
@@ -89,12 +90,20 @@ struct ProSheet: View {
                     .tint(.orange)
                     .foregroundStyle(Color.black)
                     .disabled(store.product == nil || store.busy)
+                    if store.product == nil {
+                        if loading {
+                            ProgressView()
+                        } else {
+                            Text("Couldn't reach the App Store. Try again.").font(.footnote).foregroundStyle(.secondary)
+                            Button("Try again") { Task { await loadProduct() } }
+                        }
+                    }
                     Button("Restore purchase") { Task { await store.restore() } }
                         .disabled(store.busy)
                     if let error = store.error {
                         Text(error).font(.footnote).foregroundStyle(.orange)
                     }
-                    Text("A one-off purchase, shared with your family through Family Sharing. Live data, trouble codes, the battery check and performance timing stay free.")
+                    Text("A one-off purchase, shared with your family through Family Sharing. Live data, trouble codes, the battery check, live charge recording and performance timing stay free.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -105,6 +114,16 @@ struct ProSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
             .onChange(of: store.isPro) { _, pro in if pro { dismiss() } }
+            .task { await loadProduct() }
         }
+    }
+
+    /// Start only fetches the product once; fetch it again if that failed or came back empty.
+    @MainActor
+    private func loadProduct() async {
+        guard store.product == nil, !loading else { return }
+        loading = true
+        defer { loading = false }
+        await store.loadProduct()
     }
 }

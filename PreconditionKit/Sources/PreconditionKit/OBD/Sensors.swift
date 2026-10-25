@@ -63,9 +63,10 @@ enum Bytes {
     static func bit(_ d: [UInt8], _ i: Int, _ b: Int) -> Double? { d.indices.contains(i) ? Double((d[i] >> b) & 1) : nil }
 }
 
-/// Everything the EV6 (and the other E-GMP cars) is known to report, from OVMS's Ioniq 5 decoder and
-/// the standard OBD-II set.
-public enum EV6Sensors {
+/// Everything the E-GMP cars (Kia EV6 and EV9, Hyundai Ioniq 5, 6 and 9, Genesis GV60 and GV70
+/// Electrified) are known to report, from OVMS's Ioniq 5 decoder (MIT licence) and the standard
+/// OBD-II set.
+public enum EGMPSensors {
     /// Climate control module: speed and temperatures.
     public static let hvac: UInt16 = 0x7B3
     /// Vehicle control unit: gear and accelerator.
@@ -159,7 +160,7 @@ public enum EV6Sensors {
         return s
     }()
 
-    /// Standard OBD-II mode 01, asked of every ECU. EVs support few of these; the car says which.
+    /// Standard OBD-II mode 01 PIDs E-GMP cars answer.
     public static let standard: [Sensor] = [
         Sensor("obdVoltage", "12 V (control module)", .standard, unit: "V", request: pid(0x42), range: 10...15.5, decimals: 2) { Bytes.u16($0, 0).map { $0 / 1000 } },
         Sensor("obdSpeed", "Speed (OBD-II)", .standard, unit: "km/h", request: pid(0x0D), range: 0...200) { Bytes.u8($0, 0) },
@@ -184,8 +185,45 @@ public enum EV6Sensors {
         default: return "–"
         }
     }
+}
 
-    /// Reads every sensor in `sensors` that shares one of `requests`, one request each.
+/// Standard OBD-II mode 01, which every petrol and diesel car since 2001 (EU) or 1996 (US) answers,
+/// and many hybrids. The ids match the E-GMP ones where they mean the same thing ("speed").
+public enum GenericSensors {
+    static func pid(_ p: UInt8) -> OBDRequest { OBDRequest(header: OBDRequest.broadcast, service: 0x01, parameter: [p]) }
+
+    public static let all: [Sensor] = [
+        Sensor("speed", "Speed", .drive, unit: "km/h", request: pid(0x0D), range: 0...250) { Bytes.u8($0, 0) },
+        Sensor("rpm", "Engine speed", .drive, unit: "rpm", request: pid(0x0C), range: 0...8000) { Bytes.u16($0, 0).map { $0 / 4 } },
+        Sensor("throttle", "Throttle", .drive, unit: "%", request: pid(0x11), range: 0...100) { Bytes.u8($0, 0).map { $0 * 100 / 255 } },
+        Sensor("pedal", "Accelerator", .drive, unit: "%", request: pid(0x49), range: 0...100) { Bytes.u8($0, 0).map { $0 * 100 / 255 } },
+        Sensor("load", "Engine load", .drive, unit: "%", request: pid(0x04), range: 0...100) { Bytes.u8($0, 0).map { $0 * 100 / 255 } },
+        Sensor("maf", "Air flow", .drive, unit: "g/s", request: pid(0x10), range: 0...300, decimals: 1) { Bytes.u16($0, 0).map { $0 / 100 } },
+        Sensor("boost", "Intake pressure", .drive, unit: "kPa", request: pid(0x0B), range: 0...255) { Bytes.u8($0, 0) },
+        Sensor("timing", "Ignition timing", .drive, unit: "°", request: pid(0x0E), range: -64...64, decimals: 1) { Bytes.u8($0, 0).map { $0 / 2 - 64 } },
+        Sensor("coolant", "Coolant", .climate, unit: "°C", request: pid(0x05), range: -40...130) { Bytes.u8($0, 0).map { $0 - 40 } },
+        Sensor("intake", "Intake air", .climate, unit: "°C", request: pid(0x0F), range: -40...80) { Bytes.u8($0, 0).map { $0 - 40 } },
+        Sensor("oil", "Oil temperature", .climate, unit: "°C", request: pid(0x5C), range: -40...160) { Bytes.u8($0, 0).map { $0 - 40 } },
+        Sensor("outside", "Ambient air", .climate, unit: "°C", request: pid(0x46), range: -40...60) { Bytes.u8($0, 0).map { $0 - 40 } },
+        Sensor("fuel", "Fuel level", .standard, unit: "%", request: pid(0x2F), range: 0...100) { Bytes.u8($0, 0).map { $0 * 100 / 255 } },
+        Sensor("fuelRate", "Fuel rate", .standard, unit: "L/h", request: pid(0x5E), range: 0...50, decimals: 1) { Bytes.u16($0, 0).map { $0 / 20 } },
+        Sensor("hybridSoc", "Hybrid battery", .battery, unit: "%", request: pid(0x5B), range: 0...100, decimals: 1) { Bytes.u8($0, 0).map { $0 * 100 / 255 } },
+        Sensor("obdVoltage", "12 V (control module)", .standard, unit: "V", request: pid(0x42), range: 10...15.5, decimals: 2) { Bytes.u16($0, 0).map { $0 / 1000 } },
+        Sensor("obdRunTime", "Time since start", .standard, unit: "s", request: pid(0x1F), range: 0...36_000) { Bytes.u16($0, 0) },
+        Sensor("obdDistanceMIL", "Distance with warning light", .standard, unit: "km", request: pid(0x21), range: 0...65_535) { Bytes.u16($0, 0) },
+        Sensor("obdDistanceCleared", "Distance since codes cleared", .standard, unit: "km", request: pid(0x31), range: 0...65_535) { Bytes.u16($0, 0) },
+    ]
+
+    public static func sensor(_ id: String) -> Sensor? { all.first { $0.id == id } }
+
+    /// The mode 01 PID behind a sensor, for matching against what the car says it supports.
+    public static func pidNumber(_ s: Sensor) -> UInt8? {
+        s.request.service == 0x01 ? s.request.parameter.first : nil
+    }
+}
+
+extension Sensor {
+    /// Reads every sensor in `sensors` that uses `request`.
     public static func decode(_ sensors: [Sensor], request: OBDRequest, data: [UInt8]) -> [String: Double] {
         var out: [String: Double] = [:]
         for s in sensors where s.request == request {

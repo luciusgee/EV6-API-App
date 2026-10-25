@@ -52,7 +52,7 @@ public actor LivePoller {
                 let data = try await elm.read(request)
                 failures[request] = 0
                 anyAnswer = true
-                values.merge(EV6Sensors.decode(sensors, request: request, data: data)) { $1 }
+                values.merge(Sensor.decode(sensors, request: request, data: data)) { $1 }
             } catch let error as OBDError where error == .notConnected {
                 throw error
             } catch {
@@ -84,8 +84,8 @@ public struct DataRecording: Sendable {
     public var duration: TimeInterval { (samples.last?.at ?? started).timeIntervalSince(started) }
 
     /// One row per sample: seconds since the start, then each sensor (blank when not read that round).
-    public func csv() -> String {
-        let sensors = sensorIds.compactMap(EV6Sensors.sensor)
+    public func csv(sensors catalog: [Sensor]) -> String {
+        let sensors = sensorIds.compactMap { id in catalog.first { $0.id == id } }
         var lines = ["time_s," + sensors.map { s in "\"\(s.name)\(s.unit.isEmpty ? "" : " (\(s.unit))")\"" }.joined(separator: ",")]
         for sample in samples {
             let t = String(format: "%.2f", sample.at.timeIntervalSince(started))

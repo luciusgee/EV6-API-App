@@ -78,20 +78,23 @@ public struct BatteryAnalysis: Equatable, Sendable {
     /// E-GMP modules hold six cells in series.
     public static let cellsPerModule = 6
 
+    /// A guess when the car's model isn't known.
     public static func nominalKWh(cells: Int) -> Double? {
         switch cells {
         case 192: return 77.4
-        case 180: return 84.0
+        case 180: return 72.6
+        case 160: return 76.1
         case 144: return 58.0
         default: return nil
         }
     }
 
-    public init(_ report: BatteryReport) {
+    /// `pack` is the car's battery when known; otherwise it's guessed from the cell count.
+    public init(_ report: BatteryReport, pack: PackSpec? = nil) {
         self.report = report
         let cells = report.cellVolts
         cellCount = cells.count
-        nominalKWh = Self.nominalKWh(cells: cells.count)
+        nominalKWh = pack?.kWh ?? Self.nominalKWh(cells: cells.count)
         estimatedKWh = nominalKWh.flatMap { n in report.sohPercent.map { n * $0 / 100 } }
 
         if cells.count > 1 {

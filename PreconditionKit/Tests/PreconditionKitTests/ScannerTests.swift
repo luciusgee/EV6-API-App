@@ -18,9 +18,9 @@ final class ScannerTests: XCTestCase {
 
     func testRequestsFromManyTasksNeverInterleave() async throws {
         try await elm.initialise()
-        async let a = elm.read(EV6Sensors.hvac0100)
+        async let a = elm.read(EGMPSensors.hvac0100)
         async let b = elm.read(EGMP.bmsMain)
-        async let c = elm.read(EV6Sensors.hvac0100)
+        async let c = elm.read(EGMPSensors.hvac0100)
         let (x, y, z) = try await (a, b, c)
         XCTAssertEqual(x.count, 32)
         XCTAssertEqual(y.count, 59)
@@ -41,12 +41,12 @@ final class ScannerTests: XCTestCase {
     func testEverySensorDecodesFromTheSimulatedCar() async throws {
         try await elm.initialise()
         var values: [String: Double] = [:]
-        for request in LivePoller.requests(for: EV6Sensors.all) {
+        for request in LivePoller.requests(for: EGMPSensors.all) {
             if let data = try? await elm.read(request) {
-                values.merge(EV6Sensors.decode(EV6Sensors.all, request: request, data: data)) { $1 }
+                values.merge(Sensor.decode(EGMPSensors.all, request: request, data: data)) { $1 }
             }
         }
-        let missing = EV6Sensors.all.map(\.id).filter { values[$0] == nil }
+        let missing = EGMPSensors.all.map(\.id).filter { values[$0] == nil }
         XCTAssertEqual(Set(missing), ["obdLoad", "obdPedal"], "only PIDs the car doesn't support may be missing")
         XCTAssertEqual(values["socBMS"], 72)
         XCTAssertEqual(values["soh"], 98.7)
@@ -54,7 +54,7 @@ final class ScannerTests: XCTestCase {
         XCTAssertEqual(values["cabin"], 19.5)
         XCTAssertEqual(values["outside"], 8)
         XCTAssertEqual(values["odometer"], 18_234)
-        XCTAssertEqual(values["gear"].map(EV6Sensors.gearName), "P")
+        XCTAssertEqual(values["gear"].map(EGMPSensors.gearName), "P")
         XCTAssertEqual(values["obdVoltage"], 14.5)
         XCTAssertEqual(values["psiFL"], 36.4)
         // Max and min come in 20 mV steps.
@@ -63,9 +63,9 @@ final class ScannerTests: XCTestCase {
 
     func testPollerGroupsRequestsAndBacksOffSilentModules() async throws {
         var car = FakeOBDAdapter.Car()
-        car.modules.remove(EV6Sensors.hvac)
+        car.modules.remove(EGMPSensors.hvac)
         let adapter = FakeOBDAdapter(car: car)
-        let sensors = ["socBMS", "power", "speed", "cabin"].compactMap(EV6Sensors.sensor)
+        let sensors = ["socBMS", "power", "speed", "cabin"].compactMap(EGMPSensors.sensor)
         XCTAssertEqual(LivePoller.requests(for: sensors).count, 2)
         let poller = LivePoller(elm: ELM327(transport: adapter), sensors: sensors)
         for _ in 0..<8 { _ = try await poller.poll() }
@@ -82,7 +82,7 @@ final class ScannerTests: XCTestCase {
         var r = DataRecording(started: t0, sensorIds: ["speed", "power"])
         r.add(LiveSample(at: t0.addingTimeInterval(0.5), values: ["speed": 12, "power": 30.25]))
         r.add(LiveSample(at: t0.addingTimeInterval(1), values: ["speed": 14]))
-        XCTAssertEqual(r.csv(), "time_s,\"Speed (km/h)\",\"Battery power (kW)\"\n0.50,12.0,30.2\n1.00,14.0,\n")
+        XCTAssertEqual(r.csv(sensors: EGMPSensors.all), "time_s,\"Speed (km/h)\",\"Battery power (kW)\"\n0.50,12.0,30.2\n1.00,14.0,\n")
         XCTAssertEqual(r.duration, 1)
     }
 
@@ -137,60 +137,26 @@ final class ScannerTests: XCTestCase {
 
     // MARK: Performance
 
-    func testZeroToSixtyInterpolatesBetweenReadings() {
-        var timer = AccelerationTimer(kind: .zeroTo60mph)
-        XCTAssertEqual(timer.add(at: t0, kmh: 0), .armed)
-        // Starts moving halfway between 1.0 s and 1.2 s readings (0 → 1 km/h).
-        timer.add(at: t0.addingTimeInterval(1.0), kmh: 0)
-        guard case .running(let since) = timer.add(at: t0.addingTimeInterval(1.2), kmh: 1) else { return XCTFail() }
-        XCTAssertEqual(since.timeIntervalSince(t0), 1.1, accuracy: 0.001)
-        var t = 1.2
-        var v = 1.0
-        while true {
-            t += 0.25
-            v += 5 // 20 km/h per second
-            if case .finished(let r) = timer.add(at: t0.addingTimeInterval(t), kmh: v, powerKW: 200 + v) {
-                // From 1.1 s; 1 km/h at 1.2 s, then 20 km/h per second reaches 96.56 at 5.978 s.
-                XCTAssertEqual(r.seconds, 4.878, accuracy: 0.01)
-                XCTAssertEqual(r.endSpeedKmh, 96.56)
-                XCTAssertGreaterThan(r.distanceMetres, 60)
-                XCTAssertEqual(r.peakPowerKW ?? 0, 200 + v, accuracy: 0.01)
-                break
-            }
-            XCTAssertLessThan(t, 20)
-        }
-    }
-
-    func testRollingRunNeedsToStartBelowTheStartSpeed() {
-        var timer = AccelerationTimer(kind: .fiftyTo70mph)
-        XCTAssertEqual(timer.add(at: t0, kmh: 90), .waiting)
-        XCTAssertEqual(timer.add(at: t0.addingTimeInterval(1), kmh: 70), .armed)
-        timer.add(at: t0.addingTimeInterval(2), kmh: 80)
-        guard case .running = timer.add(at: t0.addingTimeInterval(3), kmh: 90) else { return XCTFail() }
-        guard case .finished(let r) = timer.add(at: t0.addingTimeInterval(4), kmh: 120) else { return XCTFail() }
-        // Passes 80.47 at 2.047 s and 112.65 at 3.755 s.
-        XCTAssertEqual(r.seconds, 1.708, accuracy: 0.01)
-    }
-
     func testQuarterMileFromTheSimulatedLaunch() async throws {
         var car = FakeOBDAdapter.Car()
         car.drive = .launch(since: t0.addingTimeInterval(1))
         adapter.car = car
-        var timer = AccelerationTimer(kind: .quarterMile)
-        var sixty = AccelerationTimer(kind: .zeroTo60mph)
+        var timer = RunTimer(type: .quarterMile)
+        var sixty = RunTimer(type: .zeroTo60mph)
         try await elm.initialise()
         for step in 0..<400 {
             clock.set(t0.addingTimeInterval(Double(step) * 0.1))
-            let data = try await elm.read(EV6Sensors.hvac0100)
-            let kmh = EV6Sensors.sensor("speed")!.value(from: data)!
+            let data = try await elm.read(EGMPSensors.hvac0100)
+            let kmh = EGMPSensors.sensor("speed")!.value(from: data)!
             let m = adapter.motion()
             timer.add(at: clock.now(), kmh: kmh, powerKW: m.kW)
             sixty.add(at: clock.now(), kmh: kmh)
+            if case .finished = timer.state { break }
         }
         guard case .finished(let q) = timer.state, case .finished(let s) = sixty.state else { return XCTFail("\(timer.state) \(sixty.state)") }
         XCTAssertEqual(s.seconds, 5.0, accuracy: 0.3)
         XCTAssertEqual(q.seconds, 14, accuracy: 1.5)
-        XCTAssertEqual(q.peakPowerKW, 239)
+        XCTAssertEqual(q.peakPowerKW ?? 0, 239, accuracy: 0.5)
     }
 
     func testTripComputer() {

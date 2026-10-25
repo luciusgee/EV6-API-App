@@ -239,29 +239,29 @@ public final class FakeOBDAdapter: OBDTransport, @unchecked Sendable {
             put32(&d, 0, Int(present))
             for (i, v) in slice.enumerated() { d[4 + i] = UInt8((v / 0.02).rounded()) }
             return d
-        case (EV6Sensors.hvac, 0x0100):
+        case (EGMPSensors.hvac, 0x0100):
             var d = [UInt8](repeating: 0, count: 32)
             d[5] = UInt8(((car.cabinC + 40) * 2).rounded())
             d[6] = UInt8(((car.outsideC + 40) * 2).rounded())
             d[29] = UInt8(min(motion().kmh, 255))
             return d
-        case (EV6Sensors.vcu, 0xE004):
+        case (EGMPSensors.vcu, 0xE004):
             var d = [UInt8](repeating: 0, count: 20)
             let m = motion()
             d[9] = UInt8(m.pedal * 2)
             d[14] = car.drive == .parked ? 0 : 5
             return d
-        case (EV6Sensors.cluster, 0xB002):
+        case (EGMPSensors.cluster, 0xB002):
             var d = [UInt8](repeating: 0, count: 14)
             d[6] = UInt8((car.odometerKm >> 16) & 0xFF)
             d[7] = UInt8((car.odometerKm >> 8) & 0xFF)
             d[8] = UInt8(car.odometerKm & 0xFF)
             return d
-        case (EV6Sensors.igpm, 0xBC03):
+        case (EGMPSensors.igpm, 0xBC03):
             var d = [UInt8](repeating: 0, count: 8)
             d[5] = car.drive == .parked ? 0x02 : 0x62
             return d
-        case (EV6Sensors.igpm, 0xBC04):
+        case (EGMPSensors.igpm, 0xBC04):
             return [UInt8](repeating: 0, count: 8)
         case (EGMP.bcm, 0xC00B):
             var d = [UInt8](repeating: 0, count: 24)

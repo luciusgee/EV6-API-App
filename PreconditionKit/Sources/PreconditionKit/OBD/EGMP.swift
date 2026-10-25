@@ -54,15 +54,9 @@ public struct BatteryReport: Codable, Equatable, Sendable {
         return nil
     }
 
-    /// 192 cells: the 77.4 kWh pack; 144: 58 kWh.
+    /// "192 cells", when they were read.
     public var packDescription: String? {
-        switch cellVolts.count {
-        case 192: return "77.4 kWh · 192 cells"
-        case 180: return "84 kWh · 180 cells"
-        case 144: return "58 kWh · 144 cells"
-        case 0: return nil
-        default: return "\(cellVolts.count) cells"
-        }
+        cellVolts.isEmpty ? nil : "\(cellVolts.count) cells"
     }
 
     /// Plain-English verdicts for the health screen.

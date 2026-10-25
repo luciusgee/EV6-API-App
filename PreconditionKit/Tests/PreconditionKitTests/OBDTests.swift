@@ -117,7 +117,7 @@ final class OBDTests: XCTestCase {
         XCTAssertEqual(report.socDisplayPercent, 75)
         XCTAssertEqual(report.packVolts, 712.4)
         XCTAssertEqual(report.cellVolts.count, 192)
-        XCTAssertEqual(report.packDescription, "77.4 kWh · 192 cells")
+        XCTAssertEqual(report.packDescription, "192 cells")
         XCTAssertEqual(report.tyrePressuresPsi.compactMap { $0 }.count, 4)
         XCTAssertEqual(report.moduleTempsC.count, 5)
         XCTAssertEqual(report.operatingHours ?? 0, 481.67, accuracy: 0.01)
@@ -135,7 +135,7 @@ final class OBDTests: XCTestCase {
         let scanner = BatteryScanner(elm: ELM327(transport: FakeOBDAdapter(car: car)), now: { t0 })
         let (report, problems) = try await scanner.scan()
         XCTAssertEqual(report.cellVolts.count, 144)
-        XCTAssertEqual(report.packDescription, "58 kWh · 144 cells")
+        XCTAssertEqual(report.packDescription, "144 cells")
         XCTAssertEqual(problems, [], "missing blocks past cell 96 are expected on the smaller pack")
     }
 

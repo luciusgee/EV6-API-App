@@ -11,7 +11,7 @@ public struct SystemTime: TimeSource {
 }
 
 /// Runs async work one piece at a time, like Kotlin's `Mutex`. An actor alone isn't enough: it lets other
-/// calls in at every `await`, and a Kia call awaits several HTTP requests that must not interleave.
+/// calls in at every `await`, and some work awaits several requests that must not interleave.
 final class AsyncMutex: Sendable {
     private let state = State()
 
